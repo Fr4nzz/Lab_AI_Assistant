@@ -1,11 +1,12 @@
 """
 Script de inspección para la página de órdenes.
 Ejecuta esto mientras estás logueado en el navegador para ver la estructura de la página.
+Guarda el HTML completo para análisis offline por Claude Code.
 
 Uso:
     cd backend
     python inspect_ordenes.py
-    
+
 O desde el root:
     python backend/inspect_ordenes.py
 """
@@ -13,6 +14,7 @@ import asyncio
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -22,6 +24,30 @@ from playwright.async_api import async_playwright
 # Obtener ruta absoluta del directorio del script
 SCRIPT_DIR = Path(__file__).parent.absolute()
 BROWSER_DATA_DIR = SCRIPT_DIR / "browser_data"
+HTML_SAMPLES_DIR = SCRIPT_DIR / "html_samples"
+
+
+async def save_page_html(page, prefix: str, suffix: str = ""):
+    """Guarda el HTML completo de la página para análisis offline."""
+    HTML_SAMPLES_DIR.mkdir(exist_ok=True)
+
+    # Obtener el HTML completo
+    html_content = await page.content()
+
+    # Crear nombre de archivo con timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suffix_part = f"_{suffix}" if suffix else ""
+    filename = f"{prefix}{suffix_part}_{timestamp}.html"
+    filepath = HTML_SAMPLES_DIR / filename
+
+    # Guardar el archivo
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    print(f"\n💾 HTML guardado en: {filepath}")
+    print(f"   Tamaño: {len(html_content):,} bytes")
+
+    return filepath
 
 
 async def inspect_ordenes_page():
@@ -253,11 +279,14 @@ async def inspect_ordenes_page():
         
         with open("inspeccion_ordenes.json", "w", encoding="utf-8") as f:
             json.dump(resultado, f, indent=2, ensure_ascii=False)
-        
+
         print("\n" + "="*80)
         print("✅ Resultado guardado en: inspeccion_ordenes.json")
+
+        # Guardar HTML completo para análisis offline
+        await save_page_html(page, "ordenes", "lista")
         print("="*80)
-        
+
         # Mantener navegador abierto para inspección manual
         input("\nPresiona Enter para cerrar el navegador...")
         await context.close()
