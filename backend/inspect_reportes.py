@@ -1,11 +1,13 @@
 """
 Script GENERALIZADO para inspeccionar la página de reportes/resultados.
 Extrae TODOS los exámenes y campos disponibles, sin importar el tipo de examen.
+Guarda el HTML completo para análisis offline por Claude Code.
 """
 import asyncio
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -15,9 +17,32 @@ from playwright.async_api import async_playwright
 # Ruta del browser_data
 SCRIPT_DIR = Path(__file__).parent.absolute()
 BROWSER_DATA_DIR = SCRIPT_DIR / "browser_data"
+HTML_SAMPLES_DIR = SCRIPT_DIR / "html_samples"
 
 # Orden a inspeccionar
 NUMERO_ORDEN = "2501181"
+
+
+async def save_page_html(page, prefix: str, numero_orden: str):
+    """Guarda el HTML completo de la página para análisis offline."""
+    HTML_SAMPLES_DIR.mkdir(exist_ok=True)
+
+    # Obtener el HTML completo
+    html_content = await page.content()
+
+    # Crear nombre de archivo con timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{numero_orden}_{timestamp}.html"
+    filepath = HTML_SAMPLES_DIR / filename
+
+    # Guardar el archivo
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    print(f"\n💾 HTML guardado en: {filepath}")
+    print(f"   Tamaño: {len(html_content):,} bytes")
+
+    return filepath
 
 
 async def inspect_reportes_page():
@@ -368,9 +393,12 @@ async def inspect_reportes_page():
                 "examenes": examenes,
                 "formato_ia": formato_ia
             }, f, indent=2, ensure_ascii=False)
-        
+
         print("\n" + "="*70)
         print("✅ Resultado guardado en: inspeccion_reportes.json")
+
+        # Guardar HTML completo para análisis offline
+        await save_page_html(page, "reportes", NUMERO_ORDEN)
         print("="*70)
         
         input("\nPresiona Enter para cerrar el navegador...")
