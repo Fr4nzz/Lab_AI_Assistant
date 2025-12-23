@@ -1,0 +1,355 @@
+{
+  "orden_seleccionada": {
+    "numero": "2501181",
+    "fecha": "2025-01-18 07:36:52",
+    "paciente_info": "1500887144 E:28a S:M",
+    "paciente_nombre": "CHANDI VILLARROEL FRANZ ALEXANDER",
+    "estado": "Validado",
+    "id_interno": 4282
+  },
+  "info_paciente": {
+    "identificacion": null,
+    "nombres": "",
+    "apellidos": "",
+    "fecha_nacimiento": null,
+    "edad": null,
+    "sexo": null,
+    "telefono": "",
+    "email": ""
+  },
+  "examenes_seleccionados": [
+    {
+      "nombre": "BH - BIOMETRÍA HEMÁTICA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "GLU - GLUCOSA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "CRE - CREATININA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "U - UREA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "AU - ÁCIDO ÚRICO     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "BILDI - BILIRRUBINA DIRECTA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "BILIN - BILIRRUBINA INDIRECTA     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "BILTO - BILIRRUBINA TOTAL     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "TGO - ASPARTATO AMINOTRANSFERASA GOT (AST)     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "TGP - ALANINO AMINOTRANSFERASA GPT (ALT)     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "COL - COLESTEROL     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "HDL - COLESTEROL HDL     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "LDL - COLESTEROL LDL     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "TRI - TRIGLICÉRIDOS     hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "GGT - GAMMA GT      hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "TSH - HORMONA ESTIMULANTE DEL TIROIDES (TSH)      hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    },
+    {
+      "nombre": "T3 - T3 TOTAL      hace un año",
+      "valor": "0.00",
+      "estado": "V",
+      "puede_eliminar": false
+    }
+  ],
+  "otros_datos": {
+    "fecha_orden": "2025-01-18",
+    "numero_orden": null,
+    "subtotal": "$55.00",
+    "descuento": "55",
+    "total": "$0.00",
+    "observaciones": "",
+    "categoria": null
+  },
+  "botones": [
+    {
+      "texto": "Guardar (Ctrl+Alt+S)",
+      "id": "actualizar-orden",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Imprimir",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Auditoría",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Regresar",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "Servidor de impresión apagado",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "Nuevo",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "Matriz",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "Ayuda",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "MC",
+      "id": "",
+      "disabled": false,
+      "tipo": "A"
+    },
+    {
+      "texto": "Clear Selected",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Eliminar imagen firma",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Cerrar",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Auditoría",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Guardar",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    },
+    {
+      "texto": "Filtros",
+      "id": "",
+      "disabled": false,
+      "tipo": "BUTTON"
+    }
+  ],
+  "formato_ia": {
+    "tipo_pagina": "edicion_orden",
+    "url": "https://laboratoriofranz.orion-labs.com/ordenes/4282/edit",
+    "orden": {
+      "numero": "2501181",
+      "id_interno": 4282,
+      "fecha": "2025-01-18",
+      "estado": "Validado"
+    },
+    "paciente": {
+      "identificacion": null,
+      "nombre_completo": "CHANDI VILLARROEL FRANZ ALEXANDER",
+      "info_adicional": "1500887144 E:28a S:M"
+    },
+    "examenes": [
+      {
+        "nombre": "BH - BIOMETRÍA HEMÁTICA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "GLU - GLUCOSA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "CRE - CREATININA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "U - UREA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "AU - ÁCIDO ÚRICO     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "BILDI - BILIRRUBINA DIRECTA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "BILIN - BILIRRUBINA INDIRECTA     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "BILTO - BILIRRUBINA TOTAL     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "TGO - ASPARTATO AMINOTRANSFERASA GOT (AST)     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "TGP - ALANINO AMINOTRANSFERASA GPT (ALT)     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "COL - COLESTEROL     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "HDL - COLESTEROL HDL     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "LDL - COLESTEROL LDL     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "TRI - TRIGLICÉRIDOS     hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "GGT - GAMMA GT      hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "TSH - HORMONA ESTIMULANTE DEL TIROIDES (TSH)      hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      },
+      {
+        "nombre": "T3 - T3 TOTAL      hace un año",
+        "valor": "0.00",
+        "estado": "V",
+        "puede_eliminar": false
+      }
+    ],
+    "totales": {
+      "subtotal": "$55.00",
+      "descuento": "55",
+      "total": "$0.00"
+    },
+    "acciones_disponibles": {
+      "guardar": "button#crear-orden o button[type='submit']",
+      "agregar_examen": "input#buscar-examen-input",
+      "eliminar_examen": "button[title='Eliminar examen'] en cada fila",
+      "ir_a_reportar": "click en botón 'Reportar y validar'"
+    }
+  }
+}

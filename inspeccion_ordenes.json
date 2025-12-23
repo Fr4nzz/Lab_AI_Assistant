@@ -1,0 +1,762 @@
+{
+  "url": "https://laboratoriofranz.orion-labs.com/ordenes?page=1",
+  "table_info": {
+    "tableClasses": "table table-striped table-hover table-sm",
+    "headers": [
+      "No.",
+      "Fecha",
+      "Paciente",
+      "Estado",
+      "Valor"
+    ],
+    "rowCount": 20,
+    "sampleRows": [
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512234",
+            "html_preview": "<span data-v-245c8408=\"\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-placement=\"right\" class=\"\" data-bs-original-title=\"&lt;strong&gt;Tipo atención:&lt;/strong&gt; REFERENCIA\"></span> <!---->",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-23\n16:27:58",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-23 <br> 16:27:58</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "LG6M818CK E:47a S:F\nANNI FRIDERIKE WILHELM",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Generado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-secondary cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Generado</span> <div data-v-245c8408=\"\"><!----></div> <di",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$12.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$12.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14587,\"sucursal_id\":1,\"paciente_id\":13828,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":2,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14587,\"sucursal_id\":1,\"paciente_id\":13828,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":2,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512233",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-23\n10:14:17",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-23 <br> 10:14:17</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1501238453 E:29a S:F\nTAPUY ANDI ALEXANDRA JANETH",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14561,\"sucursal_id\":1,\"paciente_id\":3302,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14561,\"sucursal_id\":1,\"paciente_id\":3302,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512232",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-23\n09:49:21",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-23 <br> 09:49:21</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "0606031524 E:24a S:F\nCAJILEMA SANAGUARAY ESTHER DORINDA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14560,\"sucursal_id\":1,\"paciente_id\":13796,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14560,\"sucursal_id\":1,\"paciente_id\":13796,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512231",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-23\n09:09:05",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-23 <br> 09:09:05</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1501188120 E:28a S:M\nTIXELEMA AMENDAÑO CRISTIAN XAVIER",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$13.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$13.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14559,\"sucursal_id\":1,\"paciente_id\":13795,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14559,\"sucursal_id\":1,\"paciente_id\":13795,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512228",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n18:37:38",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 18:37:38</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1550019028 E:17a S:F\nMAMALLACTA ALVARADO CELIA LUZVENIA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14558,\"sucursal_id\":1,\"paciente_id\":13763,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14558,\"sucursal_id\":1,\"paciente_id\":13763,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"la",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512227",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n16:47:50",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 16:47:50</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "2250180680 E:27a S:F\nCHIMBORAZO ALVARRACIN CARMEN MIRELLA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14557,\"sucursal_id\":1,\"paciente_id\":3710,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14557,\"sucursal_id\":1,\"paciente_id\":3710,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512226",
+            "html_preview": "<span data-v-245c8408=\"\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-placement=\"right\" class=\"\" data-bs-original-title=\"&lt;strong&gt;Tipo atención:&lt;/strong&gt; REFERENCIA\"></span> <!---->",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n16:42:11",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 16:42:11</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1500900178 E:33a S:M\nGAVILANEZ ROJAS FERNANDO RAFAEL",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "En Proceso",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-warning cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">En Proceso</span> <div data-v-245c8408=\"\"><!----></div> <di",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$13.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$13.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14556,\"sucursal_id\":1,\"paciente_id\":13664,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":35,\"medico_id\":331,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14556,\"sucursal_id\":1,\"paciente_id\":13664,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":35,\"medico_id\":331,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512225",
+            "html_preview": "<span data-v-245c8408=\"\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-placement=\"right\" class=\"\" data-bs-original-title=\"&lt;strong&gt;Tipo atención:&lt;/strong&gt; REFERENCIA\"></span> <!---->",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n16:41:20",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 16:41:20</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1726820796 E:30a S:F\nZAPATA SALAGATA JESSICA ALEXANDRA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "En Proceso",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-warning cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">En Proceso</span> <div data-v-245c8408=\"\"><!----></div> <di",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$25.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$25.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14555,\"sucursal_id\":1,\"paciente_id\":13762,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":35,\"medico_id\":331,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14555,\"sucursal_id\":1,\"paciente_id\":13762,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":4,\"categoria_id\":35,\"medico_id\":331,\"servicio_id\":null,\"sistema_externo_id\":null,\"labor",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512224",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n15:20:26",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 15:20:26</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1500911589 E:22a S:F\nTANGUILA MAMALLACTA LADY JACINTA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14554,\"sucursal_id\":1,\"paciente_id\":1663,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14554,\"sucursal_id\":1,\"paciente_id\":1663,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"lab",
+            "text": ""
+          }
+        ]
+      },
+      {
+        "cells": {
+          "col_0": {
+            "text": "2512223",
+            "html_preview": "<!----> <!----> <div data-v-245c8408=\"\" class=\"d-block d-md-none position-absolute\" style=\"top: 10px; left: 10px;\"><!----></div> <!----> <!----> <div data-v-245c8408=\"\" class=\"cursor-pointer\" data-bs-",
+            "classes": "text-center position-relative pt-5 pt-md-1"
+          },
+          "col_1": {
+            "text": "2025-12-22\n13:38:25",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\" title=\"America/Bogota\">2025-12-22 <br> 13:38:25</div> <div data-v-245c8408=\"\" class=\"d-flex flex-column justify-content-center gap-1\"><!----> <!----></div>",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_2": {
+            "text": "1550160475 E:19a S:F\nRUIZ AGUINDA ANNI DANIELA",
+            "html_preview": "<div data-v-245c8408=\"\" class=\"text-nowrap\"><button data-v-245c8408=\"\" class=\"btn btn-outline-secondary btn-light btn-xs\" type=\"button\" data-bs-toggle=\"tooltip\" data-bs-title=\"Editar datos de paciente",
+            "classes": "text-start position-static pt-5 pt-md-1"
+          },
+          "col_3": {
+            "text": "Validado",
+            "html_preview": "<span data-v-245c8408=\"\" class=\"badge text-bg-success cursor-pointer\" data-bs-toggle=\"tooltip\" data-bs-html=\"true\" data-bs-original-title=\"\">Validado</span> <div data-v-245c8408=\"\"><!----></div> <div ",
+            "classes": "text-center pt-5 pt-md-1"
+          },
+          "col_4": {
+            "text": "$3.00",
+            "html_preview": "<div data-v-245c8408=\"\"><!----> <!----> <!----> <i data-v-245c8408=\"\" class=\"far fa-check-circle text-success\"></i></div> <div data-v-245c8408=\"\">$3.00</div> <!---->",
+            "classes": "text-end pt-5 pt-md-1"
+          }
+        },
+        "dataAttributes": {
+          "data-v-245c8408": ""
+        },
+        "actions": [
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14521,\"sucursal_id\":1,\"paciente_id\":135,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"labo",
+            "text": ""
+          },
+          {
+            "tag": "A",
+            "href": null,
+            "dataRegistro": "{\"id\":14521,\"sucursal_id\":1,\"paciente_id\":135,\"paciente_type\":\"App\\\\Models\\\\PacienteHumano\",\"tipo_atencion_id\":null,\"categoria_id\":1,\"medico_id\":null,\"servicio_id\":null,\"sistema_externo_id\":null,\"labo",
+            "text": ""
+          }
+        ]
+      }
+    ]
+  },
+  "pagination": {
+    "found": true,
+    "html": "<!----><li class=\"page-item disabled\"><a class=\"page-link cursor-pointer\" tabindex=\"-1\"><i class=\"fas fa-chevron-left\"></i></a></li><li class=\"page-item active\"><a class=\"page-link cursor-pointer\" tabindex=\"0\">1</a></li><li class=\"page-item\"><a class=\"page-link cursor-pointer\" tabindex=\"0\">2</a></li><li class=\"page-item\"><a class=\"page-link cursor-pointer\" tabindex=\"0\">3</a></li><li class=\"page-item\"><a class=\"page-link cursor-pointer\" tabindex=\"0\">4</a></li><li class=\"page-item\"><a class=\"page-",
+    "links": [
+      {
+        "text": "",
+        "href": null
+      },
+      {
+        "text": "1",
+        "href": null
+      },
+      {
+        "text": "2",
+        "href": null
+      },
+      {
+        "text": "3",
+        "href": null
+      },
+      {
+        "text": "4",
+        "href": null
+      },
+      {
+        "text": "5",
+        "href": null
+      },
+      {
+        "text": "…",
+        "href": null
+      },
+      {
+        "text": "279",
+        "href": null
+      },
+      {
+        "text": "",
+        "href": null
+      }
+    ]
+  },
+  "filters": [
+    {
+      "tag": "SELECT",
+      "type": "select-one",
+      "id": "perfil-tipo-identificacion",
+      "name": "perfil-tipo-identificacion",
+      "placeholder": null,
+      "classes": "form-select form-select-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "text",
+      "id": "perfil-numero-identificacion",
+      "name": "perfil-numero-identificacion",
+      "placeholder": "",
+      "classes": "form-control form-control-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "text",
+      "id": "perfil-nombre-usuario",
+      "name": "perfil-nombre-usuario",
+      "placeholder": "Ejemplo: jperez",
+      "classes": "form-control form-control-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "text",
+      "id": "perfiles-nombres",
+      "name": "perfiles-nombres",
+      "placeholder": "Ejemplo: Juan Luis",
+      "classes": "form-control form-control-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "text",
+      "id": "perfil-apellidos",
+      "name": "perfil-apellidos",
+      "placeholder": "Ejemplo: Pérez López",
+      "classes": "form-control form-control-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "search",
+      "id": "",
+      "name": "",
+      "placeholder": "",
+      "classes": "vs__search"
+    },
+    {
+      "tag": "SELECT",
+      "type": "select-one",
+      "id": "tipo-accion",
+      "name": "tipo-accion",
+      "placeholder": null,
+      "classes": "form-select form-select-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "text",
+      "id": "cadena-busqueda-alertas",
+      "name": "",
+      "placeholder": "Buscar...",
+      "classes": "form-control form-control-sm"
+    },
+    {
+      "tag": "INPUT",
+      "type": "search",
+      "id": "",
+      "name": "",
+      "placeholder": "Clientes",
+      "classes": "vs__search"
+    },
+    {
+      "tag": "INPUT",
+      "type": "search",
+      "id": "",
+      "name": "",
+      "placeholder": "Categorías",
+      "classes": "vs__search"
+    }
+  ],
+  "ordenes_extraidas": [
+    {
+      "numero": "2512234",
+      "paciente": "LG6M818CK E:47a S:F\nANNI FRIDERIKE WILHELM",
+      "fecha": "2025-12-23\n16:27:58",
+      "estado": null,
+      "examenes": [],
+      "id_interno": 14587
+    },
+    {
+      "numero": "2512233",
+      "paciente": "2025-12-23\n10:14:17",
+      "fecha": "2025-12-23\n10:14:17",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14561
+    },
+    {
+      "numero": "2512232",
+      "paciente": "2025-12-23\n09:49:21",
+      "fecha": "2025-12-23\n09:49:21",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14560
+    },
+    {
+      "numero": "2512231",
+      "paciente": "2025-12-23\n09:09:05",
+      "fecha": "2025-12-23\n09:09:05",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14559
+    },
+    {
+      "numero": "2512228",
+      "paciente": "2025-12-22\n18:37:38",
+      "fecha": "2025-12-22\n18:37:38",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14558
+    },
+    {
+      "numero": "2512227",
+      "paciente": "2025-12-22\n16:47:50",
+      "fecha": "2025-12-22\n16:47:50",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14557
+    },
+    {
+      "numero": "2512226",
+      "paciente": "2025-12-22\n16:42:11",
+      "fecha": "2025-12-22\n16:42:11",
+      "estado": null,
+      "examenes": [],
+      "id_interno": 14556
+    },
+    {
+      "numero": "2512225",
+      "paciente": "2025-12-22\n16:41:20",
+      "fecha": "2025-12-22\n16:41:20",
+      "estado": null,
+      "examenes": [],
+      "id_interno": 14555
+    },
+    {
+      "numero": "2512224",
+      "paciente": "2025-12-22\n15:20:26",
+      "fecha": "2025-12-22\n15:20:26",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14554
+    },
+    {
+      "numero": "2512223",
+      "paciente": "2025-12-22\n13:38:25",
+      "fecha": "2025-12-22\n13:38:25",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14521
+    },
+    {
+      "numero": "2512222",
+      "paciente": "2025-12-22\n10:01:44",
+      "fecha": "2025-12-22\n10:01:44",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14489
+    },
+    {
+      "numero": "2512221",
+      "paciente": "2025-12-22\n09:12:39",
+      "fecha": "2025-12-22\n09:12:39",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14488
+    },
+    {
+      "numero": "2512212",
+      "paciente": "2025-12-21\n13:51:24",
+      "fecha": "2025-12-21\n13:51:24",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14456
+    },
+    {
+      "numero": "2512211",
+      "paciente": "2025-12-21\n11:02:05",
+      "fecha": "2025-12-21\n11:02:05",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14455
+    },
+    {
+      "numero": "2512202",
+      "paciente": "?ATP E:3d S:F\nAGUA TRATADA PARA PECES",
+      "fecha": "2025-12-20\n14:31:48",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14422
+    },
+    {
+      "numero": "2512201",
+      "paciente": "2025-12-20\n10:34:46",
+      "fecha": "2025-12-20\n10:34:46",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14389
+    },
+    {
+      "numero": "2512195",
+      "paciente": "2025-12-19\n20:57:46",
+      "fecha": "2025-12-19\n20:57:46",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14360
+    },
+    {
+      "numero": "2512194",
+      "paciente": "2025-12-19\n20:57:03",
+      "fecha": "2025-12-19\n20:57:03",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14359
+    },
+    {
+      "numero": "2512193",
+      "paciente": "2025-12-19\n20:55:31",
+      "fecha": "2025-12-19\n20:55:31",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14358
+    },
+    {
+      "numero": "2512192",
+      "paciente": "2025-12-19\n18:10:38",
+      "fecha": "2025-12-19\n18:10:38",
+      "estado": "Validado",
+      "examenes": [],
+      "id_interno": 14357
+    }
+  ]
+}

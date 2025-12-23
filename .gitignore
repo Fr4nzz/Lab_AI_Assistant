@@ -1,0 +1,27 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Browser data (session persistence)
+browser_data/
+
+# Database
+*.db
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
