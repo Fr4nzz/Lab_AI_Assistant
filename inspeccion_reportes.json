@@ -1,0 +1,1060 @@
+{
+  "numero_orden": "2501181",
+  "estructura_general": {
+    "tables": [
+      {
+        "index": 0,
+        "classes": "table table-sm mb-0 table-striped table-hover",
+        "headers": [],
+        "rowCount": 1,
+        "sampleRows": [
+          {
+            "classes": "align-middle cursor-pointer orden-seleccionada",
+            "cells": [
+              {
+                "text": "V\n2501181\nValidado\nCHANDI VILLARROEL, Franz Alexan",
+                "hasSelect": false,
+                "hasInput": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "classes": "table table-striped table-hover table-sm",
+        "headers": [
+          "Tipo",
+          "Fecha envío",
+          "Enviado a",
+          "Enviado por",
+          "Resultados",
+          "Exámenes enviados",
+          ""
+        ],
+        "rowCount": 1,
+        "sampleRows": [
+          {
+            "classes": "",
+            "cells": [
+              {
+                "text": "No existen envíos registrados",
+                "hasSelect": false,
+                "hasInput": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "classes": "table table-striped table-hover table-sm",
+        "headers": [
+          "Código",
+          "Examen\n                      0"
+        ],
+        "rowCount": 1,
+        "sampleRows": [
+          {
+            "classes": "",
+            "cells": [
+              {
+                "text": "No existen exámenes",
+                "hasSelect": false,
+                "hasInput": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "classes": "table table-striped table-hover table-sm",
+        "headers": [
+          "Nombre",
+          "Estado",
+          "Fecha impresión",
+          "Impreso por",
+          ""
+        ],
+        "rowCount": 0,
+        "sampleRows": []
+      },
+      {
+        "index": 4,
+        "classes": "table table-striped table-hover table-sm",
+        "headers": [
+          "Sistema",
+          "Número",
+          ""
+        ],
+        "rowCount": 0,
+        "sampleRows": []
+      },
+      {
+        "index": 5,
+        "classes": "table table-sm fs-7 mb-0",
+        "headers": [],
+        "rowCount": 67,
+        "sampleRows": [
+          {
+            "classes": "examen",
+            "cells": [
+              {
+                "text": "BIOMETRÍA HEMÁTICA\nSangre Total EDTA\nValidado",
+                "hasSelect": true,
+                "hasInput": false
+              }
+            ]
+          },
+          {
+            "classes": "parametro",
+            "cells": [
+              {
+                "text": "Recuento de Glóbulos Rojos",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": true
+              },
+              {
+                "text": "[5 - 6.5]10^6/µL",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": false
+              }
+            ]
+          },
+          {
+            "classes": "parametro",
+            "cells": [
+              {
+                "text": "Hemoglobina",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": true
+              },
+              {
+                "text": "[14.5 - 18.5]g/dL",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": false
+              },
+              {
+                "text": "",
+                "hasSelect": false,
+                "hasInput": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "classes": "table table-hover table-sm mb-0",
+        "headers": [
+          "Resultado",
+          "Unidad",
+          "Fecha",
+          "Motivo"
+        ],
+        "rowCount": 0,
+        "sampleRows": []
+      },
+      {
+        "index": 7,
+        "classes": "table table-striped table-hover table-sm",
+        "headers": [
+          "Exámenes",
+          ""
+        ],
+        "rowCount": 0,
+        "sampleRows": []
+      }
+    ],
+    "cards": [
+      {
+        "index": 0,
+        "header": "Búsqueda",
+        "hasTable": false
+      },
+      {
+        "index": 1,
+        "header": "Órdenes\n  2",
+        "hasTable": true
+      },
+      {
+        "index": 2,
+        "header": "2501181\n CHANDI VILLARROEL, Franz Alexander\n 1500887144\n 27a 9m\n M\n 2025-01-18 07:36:52\n $0.00\nEPI",
+        "hasTable": false
+      },
+      {
+        "index": 3,
+        "header": "CHANDI VILLARROEL, Franz Alexander\nExámenes 17\n1 modificado\n Reportar con PDF\n Guardar\n Validar\n Eli",
+        "hasTable": true
+      }
+    ],
+    "forms": []
+  },
+  "examenes": [
+    {
+      "nombre": "BIOMETRÍA HEMÁTICA\nSangre Total EDTA\nValidado",
+      "parametros": [
+        {
+          "nombre": "Recuento de Glóbulos Rojos",
+          "tipo": "input",
+          "valor": "5.81",
+          "opciones": null,
+          "referencia": "[5 - 6.5]10^6/µL"
+        },
+        {
+          "nombre": "Hemoglobina",
+          "tipo": "input",
+          "valor": "16.4",
+          "opciones": null,
+          "referencia": "[14.5 - 18.5]g/dL"
+        },
+        {
+          "nombre": "Hematocrito",
+          "tipo": "input",
+          "valor": "50",
+          "opciones": null,
+          "referencia": "[45 - 55]%"
+        },
+        {
+          "nombre": "Volumen Corpuscular Medio (VCM)",
+          "tipo": "input",
+          "valor": "86.1",
+          "opciones": null,
+          "referencia": "[80 - 100]µm³"
+        },
+        {
+          "nombre": "Hemoglobina Corpuscular Media (HCM)",
+          "tipo": "input",
+          "valor": "28.2",
+          "opciones": null,
+          "referencia": "[27 - 31]pg"
+        },
+        {
+          "nombre": "Concentración de Hb Corp. Media (CHCM)",
+          "tipo": "input",
+          "valor": "32.8",
+          "opciones": null,
+          "referencia": "[30 - 36]g/dL"
+        },
+        {
+          "nombre": "Ancho de Distribución Eritrocitaria (RDW)c",
+          "tipo": "input",
+          "valor": "14.3",
+          "opciones": null,
+          "referencia": "[11.5 - 15.5]%"
+        },
+        {
+          "nombre": "Ancho de Distribución Eritrocitaria (RDW)s",
+          "tipo": "input",
+          "valor": "47.9",
+          "opciones": null,
+          "referencia": "[37 - 49]µm³"
+        },
+        {
+          "nombre": "Plaquetas",
+          "tipo": "input",
+          "valor": "249",
+          "opciones": null,
+          "referencia": "[150 - 450]10³/µL"
+        },
+        {
+          "nombre": "Plaquetocrito",
+          "tipo": "input",
+          "valor": "0.20",
+          "opciones": null,
+          "referencia": "[0.1 - 0.5]%"
+        },
+        {
+          "nombre": "Volumen Plaquetario Medio (MPV)",
+          "tipo": "input",
+          "valor": "8",
+          "opciones": null,
+          "referencia": "[7.4 - 11]µm³"
+        },
+        {
+          "nombre": "Indice de Distribución Plaquetaria (PDWc)",
+          "tipo": "input",
+          "valor": "15.4",
+          "opciones": null,
+          "referencia": "[10 - 18]%"
+        },
+        {
+          "nombre": "P-LCC (PLA: Recuento celulas grandes)",
+          "tipo": "input",
+          "valor": "24",
+          "opciones": null,
+          "referencia": "[44 - 140]10³/µL"
+        },
+        {
+          "nombre": "P-LCR (PLA: Proporcion celulas grandes)",
+          "tipo": "input",
+          "valor": "9.6",
+          "opciones": null,
+          "referencia": "[18 - 50]%"
+        },
+        {
+          "nombre": "Glóbulos Blancos",
+          "tipo": "input",
+          "valor": "6.9",
+          "opciones": null,
+          "referencia": "[4.5 - 10]10³/µL"
+        },
+        {
+          "nombre": "Linfocitos (%)",
+          "tipo": "input",
+          "valor": "31.5",
+          "opciones": null,
+          "referencia": "[25 - 40]%"
+        },
+        {
+          "nombre": "Neutrófilos (%)",
+          "tipo": "input",
+          "valor": "58.1",
+          "opciones": null,
+          "referencia": "[55 - 65]%"
+        },
+        {
+          "nombre": "Monocitos (%)",
+          "tipo": "input",
+          "valor": "7.1",
+          "opciones": null,
+          "referencia": "[2 - 10]%"
+        },
+        {
+          "nombre": "Eosinófilos (%)",
+          "tipo": "input",
+          "valor": "3.1",
+          "opciones": null,
+          "referencia": "[0.5 - 5]%"
+        },
+        {
+          "nombre": "Basófilos (%)",
+          "tipo": "input",
+          "valor": "0.2",
+          "opciones": null,
+          "referencia": "[0 - 2]%"
+        },
+        {
+          "nombre": "FÓRMULA LEUCOCITARIA",
+          "tipo": "input",
+          "valor": "100",
+          "opciones": null,
+          "referencia": "[100 - 100]"
+        },
+        {
+          "nombre": "Linfocitos (#)",
+          "tipo": "input",
+          "valor": "2.17",
+          "opciones": null,
+          "referencia": "[1 - 4.4]10³/µL"
+        },
+        {
+          "nombre": "Neutrofilos (#)",
+          "tipo": "input",
+          "valor": "4.01",
+          "opciones": null,
+          "referencia": "[1.6 - 7]10³/µL"
+        },
+        {
+          "nombre": "Monocitos (#)",
+          "tipo": "input",
+          "valor": "0.50",
+          "opciones": null,
+          "referencia": "[0.3 - 1]10³/µL"
+        },
+        {
+          "nombre": "Eosinófilos (#)",
+          "tipo": "input",
+          "valor": "0.21",
+          "opciones": null,
+          "referencia": "[0 - 0.5]10³/µL"
+        },
+        {
+          "nombre": "Basófilos (#)",
+          "tipo": "input",
+          "valor": "0.01",
+          "opciones": null,
+          "referencia": "[0 - 0.2]10³/µL"
+        },
+        {
+          "nombre": "Eritrosedimentación Westergren",
+          "tipo": "input",
+          "valor": "",
+          "opciones": null,
+          "referencia": "[1 - 15]mm/hora"
+        },
+        {
+          "nombre": "Eritrosedimentación Wintrobe",
+          "tipo": "input",
+          "valor": "",
+          "opciones": null,
+          "referencia": "[1 - 15]mm/hora"
+        },
+        {
+          "nombre": "Grafico DIFF",
+          "tipo": "texto",
+          "valor": "",
+          "opciones": null,
+          "referencia": null
+        },
+        {
+          "nombre": "Grafico WBC",
+          "tipo": "texto",
+          "valor": "Ver gráfico",
+          "opciones": null,
+          "referencia": null
+        },
+        {
+          "nombre": "Grafico RBC",
+          "tipo": "texto",
+          "valor": "Ver gráfico",
+          "opciones": null,
+          "referencia": null
+        },
+        {
+          "nombre": "Grafico PLT",
+          "tipo": "texto",
+          "valor": "Ver gráfico",
+          "opciones": null,
+          "referencia": null
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "GLUCOSA\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Glucosa",
+          "tipo": "input",
+          "valor": "88.2",
+          "opciones": null,
+          "referencia": "[70 - 110]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "UREA\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Urea",
+          "tipo": "input",
+          "valor": "35.6",
+          "opciones": null,
+          "referencia": "[10 - 50]mg/dL"
+        },
+        {
+          "nombre": "BUN",
+          "tipo": "input",
+          "valor": "16.64",
+          "opciones": null,
+          "referencia": "[7 - 21]"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "CREATININA\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Creatinina",
+          "tipo": "input",
+          "valor": "1.07",
+          "opciones": null,
+          "referencia": "[0.6 - 1.1]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "ÁCIDO ÚRICO\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Ácido Úrico",
+          "tipo": "input",
+          "valor": "6.64",
+          "opciones": null,
+          "referencia": "[3.4 - 7]mg/dl"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "COLESTEROL\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Colesterol",
+          "tipo": "input",
+          "valor": "170",
+          "opciones": null,
+          "referencia": "[0 - 200]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "TRIGLICÉRIDOS\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Triglicéridos",
+          "tipo": "input",
+          "valor": "68.5",
+          "opciones": null,
+          "referencia": "[0 - 150]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "COLESTEROL HDL\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Colesterol HDL",
+          "tipo": "input",
+          "valor": "71.8",
+          "opciones": null,
+          "referencia": "[35 - 60]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "COLESTEROL LDL\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Colesterol LDL",
+          "tipo": "input",
+          "valor": "84.5",
+          "opciones": null,
+          "referencia": "[0 - 100]mg/dL"
+        },
+        {
+          "nombre": "Colesterol LDL",
+          "tipo": "input",
+          "valor": "",
+          "opciones": null,
+          "referencia": "[0 - 100]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "BILIRRUBINA TOTAL\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Bilirrubina Total",
+          "tipo": "input",
+          "valor": "0.74",
+          "opciones": null,
+          "referencia": "[0 - 1.2]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "BILIRRUBINA DIRECTA\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Bilirrubina Directa",
+          "tipo": "input",
+          "valor": "0.23",
+          "opciones": null,
+          "referencia": "[0 - 0.3]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "BILIRRUBINA INDIRECTA\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Bilirrubina Indirecta",
+          "tipo": "input",
+          "valor": "0.51",
+          "opciones": null,
+          "referencia": "[0 - 0.9]mg/dL"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "ASPARTATO AMINOTRANSFERASA GOT (AST)\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "TGO/AST",
+          "tipo": "input",
+          "valor": "23.1",
+          "opciones": null,
+          "referencia": "[0 - 38]U/L"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "ALANINO AMINOTRANSFERASA GPT (ALT)\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "TGP/ALT",
+          "tipo": "input",
+          "valor": "21",
+          "opciones": null,
+          "referencia": "[0 - 42]U/L"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "GAMMA GT\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "Gama GT",
+          "tipo": "input",
+          "valor": "26.7",
+          "opciones": null,
+          "referencia": "[8 - 61]U/L"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "HORMONA ESTIMULANTE DEL TIROIDES (TSH)\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "TSH",
+          "tipo": "input",
+          "valor": "1.78",
+          "opciones": null,
+          "referencia": "[0.3 - 4.2]mIU/L"
+        }
+      ],
+      "source": "clase-examen"
+    },
+    {
+      "nombre": "T3 TOTAL\nSuero\nValidado",
+      "parametros": [
+        {
+          "nombre": "T3 Total",
+          "tipo": "input",
+          "valor": "1.09",
+          "opciones": null,
+          "referencia": "[0.8 - 2.01]ng/mL"
+        }
+      ],
+      "source": "clase-examen"
+    }
+  ],
+  "formato_ia": {
+    "numero_orden": "2501181",
+    "url": "https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden=2501181&sucursalesIds[]=1",
+    "examenes": [
+      {
+        "nombre": "BIOMETRÍA HEMÁTICA\nSangre Total EDTA\nValidado",
+        "campos": [
+          {
+            "nombre": "Recuento de Glóbulos Rojos",
+            "tipo": "input",
+            "valor_actual": "5.81",
+            "referencia": "[5 - 6.5]10^6/µL"
+          },
+          {
+            "nombre": "Hemoglobina",
+            "tipo": "input",
+            "valor_actual": "16.4",
+            "referencia": "[14.5 - 18.5]g/dL"
+          },
+          {
+            "nombre": "Hematocrito",
+            "tipo": "input",
+            "valor_actual": "50",
+            "referencia": "[45 - 55]%"
+          },
+          {
+            "nombre": "Volumen Corpuscular Medio (VCM)",
+            "tipo": "input",
+            "valor_actual": "86.1",
+            "referencia": "[80 - 100]µm³"
+          },
+          {
+            "nombre": "Hemoglobina Corpuscular Media (HCM)",
+            "tipo": "input",
+            "valor_actual": "28.2",
+            "referencia": "[27 - 31]pg"
+          },
+          {
+            "nombre": "Concentración de Hb Corp. Media (CHCM)",
+            "tipo": "input",
+            "valor_actual": "32.8",
+            "referencia": "[30 - 36]g/dL"
+          },
+          {
+            "nombre": "Ancho de Distribución Eritrocitaria (RDW)c",
+            "tipo": "input",
+            "valor_actual": "14.3",
+            "referencia": "[11.5 - 15.5]%"
+          },
+          {
+            "nombre": "Ancho de Distribución Eritrocitaria (RDW)s",
+            "tipo": "input",
+            "valor_actual": "47.9",
+            "referencia": "[37 - 49]µm³"
+          },
+          {
+            "nombre": "Plaquetas",
+            "tipo": "input",
+            "valor_actual": "249",
+            "referencia": "[150 - 450]10³/µL"
+          },
+          {
+            "nombre": "Plaquetocrito",
+            "tipo": "input",
+            "valor_actual": "0.20",
+            "referencia": "[0.1 - 0.5]%"
+          },
+          {
+            "nombre": "Volumen Plaquetario Medio (MPV)",
+            "tipo": "input",
+            "valor_actual": "8",
+            "referencia": "[7.4 - 11]µm³"
+          },
+          {
+            "nombre": "Indice de Distribución Plaquetaria (PDWc)",
+            "tipo": "input",
+            "valor_actual": "15.4",
+            "referencia": "[10 - 18]%"
+          },
+          {
+            "nombre": "P-LCC (PLA: Recuento celulas grandes)",
+            "tipo": "input",
+            "valor_actual": "24",
+            "referencia": "[44 - 140]10³/µL"
+          },
+          {
+            "nombre": "P-LCR (PLA: Proporcion celulas grandes)",
+            "tipo": "input",
+            "valor_actual": "9.6",
+            "referencia": "[18 - 50]%"
+          },
+          {
+            "nombre": "Glóbulos Blancos",
+            "tipo": "input",
+            "valor_actual": "6.9",
+            "referencia": "[4.5 - 10]10³/µL"
+          },
+          {
+            "nombre": "Linfocitos (%)",
+            "tipo": "input",
+            "valor_actual": "31.5",
+            "referencia": "[25 - 40]%"
+          },
+          {
+            "nombre": "Neutrófilos (%)",
+            "tipo": "input",
+            "valor_actual": "58.1",
+            "referencia": "[55 - 65]%"
+          },
+          {
+            "nombre": "Monocitos (%)",
+            "tipo": "input",
+            "valor_actual": "7.1",
+            "referencia": "[2 - 10]%"
+          },
+          {
+            "nombre": "Eosinófilos (%)",
+            "tipo": "input",
+            "valor_actual": "3.1",
+            "referencia": "[0.5 - 5]%"
+          },
+          {
+            "nombre": "Basófilos (%)",
+            "tipo": "input",
+            "valor_actual": "0.2",
+            "referencia": "[0 - 2]%"
+          },
+          {
+            "nombre": "FÓRMULA LEUCOCITARIA",
+            "tipo": "input",
+            "valor_actual": "100",
+            "referencia": "[100 - 100]"
+          },
+          {
+            "nombre": "Linfocitos (#)",
+            "tipo": "input",
+            "valor_actual": "2.17",
+            "referencia": "[1 - 4.4]10³/µL"
+          },
+          {
+            "nombre": "Neutrofilos (#)",
+            "tipo": "input",
+            "valor_actual": "4.01",
+            "referencia": "[1.6 - 7]10³/µL"
+          },
+          {
+            "nombre": "Monocitos (#)",
+            "tipo": "input",
+            "valor_actual": "0.50",
+            "referencia": "[0.3 - 1]10³/µL"
+          },
+          {
+            "nombre": "Eosinófilos (#)",
+            "tipo": "input",
+            "valor_actual": "0.21",
+            "referencia": "[0 - 0.5]10³/µL"
+          },
+          {
+            "nombre": "Basófilos (#)",
+            "tipo": "input",
+            "valor_actual": "0.01",
+            "referencia": "[0 - 0.2]10³/µL"
+          },
+          {
+            "nombre": "Eritrosedimentación Westergren",
+            "tipo": "input",
+            "valor_actual": null,
+            "referencia": "[1 - 15]mm/hora"
+          },
+          {
+            "nombre": "Eritrosedimentación Wintrobe",
+            "tipo": "input",
+            "valor_actual": null,
+            "referencia": "[1 - 15]mm/hora"
+          },
+          {
+            "nombre": "Grafico DIFF",
+            "tipo": "texto",
+            "valor_actual": null
+          },
+          {
+            "nombre": "Grafico WBC",
+            "tipo": "texto",
+            "valor_actual": "Ver gráfico"
+          },
+          {
+            "nombre": "Grafico RBC",
+            "tipo": "texto",
+            "valor_actual": "Ver gráfico"
+          },
+          {
+            "nombre": "Grafico PLT",
+            "tipo": "texto",
+            "valor_actual": "Ver gráfico"
+          }
+        ]
+      },
+      {
+        "nombre": "GLUCOSA\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Glucosa",
+            "tipo": "input",
+            "valor_actual": "88.2",
+            "referencia": "[70 - 110]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "UREA\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Urea",
+            "tipo": "input",
+            "valor_actual": "35.6",
+            "referencia": "[10 - 50]mg/dL"
+          },
+          {
+            "nombre": "BUN",
+            "tipo": "input",
+            "valor_actual": "16.64",
+            "referencia": "[7 - 21]"
+          }
+        ]
+      },
+      {
+        "nombre": "CREATININA\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Creatinina",
+            "tipo": "input",
+            "valor_actual": "1.07",
+            "referencia": "[0.6 - 1.1]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "ÁCIDO ÚRICO\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Ácido Úrico",
+            "tipo": "input",
+            "valor_actual": "6.64",
+            "referencia": "[3.4 - 7]mg/dl"
+          }
+        ]
+      },
+      {
+        "nombre": "COLESTEROL\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Colesterol",
+            "tipo": "input",
+            "valor_actual": "170",
+            "referencia": "[0 - 200]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "TRIGLICÉRIDOS\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Triglicéridos",
+            "tipo": "input",
+            "valor_actual": "68.5",
+            "referencia": "[0 - 150]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "COLESTEROL HDL\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Colesterol HDL",
+            "tipo": "input",
+            "valor_actual": "71.8",
+            "referencia": "[35 - 60]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "COLESTEROL LDL\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Colesterol LDL",
+            "tipo": "input",
+            "valor_actual": "84.5",
+            "referencia": "[0 - 100]mg/dL"
+          },
+          {
+            "nombre": "Colesterol LDL",
+            "tipo": "input",
+            "valor_actual": null,
+            "referencia": "[0 - 100]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "BILIRRUBINA TOTAL\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Bilirrubina Total",
+            "tipo": "input",
+            "valor_actual": "0.74",
+            "referencia": "[0 - 1.2]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "BILIRRUBINA DIRECTA\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Bilirrubina Directa",
+            "tipo": "input",
+            "valor_actual": "0.23",
+            "referencia": "[0 - 0.3]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "BILIRRUBINA INDIRECTA\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Bilirrubina Indirecta",
+            "tipo": "input",
+            "valor_actual": "0.51",
+            "referencia": "[0 - 0.9]mg/dL"
+          }
+        ]
+      },
+      {
+        "nombre": "ASPARTATO AMINOTRANSFERASA GOT (AST)\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "TGO/AST",
+            "tipo": "input",
+            "valor_actual": "23.1",
+            "referencia": "[0 - 38]U/L"
+          }
+        ]
+      },
+      {
+        "nombre": "ALANINO AMINOTRANSFERASA GPT (ALT)\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "TGP/ALT",
+            "tipo": "input",
+            "valor_actual": "21",
+            "referencia": "[0 - 42]U/L"
+          }
+        ]
+      },
+      {
+        "nombre": "GAMMA GT\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "Gama GT",
+            "tipo": "input",
+            "valor_actual": "26.7",
+            "referencia": "[8 - 61]U/L"
+          }
+        ]
+      },
+      {
+        "nombre": "HORMONA ESTIMULANTE DEL TIROIDES (TSH)\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "TSH",
+            "tipo": "input",
+            "valor_actual": "1.78",
+            "referencia": "[0.3 - 4.2]mIU/L"
+          }
+        ]
+      },
+      {
+        "nombre": "T3 TOTAL\nSuero\nValidado",
+        "campos": [
+          {
+            "nombre": "T3 Total",
+            "tipo": "input",
+            "valor_actual": "1.09",
+            "referencia": "[0.8 - 2.01]ng/mL"
+          }
+        ]
+      }
+    ]
+  }
+}

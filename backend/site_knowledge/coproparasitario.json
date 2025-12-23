@@ -1,0 +1,77 @@
+{
+  "exam_name": "COPROPARASITARIO",
+  "abbreviations": {
+    "consistencia": {
+      "D": "Dura",
+      "B": "Blanda",
+      "S": "Semiblanda",
+      "L": "Líquida"
+    }
+  },
+  "sections": {
+    "macroscopico": {
+      "fields": [
+        {
+          "name": "Color",
+          "type": "select",
+          "options": ["Amarillo", "Café", "Café verdoso", "Verde", "Negro"]
+        },
+        {
+          "name": "Consistencia",
+          "type": "select",
+          "options": ["Dura", "Blanda", "Semiblanda", "Pastosa", "Líquida", "Diarreica"]
+        },
+        {
+          "name": "Moco",
+          "type": "select",
+          "options": ["Negativo", "No se observa", "+", "++"]
+        },
+        {
+          "name": "Sangre",
+          "type": "select",
+          "options": ["Negativo", "No se observa", "+", "++"]
+        }
+      ]
+    },
+    "microscopico": {
+      "fields": [
+        {
+          "name": "Flora Bacteriana",
+          "type": "select",
+          "options": ["Normal", "Aumentada", "Disminuida"],
+          "default": "Normal"
+        },
+        {
+          "name": "Restos Vegetales",
+          "type": "select",
+          "options": ["Negativo", "+", "++", "+++"]
+        },
+        {
+          "name": "Parásitos",
+          "type": "select",
+          "options": ["No se observan parásitos", "Seleccione..."],
+          "note": "Si hay parásitos, dejar en Seleccione y buscar el parásito específico"
+        }
+      ]
+    }
+  },
+  "parasites_list": [
+    "Entamoeba coli",
+    "Entamoeba histolytica",
+    "Giardia lamblia",
+    "Blastocystis hominis",
+    "Endolimax nana",
+    "Iodamoeba butschlii",
+    "Chilomastix mesnili",
+    "Ascaris lumbricoides",
+    "Trichuris trichiura",
+    "Enterobius vermicularis",
+    "Hymenolepis nana",
+    "Taenia sp"
+  ],
+  "parasite_quantification": {
+    "type": "select",
+    "options": ["Escasos", "+", "++", "+++"],
+    "forms": ["Quistes", "Trofozoitos"]
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "exam_name": "ELEMENTAL Y MICROSCOPICO DE ORINA (EMO)",
+  "abbreviations": {
+    "color": {
+      "AM": "Amarillo",
+      "A": "Amarillo",
+      "AP": "Amarillo Claro",
+      "AI": "Amarillo Intenso"
+    },
+    "aspecto": {
+      "TP": "Transparente",
+      "LT": "Ligeramente Turbio",
+      "T": "Turbio"
+    },
+    "leucocitos": {
+      "10-25": "+",
+      "75": "++",
+      "500": "+++"
+    },
+    "proteinas": {
+      "TRZ": "Trazas"
+    }
+  },
+  "fields": [
+    {
+      "name": "Color",
+      "type": "select",
+      "options": ["Amarillo", "Amarillo Claro", "Amarillo Intenso", "Ámbar", "Anaranjado", "Café", "Rojo", "Rosado", "Incoloro"]
+    },
+    {
+      "name": "Aspecto",
+      "type": "select",
+      "options": ["Transparente", "Ligeramente Turbio", "Turbio", "Medicamentoso", "Sanguinolento"]
+    },
+    {
+      "name": "Densidad",
+      "type": "input",
+      "format": "number",
+      "range": "1.000 - 1.040"
+    },
+    {
+      "name": "pH",
+      "type": "select",
+      "options": ["5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5", "9.0"]
+    },
+    {
+      "name": "Leucocitos",
+      "type": "select",
+      "options": ["Negativo", "+", "++", "+++"]
+    },
+    {
+      "name": "Nitritos",
+      "type": "select",
+      "options": ["Negativo", "+"]
+    },
+    {
+      "name": "Proteínas",
+      "type": "select",
+      "options": ["Negativo", "Trazas", "30 mg/dL", "100 mg/dL", "500 mg/dL"]
+    },
+    {
+      "name": "Glucosa",
+      "type": "select",
+      "options": ["Negativo", "Normal", "50 mg/dL", "100 mg/dL", "300 mg/dL", "1000 mg/dL"]
+    },
+    {
+      "name": "Cuerpos Cetónicos",
+      "type": "select",
+      "options": ["Negativo", "+", "++", "+++"]
+    },
+    {
+      "name": "Bilirrubinas",
+      "type": "select",
+      "options": ["Negativo", "+", "++"]
+    },
+    {
+      "name": "Sangre",
+      "type": "select",
+      "options": ["Negativo", "+", "++", "+++"]
+    },
+    {
+      "name": "Hemoglobina",
+      "type": "select",
+      "options": ["Negativo", "+", "++", "+++"]
+    },
+    {
+      "name": "Piocitos",
+      "type": "input",
+      "format": "range",
+      "examples": ["0 - 1", "2 - 5", "10 - 20"]
+    },
+    {
+      "name": "Hematíes",
+      "type": "input",
+      "format": "range",
+      "examples": ["0 - 1", "2 - 5"]
+    },
+    {
+      "name": "Células Epiteliales",
+      "type": "select",
+      "options": ["Escasas", "+", "++", "+++"]
+    },
+    {
+      "name": "Bacterias",
+      "type": "select",
+      "options": ["Negativo", "Escasas", "+", "++", "+++"]
+    },
+    {
+      "name": "Moco",
+      "type": "select",
+      "options": ["Negativo", "Escaso", "+", "++", "+++"]
+    }
+  ]
+}

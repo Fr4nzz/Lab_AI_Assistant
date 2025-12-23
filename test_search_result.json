@@ -1,0 +1,32 @@
+{
+  "busqueda": "Chandi",
+  "resultados": [
+    {
+      "numero_orden": "2506145",
+      "fecha": "2025-06-14 20:22:15",
+      "paciente_info": "0400774584 E:59a S:M",
+      "paciente_nombre": "CHANDI PULLES MANUEL ANTONIO",
+      "estado": "Anulado",
+      "valor": "$4.00",
+      "id_interno": 6572
+    },
+    {
+      "numero_orden": "2504234",
+      "fecha": "2025-04-23 16:16:40",
+      "paciente_info": "1500887144 E:28a S:M",
+      "paciente_nombre": "CHANDI VILLARROEL FRANZ ALEXANDER",
+      "estado": "Validado",
+      "valor": "$0.00",
+      "id_interno": 5449
+    },
+    {
+      "numero_orden": "2501181",
+      "fecha": "2025-01-18 07:36:52",
+      "paciente_info": "1500887144 E:28a S:M",
+      "paciente_nombre": "CHANDI VILLARROEL FRANZ ALEXANDER",
+      "estado": "Validado",
+      "valor": "$0.00",
+      "id_interno": 4282
+    }
+  ]
+}
