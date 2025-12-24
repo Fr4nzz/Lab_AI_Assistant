@@ -155,14 +155,13 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         """Bind tools to the underlying model."""
         bound = self._current_model.bind_tools(tools, **kwargs)
 
-        # Create wrapper sharing state (skip __init__ to avoid reconfiguring)
-        wrapper = object.__new__(ChatGoogleGenerativeAIWithKeyRotation)
-        wrapper.api_keys = self.api_keys
-        wrapper.model_name = self.model_name
-        wrapper.temperature = self.temperature
-        wrapper.max_retries = self.max_retries
-        wrapper.min_request_interval = self.min_request_interval
-        wrapper._current_model = bound
+        # Create new instance (shares module-level state automatically)
+        wrapper = ChatGoogleGenerativeAIWithKeyRotation(
+            api_keys=self.api_keys,
+            model_name=self.model_name,
+            temperature=self.temperature,
+        )
+        wrapper._current_model = bound  # Override with tool-bound model
 
         logger.info(f"[Model] Bound {len(tools)} tools")
         return wrapper
