@@ -168,14 +168,7 @@ class ToolExecutor:
 
     async def _exec_get_exam_fields(self, p: dict) -> dict:
         """Obtiene campos de exámenes de múltiples órdenes. Mantiene pestañas abiertas para editar."""
-        # Support both 'ordenes' (array) and 'orden' (single string) for backwards compatibility
-        if "ordenes" in p:
-            ordenes = p["ordenes"]
-        elif "orden" in p:
-            ordenes = [p["orden"]]  # Convert single to array
-        else:
-            return {"err": "Falta parámetro 'ordenes' (array de números de orden)"}
-
+        ordenes = p["ordenes"]
         results = []
 
         for orden in ordenes:

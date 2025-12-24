@@ -27,14 +27,14 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_exam_fields",
-        "description": "Obtiene campos de exámenes de una o más órdenes para editar. Usa 'num' de la orden.",
+        "description": "Obtiene campos de exámenes para editar. SIEMPRE usa parámetro 'ordenes' (array).",
         "parameters": {
             "type": "object",
             "properties": {
                 "ordenes": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Lista de números de orden (campo 'num'). Ej: ['2501181', '25011314']"
+                    "description": "REQUERIDO: Array de números de orden (campo 'num'). Ejemplo: [\"2501181\"] o [\"2501181\", \"25011314\"]"
                 }
             },
             "required": ["ordenes"]
