@@ -53,14 +53,33 @@ def check_node_modules():
 def cleanup(signum=None, frame=None):
     """Cerrar todos los procesos al salir."""
     print("\n🛑 Cerrando servicios...")
+
     for proc in processes:
         try:
             if sys.platform == "win32":
-                proc.terminate()
+                # On Windows, use taskkill to kill process tree
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    shell=True
+                )
             else:
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except Exception as e:
+            print(f"   Error cerrando proceso: {e}")
+
+    # Wait a bit for processes to terminate
+    time.sleep(0.5)
+
+    # On Windows, reset console mode to fix terminal corruption
+    if sys.platform == "win32":
+        try:
+            # This helps reset terminal state
+            os.system("")
         except:
             pass
+
+    print("✅ Servicios cerrados")
     sys.exit(0)
 
 
