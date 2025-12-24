@@ -106,12 +106,19 @@ def create_lab_agent(browser_manager=None):
         # Call LLM
         response = model_with_tools.invoke(messages)
 
-        # Log response type
+        # Detailed logging of response
+        logger.debug(f"[Agent] Raw response type: {type(response)}")
+        logger.debug(f"[Agent] Response attributes: {[a for a in dir(response) if not a.startswith('_')]}")
+
         if hasattr(response, 'tool_calls') and response.tool_calls:
-            logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls")
-        else:
-            content_preview = response.content[:100] if response.content else "(empty)"
+            logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls:")
+            for tc in response.tool_calls:
+                logger.info(f"  -> {tc.get('name', 'unknown')}")
+        elif response.content:
+            content_preview = response.content[:200] if len(response.content) > 200 else response.content
             logger.info(f"[Agent] LLM response: {content_preview}")
+        else:
+            logger.warning(f"[Agent] LLM returned empty response! Raw: {response}")
 
         return {"messages": [response]}
 
