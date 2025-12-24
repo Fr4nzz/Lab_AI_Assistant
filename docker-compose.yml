@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # LangGraph Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DATABASE_URL=sqlite:///./data/checkpoints.db
+      - HEADLESS=${HEADLESS:-false}
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/browser_data:/app/browser_data
+      - /tmp/.X11-unix:/tmp/.X11-unix  # For Playwright display
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+
+  # LobeChat Frontend
+  frontend:
+    build:
+      context: ./frontend-lobechat
+      dockerfile: Dockerfile
+    ports:
+      - "3210:3210"
+    environment:
+      - OPENAI_PROXY_URL=http://backend:8000/v1
+      - OPENAI_API_KEY=dummy
+      - OPENAI_MODEL_LIST=+lab-assistant=Lab Assistant<100000:vision:fc>
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -19,3 +19,5 @@ pydantic>=2.0.0
 # Additional for async support
 asyncpg
 aiosqlite
+nest_asyncio
+pydantic-settings
