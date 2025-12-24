@@ -167,29 +167,32 @@ class ToolExecutor:
         }
 
     async def _exec_get_reportes(self, p: dict) -> dict:
-        """Obtiene datos de reportes Y mantiene la pestaña abierta para editar."""
-        orden = p["orden"]
+        """Obtiene datos de reportes de múltiples órdenes. Mantiene pestañas abiertas para editar."""
+        ordenes = p["ordenes"]
+        results = []
 
-        # Verificar si ya existe una pestaña para esta orden
-        if orden in self.active_tabs:
-            page = self.active_tabs[orden]
-            await page.reload()
-        else:
-            # Crear nueva pestaña
-            page = await self.browser.context.new_page()
-            self.active_tabs[orden] = page
+        for orden in ordenes:
+            # Verificar si ya existe una pestaña para esta orden
+            if orden in self.active_tabs:
+                page = self.active_tabs[orden]
+                await page.reload()
+            else:
+                # Crear nueva pestaña
+                page = await self.browser.context.new_page()
+                self.active_tabs[orden] = page
 
-        url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
-        await page.goto(url, timeout=30000)
-        await page.wait_for_timeout(2000)  # Esperar Vue.js
+            url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
+            await page.goto(url, timeout=30000)
+            await page.wait_for_timeout(2000)  # Esperar Vue.js
 
-        # Inyectar estilos de resaltado preventivamente
-        await self._inject_highlight_styles(page)
+            # Inyectar estilos de resaltado preventivamente
+            await self._inject_highlight_styles(page)
 
-        # Extraer datos
-        data = await page.evaluate(EXTRACT_REPORTES_JS)
+            # Extraer datos
+            data = await page.evaluate(EXTRACT_REPORTES_JS)
+            results.append({"orden": orden, "tab_ready": True, **data})
 
-        return {"orden": orden, "tab_ready": True, **data}
+        return {"ordenes": results, "total": len(results)}
 
     async def _exec_get_orden(self, p: dict) -> dict:
         """Obtiene detalles de una orden - en segundo plano."""
@@ -256,30 +259,36 @@ class ToolExecutor:
     # RESULT EDITING TOOLS (Visible, Auto-Highlight)
     # ============================================================
 
-    async def _exec_fill(self, p: dict) -> dict:
-        """Llena un campo con auto-resaltado."""
-        page = self._get_active_page()
-
-        # Hacer la pestaña visible
-        await page.bring_to_front()
-
-        # Llenar y resaltar
-        result = await page.evaluate(FILL_FIELD_JS, {"e": p["e"], "f": p["f"], "v": p["v"]})
-
-        return result
-
     async def _exec_fill_many(self, p: dict) -> dict:
-        """Llena múltiples campos con auto-resaltado."""
+        """Llena múltiples campos en una o más órdenes con auto-resaltado."""
         results = []
-        first_scroll = True
+        results_by_orden = {}
 
         for item in p["data"]:
-            r = await self._exec_fill(item)
-            results.append(r)
+            orden = item["orden"]
 
-            # Solo hacer scroll al primer campo modificado
-            if first_scroll and "field" in r:
-                first_scroll = False
+            # Get the page for this order
+            if orden not in self.active_tabs:
+                results.append({"orden": orden, "err": f"No hay pestaña abierta para orden {orden}. Usa get_reportes primero."})
+                continue
+
+            page = self.active_tabs[orden]
+
+            # Bring tab to front
+            await page.bring_to_front()
+
+            # Fill the field
+            result = await page.evaluate(FILL_FIELD_JS, {"e": item["e"], "f": item["f"], "v": item["v"]})
+            result["orden"] = orden
+            results.append(result)
+
+            # Track results by order
+            if orden not in results_by_orden:
+                results_by_orden[orden] = {"filled": 0, "errors": 0}
+            if "field" in result:
+                results_by_orden[orden]["filled"] += 1
+            if "err" in result:
+                results_by_orden[orden]["errors"] += 1
 
         filled = len([r for r in results if "field" in r])
         errors = [r for r in results if "err" in r]
@@ -287,6 +296,7 @@ class ToolExecutor:
         return {
             "filled": filled,
             "total": len(p["data"]),
+            "by_orden": results_by_orden,
             "details": results,
             "errors": errors
         }

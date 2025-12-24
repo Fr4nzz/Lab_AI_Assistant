@@ -28,16 +28,17 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_reportes",
-        "description": "Obtiene campos de exámenes para ingresar resultados. USA el campo 'num' (NO 'id'). Mantiene pestaña abierta.",
+        "description": "Obtiene campos de exámenes de una o más órdenes. USA el campo 'num' (NO 'id'). Abre pestañas para cada orden.",
         "parameters": {
             "type": "object",
             "properties": {
-                "orden": {
-                    "type": "string",
-                    "description": "Campo 'num' de la orden (ej: '2501181'). NO usar 'id'."
+                "ordenes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Lista de números de orden (campo 'num'). Ej: ['2501181', '25011314']"
                 }
             },
-            "required": ["orden"]
+            "required": ["ordenes"]
         },
         "execution_mode": "background_keep_tab"
     },
@@ -104,32 +105,8 @@ TOOL_DEFINITIONS = [
     # RESULT EDITING TOOLS (Visible - auto-highlights changes)
     # ============================================================
     {
-        "name": "fill",
-        "description": "Llena un campo de resultado de examen. Auto-resalta el campo modificado.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "e": {
-                    "type": "string",
-                    "description": "Nombre del examen"
-                },
-                "f": {
-                    "type": "string",
-                    "description": "Nombre del campo"
-                },
-                "v": {
-                    "type": "string",
-                    "description": "Valor a ingresar"
-                }
-            },
-            "required": ["e", "f", "v"]
-        },
-        "execution_mode": "visible",
-        "auto_highlight": True
-    },
-    {
         "name": "fill_many",
-        "description": "Llena múltiples campos de resultados. Auto-resalta todos los campos modificados.",
+        "description": "Llena campos de resultados en una o más órdenes. Auto-resalta todos los campos modificados.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -138,13 +115,14 @@ TOOL_DEFINITIONS = [
                     "items": {
                         "type": "object",
                         "properties": {
+                            "orden": {"type": "string", "description": "Número de orden (campo 'num')"},
                             "e": {"type": "string", "description": "Nombre del examen"},
                             "f": {"type": "string", "description": "Nombre del campo"},
                             "v": {"type": "string", "description": "Valor"}
                         },
-                        "required": ["e", "f", "v"]
+                        "required": ["orden", "e", "f", "v"]
                     },
-                    "description": "Lista de campos a llenar"
+                    "description": "Lista de campos a llenar. Cada item incluye orden, examen, campo y valor."
                 }
             },
             "required": ["data"]

@@ -19,9 +19,16 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 
 ## FLUJO DE TRABAJO TÍPICO
 
+### Para editar MÚLTIPLES órdenes (EFICIENTE):
+1. Identificar TODAS las órdenes a editar de una vez
+2. Usar get_reportes(ordenes=["num1", "num2", ...]) para obtener campos de TODAS las órdenes en una sola llamada
+3. Verificar qué exámenes tiene cada orden
+4. Usar fill_many con TODOS los campos de TODAS las órdenes en una sola llamada
+5. Pedir al usuario que guarde en cada pestaña
+
 ### Para ingresar resultados de un paciente EN LA LISTA de órdenes:
 1. Encontrar al paciente en la lista de órdenes (ya la tienes en el contexto)
-2. Usar get_reportes para obtener los campos del examen
+2. Usar get_reportes(ordenes=["num"]) para obtener los campos del examen
 3. Verificar que el examen existe en la orden
 4. Si no existe, usar add_exam → pedir al usuario que guarde
 5. Llenar los campos con fill_many (se resaltan automáticamente)
@@ -56,13 +63,15 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 ### CUÁNDO USAR CADA HERRAMIENTA
 
 **IMPORTANTE: Diferencia entre `num` e `id` en órdenes:**
-- `num` = Número de orden visible (ej: "2501181") - USAR para get_reportes
-- `id` = ID interno del sistema (ej: 4282) - USAR para get_orden
+- `num` = Número de orden visible (ej: "2501181") - USAR para get_reportes y fill_many
+- `id` = ID interno del sistema (ej: 4282) - USAR para get_orden y add_exam
 
 - **get_ordenes(search, limit)**: Buscar órdenes por nombre o cédula.
-- **get_reportes(orden)**: Obtener campos de exámenes. USA EL CAMPO `num` (número de orden), NO el `id`.
+- **get_reportes(ordenes)**: Obtener campos de exámenes de MÚLTIPLES órdenes a la vez. Usa array de `num`.
+  Ejemplo: get_reportes(ordenes=["2501181", "25011314"])
 - **get_orden(id)**: Ver detalles de orden. Usa el campo `id` interno.
-- **fill/fill_many**: Llenar campos de resultados.
+- **fill_many(data)**: Llenar campos en MÚLTIPLES órdenes a la vez. Cada item incluye: orden, e (examen), f (campo), v (valor).
+  Ejemplo: fill_many(data=[{orden:"2501181", e:"GLUCOSA", f:"Glucosa", v:"100"}, {orden:"25011314", e:"COPROPARASITARIO", f:"Color", v:"Café"}])
 - **ask_user**: Pedir acción al usuario (guardar, etc.)
 
 ### CUÁNDO NO USAR get_ordenes
