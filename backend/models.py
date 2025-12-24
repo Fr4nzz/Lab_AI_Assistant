@@ -31,15 +31,18 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     - Rotates through multiple API keys on 429 errors
     - Adds delay between requests to avoid hitting RPM limits
     - Parses retry-after from error messages
+    - Disables internal retry so our key rotation can work
     """
     api_keys: List[str]
     model_name: str
-    current_key_index: int = 0
     max_retries: int = 6
     temperature: float = 0.7
     min_request_interval: float = 4.0  # Seconds between requests (15 RPM = 4s interval)
     _current_model: Optional[ChatGoogleGenerativeAI] = None
-    _last_request_time: float = 0
+
+    # Class-level shared state (so all instances use same key and rate limit)
+    _class_key_index: int = 0
+    _class_last_request_time: float = 0
 
     class Config:
         arbitrary_types_allowed = True
@@ -53,6 +56,20 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         self.max_retries = len(api_keys) * 2
         self._create_model()
 
+    @property
+    def current_key_index(self) -> int:
+        """Get current key index from class-level state."""
+        return ChatGoogleGenerativeAIWithKeyRotation._class_key_index
+
+    @current_key_index.setter
+    def current_key_index(self, value: int):
+        """Set current key index in class-level state."""
+        ChatGoogleGenerativeAIWithKeyRotation._class_key_index = value
+
+    def _get_key_label(self) -> str:
+        """Get human-readable label for current API key."""
+        return f"api_key_{self.current_key_index + 1}"
+
     def _create_model(self):
         """Create a new model instance with current API key."""
         api_key = self.api_keys[self.current_key_index]
@@ -60,15 +77,17 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             model=self.model_name,
             google_api_key=api_key,
             temperature=self.temperature,
-            convert_system_message_to_human=True
+            convert_system_message_to_human=True,
+            max_retries=0,  # Disable internal retry so our key rotation works
         )
-        logger.info(f"[Model] Using API key index {self.current_key_index}")
+        logger.info(f"[Model] Using {self._get_key_label()} (index {self.current_key_index})")
 
     def _switch_api_key(self):
         """Switch to the next API key in rotation."""
+        old_label = self._get_key_label()
         self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
         self._create_model()
-        logger.info(f"[Model] Switched to API key index {self.current_key_index}")
+        logger.info(f"[Model] Switched from {old_label} to {self._get_key_label()}")
 
     @property
     def _llm_type(self) -> str:
@@ -86,12 +105,12 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     def _wait_for_rate_limit(self):
         """Wait to respect rate limit between requests."""
         import time
-        elapsed = time.time() - self._last_request_time
+        elapsed = time.time() - ChatGoogleGenerativeAIWithKeyRotation._class_last_request_time
         if elapsed < self.min_request_interval:
             wait_time = self.min_request_interval - elapsed
-            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request")
+            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request ({self._get_key_label()})")
             time.sleep(wait_time)
-        self._last_request_time = time.time()
+        ChatGoogleGenerativeAIWithKeyRotation._class_last_request_time = time.time()
 
     def _generate(
         self,
@@ -117,26 +136,27 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 # Check for rate limit errors
                 if "429" in str(e) or "resource_exhausted" in error_str or "quota" in error_str:
                     retry_delay = self._parse_retry_delay(str(e))
-                    logger.warning(f"[Model] Rate limit hit, switching API key and waiting {retry_delay:.1f}s (attempt {attempt + 1}/{self.max_retries})")
+                    wait_time = min(retry_delay, 10)  # Cap at 10s per attempt
+                    logger.warning(f"[Model] Rate limit hit on {self._get_key_label()}, switching key and waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_api_key()
-                    time.sleep(min(retry_delay, 10))  # Cap at 10s per attempt
+                    time.sleep(wait_time)
                     continue
                 else:
                     # Non-rate-limit error, raise immediately
                     raise
 
-        raise Exception(f"Failed after {self.max_retries} attempts: {last_error}")
+        raise Exception(f"Failed after {self.max_retries} attempts with all API keys: {last_error}")
 
     async def _await_rate_limit(self):
         """Async wait to respect rate limit between requests."""
         import asyncio
         import time
-        elapsed = time.time() - self._last_request_time
+        elapsed = time.time() - ChatGoogleGenerativeAIWithKeyRotation._class_last_request_time
         if elapsed < self.min_request_interval:
             wait_time = self.min_request_interval - elapsed
-            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request")
+            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request ({self._get_key_label()})")
             await asyncio.sleep(wait_time)
-        self._last_request_time = time.time()
+        ChatGoogleGenerativeAIWithKeyRotation._class_last_request_time = time.time()
 
     async def _agenerate(
         self,
@@ -162,28 +182,33 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 # Check for rate limit errors
                 if "429" in str(e) or "resource_exhausted" in error_str or "quota" in error_str:
                     retry_delay = self._parse_retry_delay(str(e))
-                    logger.warning(f"[Model] Rate limit hit, switching API key and waiting {retry_delay:.1f}s (attempt {attempt + 1}/{self.max_retries})")
+                    wait_time = min(retry_delay, 10)  # Cap at 10s per attempt
+                    logger.warning(f"[Model] Rate limit hit on {self._get_key_label()}, switching key and waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_api_key()
-                    await asyncio.sleep(min(retry_delay, 10))  # Cap at 10s per attempt
+                    await asyncio.sleep(wait_time)
                     continue
                 else:
                     # Non-rate-limit error, raise immediately
                     raise
 
-        raise Exception(f"Failed after {self.max_retries} attempts: {last_error}")
+        raise Exception(f"Failed after {self.max_retries} attempts with all API keys: {last_error}")
 
     def bind_tools(self, tools: List[Any], **kwargs):
         """Bind tools to the underlying model."""
-        # Create a new instance with tools bound
+        # Bind tools to current model
         bound_model = self._current_model.bind_tools(tools, **kwargs)
 
-        # Create a wrapper that maintains key rotation
-        wrapper = ChatGoogleGenerativeAIWithKeyRotation(
-            api_keys=self.api_keys,
-            model_name=self.model_name,
-            temperature=self.temperature
-        )
+        # Create a wrapper that shares state with parent
+        # Using object.__new__ to avoid calling __init__ which would create a new model
+        wrapper = object.__new__(ChatGoogleGenerativeAIWithKeyRotation)
+        wrapper.api_keys = self.api_keys
+        wrapper.model_name = self.model_name
+        wrapper.temperature = self.temperature
+        wrapper.max_retries = self.max_retries
+        wrapper.min_request_interval = self.min_request_interval
         wrapper._current_model = bound_model
+
+        logger.info(f"[Model] Bound {len(tools)} tools to {self._get_key_label()}")
         return wrapper
 
     @property
