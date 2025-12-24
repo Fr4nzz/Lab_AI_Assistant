@@ -423,11 +423,16 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         async def generate():
             full_response = []
             try:
-                # Include initial context in state
-                initial_state = {
-                    "messages": [HumanMessage(content=last_user_message)],
-                    "current_page_context": initial_orders_context,
-                }
+                # Check if this is a new thread (no existing messages)
+                existing_state = await graph.aget_state(config)
+                is_first_message = not existing_state.values.get("messages")
+
+                # Only include context on first message of thread
+                initial_state = {"messages": [HumanMessage(content=last_user_message)]}
+                if is_first_message and initial_orders_context:
+                    initial_state["current_page_context"] = initial_orders_context
+                    logger.info("[Chat] First message - including orders context")
+
                 async for event in graph.astream_events(
                     initial_state,
                     config,
@@ -475,12 +480,17 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
     else:
         try:
+            # Check if this is a new thread (no existing messages)
+            existing_state = await graph.aget_state(config)
+            is_first_message = not existing_state.values.get("messages")
+
+            # Only include context on first message of thread
+            initial_state = {"messages": [HumanMessage(content=last_user_message)]}
+            if is_first_message and initial_orders_context:
+                initial_state["current_page_context"] = initial_orders_context
+                logger.info("[Chat] First message - including orders context")
+
             logger.info("Invoking LangGraph agent...")
-            # Include initial context in state
-            initial_state = {
-                "messages": [HumanMessage(content=last_user_message)],
-                "current_page_context": initial_orders_context,
-            }
             result = await graph.ainvoke(initial_state, config)
 
             # Log all messages for debugging
