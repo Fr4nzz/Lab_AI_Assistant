@@ -23,6 +23,15 @@ try {
 Write-Host "Starting backend on http://localhost:8000" -ForegroundColor Green
 $BackendDir = Join-Path $ProjectDir "backend"
 
+# Kill any existing process on port 8000
+Write-Host "Checking for existing backend..." -ForegroundColor Yellow
+$existingPid = (Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue).OwningProcess | Select-Object -First 1
+if ($existingPid) {
+    Write-Host "Stopping existing backend (PID: $existingPid)..." -ForegroundColor Yellow
+    Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
 # Close any Edge instances using our profile (prevents lock issues)
 Write-Host "Closing any existing Edge instances..." -ForegroundColor Yellow
 Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
