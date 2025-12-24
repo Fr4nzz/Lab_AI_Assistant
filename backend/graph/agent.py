@@ -29,10 +29,13 @@ OPTIMIZATION GOAL:
 """
 from typing import Literal
 import sys
+import logging
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -81,8 +84,14 @@ def create_lab_agent(browser_manager=None):
         """
         # Build system message with current context
         context_str = ""
-        if state.get("current_page_context"):
-            context_str = f"\n\nCONTEXTO ACTUAL DE LA PAGINA:\n{state['current_page_context']}"
+        page_context = state.get("current_page_context")
+        if page_context:
+            # Handle both string and dict context
+            if isinstance(page_context, str):
+                context_str = f"\n\nCONTEXTO ACTUAL (Órdenes en pantalla):\n{page_context}"
+            else:
+                import json
+                context_str = f"\n\nCONTEXTO ACTUAL:\n{json.dumps(page_context, ensure_ascii=False)}"
 
         # Use simplified prompt for LangGraph (tools are already bound)
         system_content = SYSTEM_PROMPT + context_str
@@ -91,8 +100,18 @@ def create_lab_agent(browser_manager=None):
         # Build message list
         messages = [system_msg] + list(state["messages"])
 
+        # Log for debugging
+        logger.info(f"[Agent] Invoking LLM with {len(messages)} messages, context: {len(context_str)} chars")
+
         # Call LLM
         response = model_with_tools.invoke(messages)
+
+        # Log response type
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls")
+        else:
+            content_preview = response.content[:100] if response.content else "(empty)"
+            logger.info(f"[Agent] LLM response: {content_preview}")
 
         return {"messages": [response]}
 

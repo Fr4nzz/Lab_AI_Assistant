@@ -53,6 +53,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from graph.agent import create_lab_agent, compile_agent
 from graph.tools import set_browser, close_all_tabs, get_active_tabs
 from browser_manager import BrowserManager
+from extractors import EXTRACT_ORDENES_JS
 from config import settings
 
 
@@ -79,18 +80,40 @@ class ChatResponse(BaseModel):
 browser: Optional[BrowserManager] = None
 graph = None
 checkpointer = None
+initial_orders_context: str = ""  # Store initial orders for context
 
 
 # ============================================================
 # LIFESPAN
 # ============================================================
 
+async def extract_initial_context() -> str:
+    """Extract initial orders list from the page for AI context."""
+    global browser
+    try:
+        await browser.page.wait_for_timeout(2000)  # Wait for page to load
+        ordenes = await browser.page.evaluate(EXTRACT_ORDENES_JS)
+        if ordenes:
+            lines = ["# Órdenes Recientes"]
+            lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado | ID |")
+            lines.append("|---|-------|-------|----------|--------|--------|-----|")
+            for i, o in enumerate(ordenes[:15]):
+                paciente = (o.get('paciente', '') or '')[:30]
+                lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
+            lines.append("")
+            lines.append("*Usa 'num' para get_exam_fields(), 'id' para get_order_details()*")
+            return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"Could not extract initial context: {e}")
+    return ""
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Application lifespan - initialize browser and LangGraph.
     """
-    global browser, graph, checkpointer
+    global browser, graph, checkpointer, initial_orders_context
 
     print("Starting Lab Assistant with LangGraph...")
 
@@ -103,6 +126,11 @@ async def lifespan(app: FastAPI):
     await browser.start(headless=settings.headless, browser=settings.browser_channel)
     await browser.navigate(settings.target_url)
     set_browser(browser)
+
+    # Extract initial orders context
+    initial_orders_context = await extract_initial_context()
+    if initial_orders_context:
+        logger.info(f"Extracted initial context with {initial_orders_context.count('|') // 8} orders")
 
     # Initialize checkpointer for conversation persistence
     # Using MemorySaver for development (in-memory, not persistent across restarts)
@@ -395,8 +423,13 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         async def generate():
             full_response = []
             try:
+                # Include initial context in state
+                initial_state = {
+                    "messages": [HumanMessage(content=last_user_message)],
+                    "current_page_context": initial_orders_context,
+                }
                 async for event in graph.astream_events(
-                    {"messages": [HumanMessage(content=last_user_message)]},
+                    initial_state,
                     config,
                     version="v2"
                 ):
@@ -443,10 +476,12 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     else:
         try:
             logger.info("Invoking LangGraph agent...")
-            result = await graph.ainvoke(
-                {"messages": [HumanMessage(content=last_user_message)]},
-                config
-            )
+            # Include initial context in state
+            initial_state = {
+                "messages": [HumanMessage(content=last_user_message)],
+                "current_page_context": initial_orders_context,
+            }
+            result = await graph.ainvoke(initial_state, config)
 
             # Log all messages for debugging
             for i, msg in enumerate(result["messages"]):
