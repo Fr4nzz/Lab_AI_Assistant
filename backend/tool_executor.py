@@ -168,7 +168,13 @@ class ToolExecutor:
 
     async def _exec_get_exam_fields(self, p: dict) -> dict:
         """Obtiene campos de exámenes de múltiples órdenes. Mantiene pestañas abiertas para editar."""
+        if "ordenes" not in p:
+            return {"err": f"Parámetro 'ordenes' (array) requerido. Recibido: {list(p.keys())}. Usa: ordenes=['num1', 'num2']"}
+
         ordenes = p["ordenes"]
+        if not isinstance(ordenes, list):
+            return {"err": f"'ordenes' debe ser un array. Recibido: {type(ordenes).__name__}"}
+
         results = []
 
         for orden in ordenes:
