@@ -62,6 +62,10 @@ docker run -d `
     --add-host=host.docker.internal:host-gateway `
     lobehub/lobe-chat
 
+# Wait for LobeChat to be ready
+Write-Host "Waiting for frontend to start..." -ForegroundColor Yellow
+Start-Sleep -Seconds 3
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Lab Assistant is running!" -ForegroundColor Green
@@ -69,6 +73,12 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Backend:  http://localhost:8000" -ForegroundColor Yellow
 Write-Host "Frontend: http://localhost:3210" -ForegroundColor Yellow
+Write-Host ""
+
+# Auto-open the frontend in default browser
+Write-Host "Opening frontend in browser..." -ForegroundColor Cyan
+Start-Process "http://localhost:3210"
+
 Write-Host ""
 Write-Host "To stop:" -ForegroundColor Cyan
 Write-Host "  - Close the backend PowerShell window" -ForegroundColor White
