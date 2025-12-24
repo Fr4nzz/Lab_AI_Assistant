@@ -6,15 +6,15 @@ import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from .gemini_handler import GeminiHandler, create_image_part, create_audio_part
-from .browser_manager import BrowserManager
-from .database import Database
-from .extractors import PageDataExtractor
-from .tool_executor import ToolExecutor
-from .tools import get_tools_description
-from .prompts import build_system_prompt, WELCOME_MESSAGE
-from .schemas import validate_ai_response
-from .context_formatters import (
+from gemini_handler import GeminiHandler, create_image_part, create_audio_part
+from browser_manager import BrowserManager
+from database import Database
+from extractors import PageDataExtractor
+from tool_executor import ToolExecutor
+from tools import get_tools_description
+from prompts import build_system_prompt, WELCOME_MESSAGE
+from schemas import validate_ai_response
+from context_formatters import (
     format_ordenes_context,
     format_reportes_context,
     format_orden_edit_context
