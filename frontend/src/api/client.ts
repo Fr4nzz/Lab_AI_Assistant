@@ -44,7 +44,16 @@ export interface Suggestion {
 }
 
 export interface AgentResponse {
-  mode: 'question' | 'plan' | 'error'
+  // New backend format
+  message?: string
+  status?: 'executing' | 'waiting_for_user' | 'completed' | 'error'
+  tool_calls?: { tool: string; parameters: Record<string, unknown> }[]
+  tool_results?: { tool: string; result: Record<string, unknown> }[]
+  data_to_review?: Record<string, unknown>
+  next_step?: string
+
+  // Legacy format (kept for compatibility)
+  mode?: 'question' | 'plan' | 'error' | 'message'
   question?: string
   options?: string[]
   understanding?: string

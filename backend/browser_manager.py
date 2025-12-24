@@ -47,7 +47,11 @@ class BrowserManager:
             headless=headless,
             channel=browser,  # "msedge" uses installed Edge, "chrome" uses installed Chrome
             viewport={"width": 1280, "height": 900},
-            accept_downloads=True
+            accept_downloads=True,
+            args=[
+                "--no-restore-session-state",
+                "--disable-session-crashed-bubble",
+            ]
         )
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
     
@@ -57,9 +61,44 @@ class BrowserManager:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
-    
+
+    async def ensure_page(self) -> Page:
+        """
+        Ensure we have a valid page. If the page was closed, open a new one.
+        Returns the valid page.
+        """
+        try:
+            # Check if page is still valid by trying a simple operation
+            if self.page and not self.page.is_closed():
+                # Try to get URL - this will fail if page is actually closed
+                _ = self.page.url
+                return self.page
+        except Exception:
+            pass
+
+        # Page is invalid, need to create a new one
+        print("[BrowserManager] Page was closed, opening new tab...")
+
+        if self.context:
+            # Try to use existing page from context
+            if self.context.pages:
+                self.page = self.context.pages[0]
+                print(f"[BrowserManager] Using existing tab: {self.page.url}")
+            else:
+                # Create new page
+                self.page = await self.context.new_page()
+                print("[BrowserManager] Created new tab")
+                # Navigate to orders by default
+                await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+                print("[BrowserManager] Navigated to orders page")
+        else:
+            raise RuntimeError("Browser context is not available")
+
+        return self.page
+
     async def navigate(self, url: str, wait_for: str = "networkidle"):
         """Navigate to a URL and wait for the page to load."""
+        await self.ensure_page()
         await self.page.goto(url, timeout=60000)
         await self.page.wait_for_load_state(wait_for, timeout=30000)
     
@@ -280,33 +319,3 @@ class BrowserManager:
         except:
             return None
     
-    async def execute_actions(self, actions: List[Dict]) -> List[Dict]:
-        """Execute multiple actions in sequence."""
-        results = []
-        for action in actions:
-            result = await self.execute_action(action)
-            results.append(result)
-            if not result.get("success"):
-                break  # Stop on first failure
-        return results
-    
-    async def check_logged_in(self, indicator_selector: str = None, indicator_text: str = None) -> bool:
-        """Check if user is logged in by looking for an indicator element."""
-        if indicator_selector:
-            element = await self.page.query_selector(indicator_selector)
-            return element is not None
-        
-        if indicator_text:
-            content = await self.get_page_content()
-            return indicator_text.lower() in content.lower()
-        
-        # Default: check for common login indicators
-        login_indicators = ["cerrar sesión", "logout", "mi cuenta", "perfil"]
-        content = await self.get_page_content()
-        content_lower = content.lower()
-        
-        for indicator in login_indicators:
-            if indicator in content_lower:
-                return True
-        
-        return False

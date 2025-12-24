@@ -42,19 +42,23 @@ class GeminiHandler:
     ) -> Tuple[str, bool]:
         """
         Send request to Gemini with automatic key rotation on rate limits.
-        
+
         Args:
             system_prompt: System instructions for the model
             contents: List of content (strings, Part objects for images/audio)
             response_mime_type: Expected response format
-            
+
         Returns:
             Tuple of (response_text, success_bool)
         """
         last_error = None
-        
+
+        # Compact debug
+        print(f"[GEMINI] Sending to {self.model_name} (prompt:{len(system_prompt)}c, key:{self.current_key_index})")
+
         for attempt in range(self.max_retries):
             try:
+
                 config = types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     response_mime_type=response_mime_type
@@ -73,31 +77,37 @@ class GeminiHandler:
                     for part in response.candidates[0].content.parts:
                         if hasattr(part, 'text') and part.text:
                             text += part.text
+                    print(f"[GEMINI] OK ({len(text)}c): {text[:150]}...")
                     return text, True
 
+                print(f"[GEMINI] ERROR: No content in response")
                 return "", False
 
             except APIError as e:
                 last_error = e
                 error_code = getattr(e, 'code', None)
-                
+                print(f"[GEMINI] APIError: code={error_code}, message={e}")
+
                 if error_code in [429, 500, 503]:
                     # Rate limit or server error - switch key and retry
-                    print(f"API error {error_code}, switching key...")
+                    print(f"[GEMINI] Switching API key...")
                     self._switch_api_key()
                     await asyncio.sleep(2)
                     continue
                 else:
-                    print(f"API error (non-retryable): {e}")
+                    print(f"[GEMINI] Non-retryable error, stopping")
                     break
 
             except Exception as e:
                 last_error = e
-                print(f"Unexpected error: {e}, switching key...")
+                print(f"[GEMINI] Unexpected error: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 self._switch_api_key()
                 await asyncio.sleep(2)
                 continue
 
+        print(f"[GEMINI] FAILED after {self.max_retries} attempts")
         return f"Failed after {self.max_retries} attempts: {last_error}", False
 
 
