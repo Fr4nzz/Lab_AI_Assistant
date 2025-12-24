@@ -22,6 +22,12 @@ try {
 # Start backend in new window
 Write-Host "Starting backend on http://localhost:8000" -ForegroundColor Green
 $BackendDir = Join-Path $ProjectDir "backend"
+
+# Close any Edge instances using our profile (prevents lock issues)
+Write-Host "Closing any existing Edge instances..." -ForegroundColor Yellow
+Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$BackendDir'; python server.py"
 
 # Wait for backend
