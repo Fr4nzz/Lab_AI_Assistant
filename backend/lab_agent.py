@@ -3,6 +3,7 @@ Lab Agent - Main AI agent that orchestrates everything.
 Coordinates Gemini AI with browser control for lab result entry.
 """
 import json
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -19,6 +20,33 @@ from context_formatters import (
     format_reportes_context,
     format_orden_edit_context
 )
+
+
+# Debug configuration
+DEBUG = True
+
+
+def debug_print(category: str, message: str, data: Any = None):
+    """Print debug info with category."""
+    if not DEBUG:
+        return
+
+    prefix = f"[{category}]"
+    print(f"\n{'='*60}")
+    print(f"{prefix} {message}")
+    if data is not None:
+        if isinstance(data, str):
+            # Truncate long strings
+            if len(data) > 500:
+                print(f"{data[:500]}...")
+                print(f"  ... ({len(data)} chars total)")
+            else:
+                print(data)
+        elif isinstance(data, dict):
+            print(json.dumps(data, ensure_ascii=False, indent=2)[:1000])
+        else:
+            print(str(data)[:500])
+    print('='*60)
 
 
 class LabAgent:
@@ -74,15 +102,23 @@ class LabAgent:
         Returns:
             AI response with message, tool_calls, status, etc.
         """
+        start_time = time.time()
+        debug_print("REQUEST", f"Processing message for chat {chat_id[:8]}...", message)
+
         # Ensure initialized
         if not self.extractor:
+            debug_print("INIT", "Initializing extractor and executor...")
             await self.initialize()
 
         # 1. Get chat history
         history = self.db.get_messages(chat_id, limit=20)
+        debug_print("HISTORY", f"Loaded {len(history)} messages from history")
 
         # 2. Get current page context
+        debug_print("CONTEXT", "Extracting page context...")
         page_context = await self._get_current_context()
+        debug_print("CONTEXT", f"Page type: {page_context.get('page_type', 'unknown')}",
+                   page_context.get("formatted", "No formatted context"))
 
         # 3. Build prompt (use formatted context for token efficiency)
         system_prompt = build_system_prompt(
@@ -90,9 +126,12 @@ class LabAgent:
             current_context=page_context.get("formatted", json.dumps(page_context, ensure_ascii=False)),
             chat_history=self._format_history(history)
         )
+        debug_print("PROMPT", f"System prompt built ({len(system_prompt)} chars)",
+                   f"First 300 chars:\n{system_prompt[:300]}")
 
         # 4. Build content list (text + images + audio)
         contents = [message] if message else ["Analiza el contexto actual."]
+        attachment_count = 0
 
         if attachments:
             for attachment in attachments:
@@ -101,55 +140,84 @@ class LabAgent:
                         attachment["data"],
                         attachment.get("mime_type", "image/jpeg")
                     ))
+                    attachment_count += 1
                 elif attachment["type"].startswith("audio"):
                     contents.append(create_audio_part(
                         attachment["data"],
                         attachment.get("mime_type", "audio/wav")
                     ))
+                    attachment_count += 1
+
+        debug_print("SEND", f"Sending to Gemini: {len(contents)} content parts, {attachment_count} attachments")
 
         # 5. Call Gemini
+        gemini_start = time.time()
         response_text, success = await self.gemini.send_request(
             system_prompt=system_prompt,
             contents=contents
         )
+        gemini_time = time.time() - gemini_start
+
+        debug_print("GEMINI", f"Response received in {gemini_time:.2f}s, success={success}",
+                   response_text[:500] if response_text else "No response")
 
         if not success:
-            return {
+            error_response = {
                 "status": "error",
                 "message": f"Error al comunicarse con Gemini: {response_text}"
             }
+            debug_print("ERROR", "Gemini request failed", error_response)
+            return error_response
 
         # 6. Parse AI response
         try:
             ai_response = json.loads(response_text)
+            debug_print("PARSE", "JSON parsed successfully", ai_response)
         except json.JSONDecodeError as e:
-            return {
+            error_response = {
                 "status": "error",
                 "message": f"Error al parsear respuesta del AI: {e}\nRespuesta: {response_text[:500]}"
             }
+            debug_print("ERROR", f"JSON parse failed: {e}", response_text[:500])
+            return error_response
 
         # 7. Validate response
         is_valid, error = validate_ai_response(ai_response)
         if not is_valid:
-            return {
+            error_response = {
                 "status": "error",
                 "message": f"Respuesta inválida del AI: {error}"
             }
+            debug_print("ERROR", f"Validation failed: {error}", ai_response)
+            return error_response
+
+        debug_print("VALID", "Response validated successfully")
 
         # 8. Execute tool calls if any
         if ai_response.get("tool_calls"):
+            debug_print("TOOLS", f"Executing {len(ai_response['tool_calls'])} tool calls")
             tool_results = []
             for call in ai_response["tool_calls"]:
+                debug_print("TOOL", f"Executing: {call['tool']}", call.get('parameters'))
                 result = await self.executor.execute(call["tool"], call["parameters"])
                 tool_results.append({
                     "tool": call["tool"],
                     "result": result
                 })
+                debug_print("TOOL_RESULT", f"{call['tool']} completed", result)
             ai_response["tool_results"] = tool_results
 
         # 9. Save messages to database
         self.db.add_message(chat_id, "user", message)
         self.db.add_message(chat_id, "assistant", ai_response.get("message", ""))
+
+        total_time = time.time() - start_time
+        debug_print("DONE", f"Request completed in {total_time:.2f}s", {
+            "status": ai_response.get("status", "ok"),
+            "message_preview": ai_response.get("message", "")[:100],
+            "tool_calls": len(ai_response.get("tool_calls", [])),
+            "thinking": ai_response.get("thinking", "")[:100] if ai_response.get("thinking") else None
+        })
 
         return ai_response
 
