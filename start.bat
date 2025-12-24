@@ -1,3 +1,4 @@
 @echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
+echo Starting Lab Assistant (Docker mode)...
+powershell -ExecutionPolicy Bypass -File "%~dp0scripts\start-docker.ps1"
 pause

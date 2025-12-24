@@ -1,0 +1,60 @@
+# Start Lab Assistant with Docker for LobeChat (Windows PowerShell)
+
+$ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Split-Path -Parent $ScriptDir
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "Starting Lab Assistant" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+
+# Check if Docker is running
+try {
+    docker info | Out-Null
+} catch {
+    Write-Host "Error: Docker is not running. Please start Docker Desktop first." -ForegroundColor Red
+    exit 1
+}
+
+# Start backend in new window
+Write-Host "Starting backend on http://localhost:8000" -ForegroundColor Green
+$BackendDir = Join-Path $ProjectDir "backend"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$BackendDir'; python server.py"
+
+# Wait for backend
+Write-Host "Waiting for backend to start..." -ForegroundColor Yellow
+Start-Sleep -Seconds 5
+
+# Start LobeChat via Docker
+Write-Host "Starting LobeChat frontend on http://localhost:3210" -ForegroundColor Green
+
+# Stop existing container if running
+docker stop lobe-chat 2>$null
+docker rm lobe-chat 2>$null
+
+# Run LobeChat with our backend as the OpenAI proxy
+docker run -d `
+    --name lobe-chat `
+    -p 3210:3210 `
+    -e OPENAI_PROXY_URL=http://host.docker.internal:8000/v1 `
+    -e OPENAI_API_KEY=dummy-key `
+    -e "OPENAI_MODEL_LIST=+lab-assistant=Lab Assistant<100000:vision:fc>" `
+    -e ACCESS_CODE=lobe66 `
+    --add-host=host.docker.internal:host-gateway `
+    lobehub/lobe-chat
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "Lab Assistant is running!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "Backend:  http://localhost:8000" -ForegroundColor Yellow
+Write-Host "Frontend: http://localhost:3210" -ForegroundColor Yellow
+Write-Host "Access Code: lobe66" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "To stop:" -ForegroundColor Cyan
+Write-Host "  - Close the backend PowerShell window" -ForegroundColor White
+Write-Host "  - Run: docker stop lobe-chat" -ForegroundColor White
