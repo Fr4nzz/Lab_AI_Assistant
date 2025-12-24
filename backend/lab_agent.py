@@ -14,6 +14,11 @@ from .tool_executor import ToolExecutor
 from .tools import get_tools_description
 from .prompts import build_system_prompt, WELCOME_MESSAGE
 from .schemas import validate_ai_response
+from .context_formatters import (
+    format_ordenes_context,
+    format_reportes_context,
+    format_orden_edit_context
+)
 
 
 class LabAgent:
@@ -79,10 +84,10 @@ class LabAgent:
         # 2. Get current page context
         page_context = await self._get_current_context()
 
-        # 3. Build prompt
+        # 3. Build prompt (use formatted context for token efficiency)
         system_prompt = build_system_prompt(
             tools_description=get_tools_description(),
-            current_context=json.dumps(page_context, ensure_ascii=False, indent=2),
+            current_context=page_context.get("formatted", json.dumps(page_context, ensure_ascii=False)),
             chat_history=self._format_history(history)
         )
 
@@ -151,16 +156,47 @@ class LabAgent:
     async def _get_current_context(self) -> dict:
         """Get context from current page state."""
         if not self.extractor:
-            return {"page_type": "unknown", "url": "Browser not initialized"}
+            return {"page_type": "unknown", "url": "Browser not initialized", "formatted": "Browser not initialized"}
 
         try:
-            return await self.extractor.extract_current_page()
+            data = await self.extractor.extract_current_page()
+
+            # Format data using optimized formatters (reduces tokens by ~50%)
+            formatted = self._format_context(data)
+            data["formatted"] = formatted
+
+            return data
         except Exception as e:
             return {
                 "page_type": "error",
                 "url": self.browser.page.url if self.browser.page else "N/A",
-                "error": str(e)
+                "error": str(e),
+                "formatted": f"Error: {str(e)}"
             }
+
+    def _format_context(self, data: dict) -> str:
+        """Format extracted data using optimized formatters."""
+        page_type = data.get("page_type", "unknown")
+
+        if page_type == "ordenes_list":
+            return format_ordenes_context(data.get("ordenes", []))
+        elif page_type == "reportes":
+            return format_reportes_context(data)
+        elif page_type == "orden_edit":
+            return format_orden_edit_context(data)
+        elif page_type == "orden_create":
+            # Basic format for create page
+            exams = data.get("examenes_seleccionados", [])
+            if exams:
+                lines = ["# Nueva Orden"]
+                lines.append(f"Paciente cargado: {'Sí' if data.get('paciente_cargado') else 'No'}")
+                lines.append(f"Exámenes: {len(exams)}")
+                for e in exams:
+                    lines.append(f"  - {e.get('nombre', 'N/A')} ({e.get('valor', 'N/A')})")
+                return "\n".join(lines)
+            return "# Nueva Orden\nNo hay exámenes seleccionados"
+        else:
+            return f"Página: {page_type}\nURL: {data.get('url', 'N/A')}"
 
     def _format_history(self, history: List[Dict]) -> str:
         """Format chat history for the prompt."""
