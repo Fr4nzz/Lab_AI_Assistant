@@ -55,13 +55,25 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         """Creates a new model with the current API key."""
         global _shared_key_index
         key = self.api_keys[_shared_key_index]
-        self._current_model = ChatGoogleGenerativeAI(
-            model=self.model_name,
-            google_api_key=key,
-            temperature=self.temperature,
-            convert_system_message_to_human=True,
-            max_retries=0,  # Disable internal retry
-        )
+
+        # Detect if using Gemini 3.x (supports thinking_level)
+        is_gemini_3 = "gemini-3" in self.model_name.lower()
+
+        model_kwargs = {
+            "model": self.model_name,
+            "google_api_key": key,
+            "temperature": self.temperature,
+            "convert_system_message_to_human": True,
+            "max_retries": 0,  # Disable internal retry
+        }
+
+        # Enable thinking for supported models
+        if is_gemini_3:
+            model_kwargs["include_thoughts"] = True
+            model_kwargs["thinking_level"] = "medium"
+            logger.info(f"[Model] Enabling thinking for Gemini 3 model")
+
+        self._current_model = ChatGoogleGenerativeAI(**model_kwargs)
         logger.info(f"[Model] Configured with Key #{_shared_key_index + 1}")
 
     def _switch_key(self):
