@@ -26,6 +26,11 @@ from langchain_openai import ChatOpenAI
 logger = logging.getLogger(__name__)
 
 
+# Class-level shared state (outside class to avoid Pydantic ModelPrivateAttr issues)
+_shared_key_index: int = 0
+_shared_last_request_time: float = 0
+
+
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     """
     Wrapper around ChatGoogleGenerativeAI that rotates API keys on rate limits.
@@ -38,10 +43,6 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     min_request_interval: float = 4.0  # 15 RPM = 4s interval
     _current_model: Optional[ChatGoogleGenerativeAI] = None
 
-    # Class-level shared state
-    _key_index: int = 0
-    _last_request_time: float = 0
-
     class Config:
         arbitrary_types_allowed = True
 
@@ -52,7 +53,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
     def _configure_model(self):
         """Creates a new model with the current API key."""
-        key = self.api_keys[ChatGoogleGenerativeAIWithKeyRotation._key_index]
+        global _shared_key_index
+        key = self.api_keys[_shared_key_index]
         self._current_model = ChatGoogleGenerativeAI(
             model=self.model_name,
             google_api_key=key,
@@ -60,14 +62,13 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             convert_system_message_to_human=True,
             max_retries=0,  # Disable internal retry
         )
-        logger.info(f"[Model] Configured with Key #{ChatGoogleGenerativeAIWithKeyRotation._key_index + 1}")
+        logger.info(f"[Model] Configured with Key #{_shared_key_index + 1}")
 
     def _switch_key(self):
         """Rotates to the next API key."""
-        ChatGoogleGenerativeAIWithKeyRotation._key_index = (
-            ChatGoogleGenerativeAIWithKeyRotation._key_index + 1
-        ) % len(self.api_keys)
-        logger.info(f"[Model] Switching to Key #{ChatGoogleGenerativeAIWithKeyRotation._key_index + 1}")
+        global _shared_key_index
+        _shared_key_index = (_shared_key_index + 1) % len(self.api_keys)
+        logger.info(f"[Model] Switching to Key #{_shared_key_index + 1}")
         self._configure_model()
 
     @property
@@ -92,14 +93,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate with automatic key rotation on rate limits."""
+        global _shared_last_request_time
         last_error = None
         for attempt in range(self.max_retries):
             try:
                 # Rate limit between requests
-                elapsed = time.time() - ChatGoogleGenerativeAIWithKeyRotation._last_request_time
+                elapsed = time.time() - _shared_last_request_time
                 if elapsed < self.min_request_interval:
                     time.sleep(self.min_request_interval - elapsed)
-                ChatGoogleGenerativeAIWithKeyRotation._last_request_time = time.time()
+                _shared_last_request_time = time.time()
 
                 return self._current_model._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
@@ -107,7 +109,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 last_error = e
                 if self._is_rate_limit_error(e):
                     wait = min(self._parse_retry_delay(str(e)), 10)
-                    logger.warning(f"[Model] Rate limit on Key #{ChatGoogleGenerativeAIWithKeyRotation._key_index + 1}, "
+                    logger.warning(f"[Model] Rate limit on Key #{_shared_key_index + 1}, "
                                    f"waiting {wait:.0f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_key()
                     time.sleep(wait)
@@ -124,14 +126,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Async generate with automatic key rotation on rate limits."""
+        global _shared_last_request_time
         last_error = None
         for attempt in range(self.max_retries):
             try:
                 # Rate limit between requests
-                elapsed = time.time() - ChatGoogleGenerativeAIWithKeyRotation._last_request_time
+                elapsed = time.time() - _shared_last_request_time
                 if elapsed < self.min_request_interval:
                     await asyncio.sleep(self.min_request_interval - elapsed)
-                ChatGoogleGenerativeAIWithKeyRotation._last_request_time = time.time()
+                _shared_last_request_time = time.time()
 
                 return await self._current_model._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
@@ -139,7 +142,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 last_error = e
                 if self._is_rate_limit_error(e):
                     wait = min(self._parse_retry_delay(str(e)), 10)
-                    logger.warning(f"[Model] Rate limit on Key #{ChatGoogleGenerativeAIWithKeyRotation._key_index + 1}, "
+                    logger.warning(f"[Model] Rate limit on Key #{_shared_key_index + 1}, "
                                    f"waiting {wait:.0f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_key()
                     await asyncio.sleep(wait)
