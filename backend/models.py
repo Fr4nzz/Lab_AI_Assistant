@@ -119,7 +119,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 _shared_last_request_time = time.time()
 
                 # Handle both ChatGoogleGenerativeAI and RunnableBinding (from bind_tools)
-                if hasattr(self._current_model, '_generate'):
+                # RunnableBinding has _generate but it doesn't handle tools properly - use invoke
+                from langchain_core.runnables import RunnableBinding
+                if isinstance(self._current_model, RunnableBinding):
+                    logger.info(f"[Model] Using invoke for RunnableBinding")
+                    result = self._current_model.invoke(messages, stop=stop, **kwargs)
+                    logger.info(f"[Model] Result type: {type(result)}, has tool_calls: {bool(getattr(result, 'tool_calls', None))}")
+                    from langchain_core.outputs import ChatGeneration
+                    return ChatResult(generations=[ChatGeneration(message=result)])
+                elif hasattr(self._current_model, '_generate'):
                     return self._current_model._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
                 else:
                     # RunnableBinding - use invoke and wrap result
@@ -166,18 +174,20 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 _shared_last_request_time = time.time()
 
                 # Handle both ChatGoogleGenerativeAI and RunnableBinding (from bind_tools)
-                if hasattr(self._current_model, '_agenerate'):
+                # RunnableBinding has _agenerate but it doesn't handle tools properly - use ainvoke
+                from langchain_core.runnables import RunnableBinding
+                if isinstance(self._current_model, RunnableBinding):
+                    logger.info(f"[Model] Using ainvoke for RunnableBinding")
+                    result = await self._current_model.ainvoke(messages, stop=stop, **kwargs)
+                    logger.info(f"[Model] Result type: {type(result)}, has tool_calls: {bool(getattr(result, 'tool_calls', None))}")
+                    from langchain_core.outputs import ChatGeneration
+                    return ChatResult(generations=[ChatGeneration(message=result)])
+                elif hasattr(self._current_model, '_agenerate'):
                     return await self._current_model._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
                 else:
-                    # RunnableBinding - use ainvoke and wrap result
-                    logger.debug(f"[Model] Calling RunnableBinding.ainvoke with {len(messages)} messages")
+                    # Fallback - use ainvoke and wrap result
+                    logger.debug(f"[Model] Calling ainvoke fallback with {len(messages)} messages")
                     result = await self._current_model.ainvoke(messages, stop=stop, **kwargs)
-                    logger.debug(f"[Model] RunnableBinding result type: {type(result)}")
-                    logger.debug(f"[Model] RunnableBinding result: {result}")
-                    if hasattr(result, 'content'):
-                        logger.debug(f"[Model] Result content: {result.content[:200] if result.content else '(empty)'}")
-                    if hasattr(result, 'tool_calls'):
-                        logger.debug(f"[Model] Result tool_calls: {result.tool_calls}")
                     from langchain_core.outputs import ChatGeneration
                     return ChatResult(generations=[ChatGeneration(message=result)])
 
