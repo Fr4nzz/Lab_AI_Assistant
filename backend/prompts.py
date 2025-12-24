@@ -53,6 +53,15 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 ## HERRAMIENTAS DISPONIBLES
 {tools_description}
 
+### CUÁNDO USAR CADA HERRAMIENTA
+- **get_ordenes**: SOLO úsalo si necesitas refrescar la lista de órdenes. Las órdenes YA ESTÁN en el CONTEXTO ACTUAL abajo, NO necesitas llamar a get_ordenes para verlas.
+- **get_reportes**: Para obtener los campos de un examen específico cuando vas a ingresar resultados
+- **get_orden**: Para ver detalles de una orden específica
+- **fill/fill_many**: Para llenar campos de resultados
+- **ask_user**: Cuando necesites que el usuario haga algo (guardar, validar, etc.)
+
+Si el usuario pregunta por las órdenes recientes y YA LAS VES en el contexto abajo, simplemente responde con la información. NO llames a get_ordenes innecesariamente.
+
 ## FORMATO DE RESPUESTA
 SIEMPRE responde con un JSON válido con esta estructura:
 ```json
