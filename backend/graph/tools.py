@@ -1,0 +1,595 @@
+"""
+LangChain-compatible tool definitions for Lab Assistant.
+
+DOCUMENTATION:
+- @tool decorator: https://python.langchain.com/docs/how_to/custom_tools/
+- StructuredTool: https://python.langchain.com/docs/how_to/custom_tools/#structuredtool
+- Tool annotations: https://python.langchain.com/docs/how_to/tool_configure/
+
+DESIGN PRINCIPLES:
+1. ALL tools are safe - they only fill forms, never save
+2. Batch operations - accept arrays to minimize iterations
+3. Return strings (will be added to messages)
+4. The website's Save button is the human-in-the-loop mechanism
+
+BATCH EFFICIENCY GOAL:
+- Ideal flow: search -> get_exam_fields (all orders) -> edit_results (all fields) -> done
+- Target: 2-3 iterations instead of 5+
+"""
+from typing import List, Dict, Any, Optional
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from browser_manager import BrowserManager
+from extractors import EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
+
+
+# Global browser instance (will be set during app startup)
+_browser: Optional[BrowserManager] = None
+_active_tabs: Dict[str, Any] = {}  # {orden_num: Page}
+
+
+# CSS for highlighting modified fields
+HIGHLIGHT_STYLES = """
+    .ai-modified {
+        background-color: #fef3c7 !important;
+        border: 2px solid #f59e0b !important;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.4) !important;
+    }
+    .ai-modified-row {
+        background-color: #fffbeb !important;
+    }
+    .ai-change-badge {
+        display: inline-block;
+        background: #dc2626;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin-left: 8px;
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+"""
+
+
+def set_browser(browser: BrowserManager):
+    """Set the browser instance for tools to use."""
+    global _browser
+    _browser = browser
+
+
+def get_active_tabs() -> Dict[str, Any]:
+    """Get the active tabs dictionary."""
+    return _active_tabs
+
+
+def _get_event_loop():
+    """Get or create an event loop."""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.new_event_loop()
+
+
+def _run_async(coro):
+    """Run an async function in the current or new event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+        # If we're already in an async context, create a task
+        import nest_asyncio
+        nest_asyncio.apply()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        # No running loop, create one
+        return asyncio.run(coro)
+
+
+# ============================================================
+# SEARCH & NAVIGATION TOOLS
+# ============================================================
+
+@tool
+def search_orders(search: str = "", limit: int = 20) -> str:
+    """
+    Search orders by patient name or ID number (cedula).
+    Returns a list of matching orders with their IDs for further operations.
+
+    Args:
+        search: Text to search (patient name or cedula). Empty returns recent orders.
+        limit: Maximum orders to return (default 20)
+
+    Returns:
+        JSON with order list including: num, fecha, paciente, cedula, estado, id
+
+    Example:
+        search_orders(search="chandi franz", limit=10)
+    """
+    async def _search():
+        page = await _browser.ensure_page()
+        if search:
+            url = f"https://laboratoriofranz.orion-labs.com/ordenes?cadenaBusqueda={search}&page=1"
+        else:
+            url = "https://laboratoriofranz.orion-labs.com/ordenes"
+
+        await page.goto(url, timeout=30000)
+        await page.wait_for_timeout(2000)
+
+        ordenes = await page.evaluate(EXTRACT_ORDENES_JS)
+        return ordenes[:limit]
+
+    result = _run_async(_search())
+    return json.dumps({
+        "ordenes": result,
+        "total": len(result),
+        "tip": "Use 'num' field for get_exam_fields(), use 'id' field for get_order_details()"
+    }, ensure_ascii=False)
+
+
+@tool
+def get_exam_fields(ordenes: List[str]) -> str:
+    """
+    Get exam fields for ONE OR MORE orders. Opens browser tabs for editing.
+    BATCH OPERATION: Pass ALL order numbers you need at once to minimize iterations.
+
+    Args:
+        ordenes: List of order NUMBERS (the 'num' field, e.g., ["2501181", "25011314"])
+
+    Returns:
+        JSON with exam fields for each order, tabs remain open for edit_results()
+
+    Example - Single order:
+        get_exam_fields(ordenes=["2501181"])
+
+    Example - Multiple orders (PREFERRED for efficiency):
+        get_exam_fields(ordenes=["2501181", "25011314", "2501200"])
+    """
+    global _active_tabs
+
+    async def _get_fields():
+        results = []
+        for orden in ordenes:
+            # Reuse existing tab or create new one
+            if orden in _active_tabs:
+                page = _active_tabs[orden]
+                try:
+                    await page.reload()
+                except Exception:
+                    # Page might be closed, create new one
+                    page = await _browser.context.new_page()
+                    _active_tabs[orden] = page
+            else:
+                page = await _browser.context.new_page()
+                _active_tabs[orden] = page
+
+            url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
+            await page.goto(url, timeout=30000)
+            await page.wait_for_timeout(2000)
+
+            # Inject highlight styles
+            await _inject_highlight_styles(page)
+
+            data = await page.evaluate(EXTRACT_REPORTES_JS)
+            results.append({
+                "orden": orden,
+                "tab_ready": True,
+                **data
+            })
+
+        return results
+
+    result = _run_async(_get_fields())
+    return json.dumps({
+        "ordenes": result,
+        "total": len(result),
+        "tabs_open": len(_active_tabs),
+        "tip": "Tabs are ready. Use edit_results() with ALL fields you want to change."
+    }, ensure_ascii=False)
+
+
+@tool
+def get_order_details(order_ids: List[int]) -> str:
+    """
+    Get details of ONE OR MORE orders by their internal IDs.
+    Use this to check what exams exist in orders before editing.
+    BATCH OPERATION: Pass ALL order IDs you need at once.
+
+    Args:
+        order_ids: List of internal order IDs (the 'id' field, e.g., [4282, 4150])
+
+    Returns:
+        JSON with order details (patient info, exams list, totals) for each order
+
+    Example - Single order:
+        get_order_details(order_ids=[4282])
+
+    Example - Multiple orders (PREFERRED):
+        get_order_details(order_ids=[4282, 4150, 4100])
+    """
+    async def _get_details():
+        results = []
+        for order_id in order_ids:
+            page = await _browser.ensure_page()
+            url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
+            await page.goto(url, timeout=30000)
+            await page.wait_for_timeout(1500)
+
+            data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+            data["order_id"] = order_id
+            results.append(data)
+
+        return results
+
+    result = _run_async(_get_details())
+    return json.dumps({
+        "orders": result,
+        "total": len(result)
+    }, ensure_ascii=False)
+
+
+# ============================================================
+# FORM EDITING TOOLS (All safe - only fill forms, never save)
+# ============================================================
+
+class EditResultsInput(BaseModel):
+    """Input schema for edit_results tool."""
+    data: List[Dict[str, str]] = Field(
+        description="List of field edits. Each item must have: orden (order number), e (exam name), f (field name), v (value)"
+    )
+
+
+# JavaScript for filling a field and auto-highlighting
+FILL_FIELD_JS = r"""
+(params) => {
+    const rows = document.querySelectorAll('tr.parametro');
+    for (const row of rows) {
+        const labelCell = row.querySelector('td:first-child');
+        const labelText = labelCell?.innerText?.trim();
+        if (!labelText || !labelText.toLowerCase().includes(params.f.toLowerCase())) {
+            continue;
+        }
+        const input = row.querySelector('input');
+        const select = row.querySelector('select');
+        const control = input || select;
+        if (!control) continue;
+
+        const prev = input ? input.value : (select.options[select.selectedIndex]?.text || '');
+
+        if (input) {
+            input.value = params.v;
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        } else if (select) {
+            let found = false;
+            for (const opt of select.options) {
+                if (opt.text.toLowerCase().includes(params.v.toLowerCase())) {
+                    select.value = opt.value;
+                    select.dispatchEvent(new Event('change', {bubbles: true}));
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return {err: 'Option not found: ' + params.v + ' in field ' + params.f};
+            }
+        }
+
+        // Auto-highlight the changed field
+        control.classList.add('ai-modified');
+        row.classList.add('ai-modified-row');
+
+        // Add change indicator
+        const existingBadge = control.parentNode.querySelector('.ai-change-badge');
+        if (!existingBadge) {
+            const indicator = document.createElement('span');
+            indicator.className = 'ai-change-badge';
+            indicator.textContent = prev + ' → ' + params.v;
+            control.parentNode.appendChild(indicator);
+        }
+
+        control.scrollIntoView({behavior: 'smooth', block: 'center'});
+        return {field: labelText, prev: prev, new: params.v};
+    }
+    return {err: 'Field not found: ' + params.f};
+}
+"""
+
+
+@tool(args_schema=EditResultsInput)
+def edit_results(data: List[Dict[str, str]]) -> str:
+    """
+    Edit exam result fields in browser forms. Fields are auto-highlighted.
+    BATCH OPERATION: Pass ALL fields for ALL orders at once.
+
+    IMPORTANT: This only FILLS the forms. User must click "Guardar" to save.
+
+    Args:
+        data: List of edits. Each item needs:
+            - orden: Order NUMBER (e.g., "2501181")
+            - e: Exam name (e.g., "BIOMETRIA HEMATICA")
+            - f: Field name (e.g., "Hemoglobina")
+            - v: Value to set (e.g., "15.5")
+
+    Returns:
+        Summary of fields filled, with before/after values
+
+    Example - Edit multiple fields across multiple orders:
+        edit_results(data=[
+            {"orden": "2501181", "e": "BIOMETRIA HEMATICA", "f": "Hemoglobina", "v": "15.5"},
+            {"orden": "2501181", "e": "BIOMETRIA HEMATICA", "f": "Hematocrito", "v": "46"},
+            {"orden": "25011314", "e": "COPROPARASITARIO", "f": "Color", "v": "Cafe Rojizo"},
+            {"orden": "25011314", "e": "COPROPARASITARIO", "f": "Consistencia", "v": "Diarreica"}
+        ])
+    """
+    global _active_tabs
+
+    async def _edit():
+        results = []
+        results_by_orden = {}
+
+        for item in data:
+            orden = item["orden"]
+
+            # Get the page for this order
+            if orden not in _active_tabs:
+                results.append({
+                    "orden": orden,
+                    "err": f"No tab open for order {orden}. Call get_exam_fields first."
+                })
+                continue
+
+            page = _active_tabs[orden]
+
+            try:
+                await page.bring_to_front()
+
+                result = await page.evaluate(FILL_FIELD_JS, {
+                    "e": item["e"],
+                    "f": item["f"],
+                    "v": item["v"]
+                })
+                result["orden"] = orden
+                results.append(result)
+            except Exception as e:
+                results.append({
+                    "orden": orden,
+                    "err": str(e)
+                })
+
+            # Track by order
+            if orden not in results_by_orden:
+                results_by_orden[orden] = {"filled": 0, "errors": 0}
+            if "field" in results[-1]:
+                results_by_orden[orden]["filled"] += 1
+            if "err" in results[-1]:
+                results_by_orden[orden]["errors"] += 1
+
+        return results, results_by_orden
+
+    results, by_orden = _run_async(_edit())
+    filled = len([r for r in results if "field" in r])
+    errors = [r for r in results if "err" in r]
+
+    return json.dumps({
+        "filled": filled,
+        "total": len(data),
+        "by_orden": by_orden,
+        "details": results,
+        "errors": errors,
+        "next_step": "Ask user to review highlighted fields and click 'Guardar' in each tab."
+    }, ensure_ascii=False)
+
+
+@tool
+def add_exam_to_order(order_id: int, exam_code: str) -> str:
+    """
+    Add an exam to an existing order. Form must be saved manually by user.
+
+    Args:
+        order_id: Internal order ID (the 'id' field)
+        exam_code: Exam code to add (e.g., "EMO", "BH", "COPROPARASITARIO")
+
+    Returns:
+        Confirmation message. User must click Guardar to save.
+
+    Example:
+        add_exam_to_order(order_id=4282, exam_code="EMO")
+    """
+    async def _add_exam():
+        page = await _browser.ensure_page()
+        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
+        await page.goto(url)
+        await page.wait_for_timeout(1500)
+
+        search = page.locator('#buscar-examen-input')
+        await search.fill(exam_code)
+        await page.wait_for_timeout(800)
+
+        add_btn = page.locator('button[id*="examen"]').first
+        if await add_btn.count() > 0:
+            await add_btn.click()
+            return {"added": exam_code, "order_id": order_id, "status": "pending_save"}
+        return {"err": f"Could not find exam {exam_code}"}
+
+    result = _run_async(_add_exam())
+    return json.dumps({
+        **result,
+        "next_step": "User must click 'Guardar' to save the exam to the order."
+    }, ensure_ascii=False)
+
+
+@tool
+def create_new_order(cedula: str, exams: List[str]) -> str:
+    """
+    Create a new order form for a patient. Form must be saved manually by user.
+
+    Args:
+        cedula: Patient ID number (cedula)
+        exams: List of exam codes to add (e.g., ["EMO", "BH"])
+
+    Returns:
+        Confirmation message. User must click Guardar to save.
+
+    Example:
+        create_new_order(cedula="1500887144", exams=["EMO", "COPROPARASITARIO"])
+    """
+    async def _create():
+        page = await _browser.ensure_page()
+        await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
+        await page.wait_for_timeout(1000)
+
+        cedula_input = page.locator('#identificacion')
+        await cedula_input.fill(cedula)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(2000)
+
+        added_exams = []
+        for exam in exams:
+            search = page.locator('#buscar-examen-input')
+            await search.fill(exam)
+            await page.wait_for_timeout(800)
+            add_btn = page.locator('button[id*="examen"]').first
+            if await add_btn.count() > 0:
+                await add_btn.click()
+                added_exams.append(exam)
+                await page.wait_for_timeout(500)
+
+        return {"cedula": cedula, "exams_added": added_exams, "status": "pending_save"}
+
+    result = _run_async(_create())
+    return json.dumps({
+        **result,
+        "next_step": "User must click 'Guardar' to create the order."
+    }, ensure_ascii=False)
+
+
+# ============================================================
+# UI HELPER TOOLS
+# ============================================================
+
+@tool
+def highlight_fields(fields: List[str], color: str = "yellow") -> str:
+    """
+    Highlight specific fields in the browser to draw user attention.
+
+    Args:
+        fields: Field names to highlight (partial match)
+        color: Highlight color - yellow, green, red, or blue
+
+    Example:
+        highlight_fields(fields=["Hemoglobina", "Hematocrito"], color="yellow")
+    """
+    color_map = {
+        "yellow": "#fef3c7",
+        "green": "#d1fae5",
+        "red": "#fee2e2",
+        "blue": "#dbeafe"
+    }
+
+    async def _highlight():
+        highlighted = []
+        for orden, page in _active_tabs.items():
+            try:
+                await page.evaluate("""
+                    (params) => {
+                        const rows = document.querySelectorAll('tr.parametro');
+                        for (const row of rows) {
+                            const label = row.querySelector('td:first-child')?.innerText?.trim();
+                            for (const field of params.fields) {
+                                if (label && label.toLowerCase().includes(field.toLowerCase())) {
+                                    row.style.backgroundColor = params.color;
+                                }
+                            }
+                        }
+                    }
+                """, {"fields": fields, "color": color_map.get(color, "#fef3c7")})
+                highlighted.append(orden)
+            except Exception:
+                pass
+
+        return highlighted
+
+    result = _run_async(_highlight())
+    return json.dumps({
+        "highlighted_fields": fields,
+        "in_tabs": result,
+        "color": color
+    }, ensure_ascii=False)
+
+
+@tool
+def ask_user(action: str, message: str) -> str:
+    """
+    Display a message to the user requesting action or information.
+
+    Args:
+        action: Type of request - "save", "info", "confirm", "clarify"
+        message: Message to display to the user
+
+    Example:
+        ask_user(action="save", message="Please review the highlighted fields and click Guardar")
+    """
+    return json.dumps({
+        "waiting_for": action,
+        "message": message,
+        "status": "waiting_for_user"
+    }, ensure_ascii=False)
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+async def _inject_highlight_styles(page):
+    """Inject CSS for highlighting modified fields."""
+    await page.evaluate(f"""
+        () => {{
+            if (document.getElementById('ai-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'ai-styles';
+            style.textContent = `{HIGHLIGHT_STYLES}`;
+            document.head.appendChild(style);
+        }}
+    """)
+
+
+def close_tab(orden: str):
+    """Close a specific tab."""
+    global _active_tabs
+    if orden in _active_tabs:
+        _run_async(_active_tabs[orden].close())
+        del _active_tabs[orden]
+
+
+def close_all_tabs():
+    """Close all active tabs."""
+    global _active_tabs
+    for page in list(_active_tabs.values()):
+        try:
+            _run_async(page.close())
+        except Exception:
+            pass
+    _active_tabs.clear()
+
+
+# All tools list for binding to model
+ALL_TOOLS = [
+    search_orders,
+    get_exam_fields,
+    get_order_details,
+    edit_results,
+    add_exam_to_order,
+    create_new_order,
+    highlight_fields,
+    ask_user
+]
