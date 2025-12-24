@@ -4,8 +4,8 @@ Tool Executor - Executes AI tool calls with tab reuse and auto-highlight.
 from typing import Dict, Optional
 from playwright.async_api import Page, BrowserContext
 
-from .browser_manager import BrowserManager
-from .extractors import PageDataExtractor, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
+from browser_manager import BrowserManager
+from extractors import PageDataExtractor, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
 
 
 # CSS para resaltar campos modificados
