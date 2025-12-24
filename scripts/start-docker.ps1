@@ -31,9 +31,11 @@ Start-Sleep -Seconds 5
 # Start LobeChat via Docker
 Write-Host "Starting LobeChat frontend on http://localhost:3210" -ForegroundColor Green
 
-# Stop existing container if running
-docker stop lobe-chat 2>$null
-docker rm lobe-chat 2>$null
+# Stop existing container if running (ignore errors if not exists)
+$ErrorActionPreference = "SilentlyContinue"
+docker stop lobe-chat 2>&1 | Out-Null
+docker rm lobe-chat 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
 
 # Run LobeChat with our backend as the OpenAI proxy
 docker run -d `
