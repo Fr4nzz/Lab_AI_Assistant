@@ -91,6 +91,11 @@ async def extract_initial_context() -> str:
     """Extract initial orders list from the page for AI context."""
     global browser
     try:
+        # Make sure we're on the orders page
+        if "/ordenes" not in browser.page.url:
+            logger.info("[Context] Navigating to orders page...")
+            await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+
         await browser.page.wait_for_timeout(2000)  # Wait for page to load
         ordenes = await browser.page.evaluate(EXTRACT_ORDENES_JS)
         if ordenes:
