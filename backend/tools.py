@@ -1,25 +1,24 @@
 """
 Tool Definitions - Define the tools the AI agent can use.
-These are JSON-schema defined functions with short names to minimize token usage.
 """
 
 TOOL_DEFINITIONS = [
     # ============================================================
-    # DATA RETRIEVAL TOOLS (Background - keeps tab open for reuse)
+    # DATA RETRIEVAL TOOLS
     # ============================================================
     {
-        "name": "get_ordenes",
-        "description": "Obtiene la lista de órdenes recientes. Puede buscar por nombre de paciente o cédula.",
+        "name": "search_orders",
+        "description": "Busca órdenes por nombre de paciente o cédula.",
         "parameters": {
             "type": "object",
             "properties": {
                 "search": {
                     "type": "string",
-                    "description": "Texto para buscar (nombre de paciente o cédula). Usa la barra de búsqueda del sitio."
+                    "description": "Texto para buscar (nombre o cédula)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Número máximo de órdenes a obtener (default: 10)"
+                    "description": "Máximo de órdenes a obtener (default: 10)"
                 }
             },
             "required": []
@@ -27,8 +26,8 @@ TOOL_DEFINITIONS = [
         "execution_mode": "background"
     },
     {
-        "name": "get_reportes",
-        "description": "Obtiene campos de exámenes de una o más órdenes. USA el campo 'num' (NO 'id'). Abre pestañas para cada orden.",
+        "name": "get_exam_fields",
+        "description": "Obtiene campos de exámenes de una o más órdenes para editar. Usa 'num' de la orden.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -43,14 +42,14 @@ TOOL_DEFINITIONS = [
         "execution_mode": "background_keep_tab"
     },
     {
-        "name": "get_orden",
-        "description": "Obtiene detalles de una orden (exámenes, paciente). USA el campo 'id' interno (NO 'num').",
+        "name": "get_order_details",
+        "description": "Obtiene detalles de una orden (exámenes, paciente). Usa 'id' interno.",
         "parameters": {
             "type": "object",
             "properties": {
                 "id": {
                     "type": "integer",
-                    "description": "Campo 'id' interno de la orden (ej: 4282). NO usar 'num'."
+                    "description": "ID interno de la orden (ej: 4282)"
                 }
             },
             "required": ["id"]
@@ -59,11 +58,11 @@ TOOL_DEFINITIONS = [
     },
 
     # ============================================================
-    # ORDER MANAGEMENT TOOLS (Visible - user interaction needed)
+    # ORDER MANAGEMENT TOOLS
     # ============================================================
     {
-        "name": "create_orden",
-        "description": "Crea una nueva orden. Usar cuando el paciente NO ESTÁ en la lista de órdenes recientes.",
+        "name": "create_order",
+        "description": "Crea una nueva orden con paciente y exámenes.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -74,7 +73,7 @@ TOOL_DEFINITIONS = [
                 "exams": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Lista de códigos de exámenes a agregar (ej: ['EMO', 'BH'])"
+                    "description": "Lista de códigos de exámenes (ej: ['EMO', 'BH'])"
                 }
             },
             "required": ["cedula", "exams"]
@@ -83,7 +82,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "add_exam",
-        "description": "Agrega un examen a una orden existente (navega a la página de edición).",
+        "description": "Agrega un examen a una orden existente. Usa 'id' interno.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -102,11 +101,11 @@ TOOL_DEFINITIONS = [
     },
 
     # ============================================================
-    # RESULT EDITING TOOLS (Visible - auto-highlights changes)
+    # RESULT EDITING TOOLS
     # ============================================================
     {
-        "name": "fill_many",
-        "description": "Llena campos de resultados en una o más órdenes. Auto-resalta todos los campos modificados.",
+        "name": "edit_results",
+        "description": "Edita campos de resultados en una o más órdenes. Auto-resalta cambios.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -122,7 +121,7 @@ TOOL_DEFINITIONS = [
                         },
                         "required": ["orden", "e", "f", "v"]
                     },
-                    "description": "Lista de campos a llenar. Cada item incluye orden, examen, campo y valor."
+                    "description": "Lista de campos: [{orden, e (examen), f (campo), v (valor)}]"
                 }
             },
             "required": ["data"]
@@ -135,8 +134,8 @@ TOOL_DEFINITIONS = [
     # UI TOOLS
     # ============================================================
     {
-        "name": "hl",
-        "description": "Resalta campos específicos para llamar la atención del usuario (sin editarlos).",
+        "name": "highlight",
+        "description": "Resalta campos sin editarlos (para llamar atención del usuario).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -157,7 +156,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "ask_user",
-        "description": "Solicita una acción del usuario (guardar, validar, proporcionar información).",
+        "description": "Solicita una acción del usuario (guardar, validar, info).",
         "parameters": {
             "type": "object",
             "properties": {

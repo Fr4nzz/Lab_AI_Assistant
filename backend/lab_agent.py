@@ -121,7 +121,7 @@ class LabAgent:
         context_changed = True  # Flag to track if we need to re-extract
 
         # Tools that change page context (require re-extraction)
-        NAVIGATION_TOOLS = {"get_ordenes", "get_reportes", "get_orden", "create_orden", "add_exam"}
+        NAVIGATION_TOOLS = {"search_orders", "get_exam_fields", "get_order_details", "create_order", "add_exam"}
 
         while iteration < MAX_ITERATIONS:
             iteration += 1
