@@ -9,10 +9,14 @@ TOOL_DEFINITIONS = [
     # ============================================================
     {
         "name": "get_ordenes",
-        "description": "Obtiene la lista de órdenes recientes. Navega a /ordenes y extrae las órdenes visibles.",
+        "description": "Obtiene la lista de órdenes recientes. Puede buscar por nombre de paciente o cédula.",
         "parameters": {
             "type": "object",
             "properties": {
+                "search": {
+                    "type": "string",
+                    "description": "Texto para buscar (nombre de paciente o cédula). Usa la barra de búsqueda del sitio."
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Número máximo de órdenes a obtener (default: 10)"

@@ -137,14 +137,24 @@ class ToolExecutor:
     # ============================================================
 
     async def _exec_get_ordenes(self, p: dict) -> dict:
-        """Obtiene la lista de órdenes recientes."""
+        """Obtiene la lista de órdenes recientes. Puede buscar por nombre o cédula."""
         # Ensure we have a valid page
         page = await self.browser.ensure_page()
         limit = p.get("limit", 10)
+        search = p.get("search", "")
 
         # Navegar a la página de órdenes
         await page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
         await page.wait_for_timeout(2000)  # Esperar Vue.js
+
+        # Si hay búsqueda, usar la barra de búsqueda del sitio
+        if search:
+            # Buscar el input de búsqueda (puede tener diferentes selectores)
+            search_input = page.locator('input[type="search"], input[placeholder*="Buscar"], input[placeholder*="buscar"], #search, .search-input').first
+            if await search_input.count() > 0:
+                await search_input.fill(search)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(2000)  # Esperar resultados
 
         # Extraer órdenes
         ordenes = await page.evaluate(EXTRACT_ORDENES_JS)
@@ -155,6 +165,7 @@ class ToolExecutor:
         return {
             "ordenes": ordenes,
             "total": len(ordenes),
+            "search": search if search else None,
             "page_url": page.url
         }
 

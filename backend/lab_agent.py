@@ -119,20 +119,30 @@ class LabAgent:
         iteration = 0
         all_tool_results = []
         final_response = None
+        cached_context = None  # Cache context between iterations
+        context_changed = True  # Flag to track if we need to re-extract
+
+        # Tools that change page context (require re-extraction)
+        NAVIGATION_TOOLS = {"get_ordenes", "get_reportes", "get_orden", "create_orden", "add_exam"}
 
         while iteration < MAX_ITERATIONS:
             iteration += 1
             debug_print("LOOP", f"Iteration {iteration}/{MAX_ITERATIONS}")
 
-            # 1. Get chat history
-            history = self.db.get_messages(chat_id, limit=20)
-            debug_print("HISTORY", f"Loaded {len(history)} messages from history")
+            # 1. Get chat history (only on first iteration, as DB doesn't change mid-request)
+            if iteration == 1:
+                history = self.db.get_messages(chat_id, limit=20)
+                debug_print("HISTORY", f"Loaded {len(history)} messages from history")
 
-            # 2. Get current page context
-            debug_print("CONTEXT", "Extracting page context...")
-            page_context = await self._get_current_context()
-            debug_print("CONTEXT", f"Page type: {page_context.get('page_type', 'unknown')}",
-                       page_context.get("formatted", "No formatted context"))
+            # 2. Get page context (only if changed or first iteration)
+            if context_changed or cached_context is None:
+                debug_print("CONTEXT", "Extracting page context...")
+                cached_context = await self._get_current_context()
+                debug_print("CONTEXT", f"Page type: {cached_context.get('page_type', 'unknown')}",
+                           cached_context.get("formatted", "No formatted context"))
+                context_changed = False
+            else:
+                debug_print("CONTEXT", "Using cached context (no navigation tools executed)")
 
             # 3. Build prompt with tool results if any
             tool_results_context = ""
@@ -143,7 +153,7 @@ class LabAgent:
 
             system_prompt = build_system_prompt(
                 tools_description=get_tools_description(),
-                current_context=page_context.get("formatted", json.dumps(page_context, ensure_ascii=False)) + tool_results_context,
+                current_context=cached_context.get("formatted", json.dumps(cached_context, ensure_ascii=False)) + tool_results_context,
                 chat_history=self._format_history(history)
             )
             debug_print("PROMPT", f"System prompt built ({len(system_prompt)} chars)",
@@ -222,13 +232,18 @@ class LabAgent:
             if tool_calls:
                 debug_print("TOOLS", f"Executing {len(tool_calls)} tool calls")
                 for call in tool_calls:
-                    debug_print("TOOL", f"Executing: {call['tool']}", call.get('parameters'))
-                    result = await self.executor.execute(call["tool"], call["parameters"])
+                    tool_name = call["tool"]
+                    debug_print("TOOL", f"Executing: {tool_name}", call.get('parameters'))
+                    result = await self.executor.execute(tool_name, call["parameters"])
                     all_tool_results.append({
-                        "tool": call["tool"],
+                        "tool": tool_name,
                         "result": result
                     })
-                    debug_print("TOOL_RESULT", f"{call['tool']} completed", result)
+                    debug_print("TOOL_RESULT", f"{tool_name} completed", result)
+
+                    # Mark context as changed if navigation tool was used
+                    if tool_name in NAVIGATION_TOOLS:
+                        context_changed = True
 
                 # Continue loop to get final response with tool results
                 continue
