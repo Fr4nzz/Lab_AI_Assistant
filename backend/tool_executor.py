@@ -136,8 +136,8 @@ class ToolExecutor:
     # BACKGROUND TOOLS
     # ============================================================
 
-    async def _exec_get_ordenes(self, p: dict) -> dict:
-        """Obtiene la lista de órdenes recientes. Puede buscar por nombre o cédula."""
+    async def _exec_search_orders(self, p: dict) -> dict:
+        """Busca órdenes por nombre de paciente o cédula."""
         # Ensure we have a valid page
         page = await self.browser.ensure_page()
         limit = p.get("limit", 10)
@@ -166,8 +166,8 @@ class ToolExecutor:
             "page_url": page.url
         }
 
-    async def _exec_get_reportes(self, p: dict) -> dict:
-        """Obtiene datos de reportes de múltiples órdenes. Mantiene pestañas abiertas para editar."""
+    async def _exec_get_exam_fields(self, p: dict) -> dict:
+        """Obtiene campos de exámenes de múltiples órdenes. Mantiene pestañas abiertas para editar."""
         ordenes = p["ordenes"]
         results = []
 
@@ -194,8 +194,8 @@ class ToolExecutor:
 
         return {"ordenes": results, "total": len(results)}
 
-    async def _exec_get_orden(self, p: dict) -> dict:
-        """Obtiene detalles de una orden - en segundo plano."""
+    async def _exec_get_order_details(self, p: dict) -> dict:
+        """Obtiene detalles de una orden (exámenes, paciente)."""
         await self.init_background_context()
         page = await self._get_bg_page()
 
@@ -209,7 +209,7 @@ class ToolExecutor:
     # ORDER MANAGEMENT TOOLS (Visible)
     # ============================================================
 
-    async def _exec_create_orden(self, p: dict) -> dict:
+    async def _exec_create_order(self, p: dict) -> dict:
         """Crea una nueva orden con paciente y exámenes."""
         page = self.browser.page
 
@@ -259,8 +259,8 @@ class ToolExecutor:
     # RESULT EDITING TOOLS (Visible, Auto-Highlight)
     # ============================================================
 
-    async def _exec_fill_many(self, p: dict) -> dict:
-        """Llena múltiples campos en una o más órdenes con auto-resaltado."""
+    async def _exec_edit_results(self, p: dict) -> dict:
+        """Edita campos de resultados en una o más órdenes con auto-resaltado."""
         results = []
         results_by_orden = {}
 
@@ -269,7 +269,7 @@ class ToolExecutor:
 
             # Get the page for this order
             if orden not in self.active_tabs:
-                results.append({"orden": orden, "err": f"No hay pestaña abierta para orden {orden}. Usa get_reportes primero."})
+                results.append({"orden": orden, "err": f"No hay pestaña abierta para orden {orden}. Usa get_exam_fields primero."})
                 continue
 
             page = self.active_tabs[orden]
@@ -305,7 +305,7 @@ class ToolExecutor:
     # UI TOOLS
     # ============================================================
 
-    async def _exec_hl(self, p: dict) -> dict:
+    async def _exec_highlight(self, p: dict) -> dict:
         """Resalta campos específicos (sin editarlos)."""
         page = self._get_active_page()
 
