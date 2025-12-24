@@ -26,13 +26,20 @@ logger = logging.getLogger(__name__)
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     """
     Wrapper around ChatGoogleGenerativeAI that rotates API keys on rate limits.
+
+    Features:
+    - Rotates through multiple API keys on 429 errors
+    - Adds delay between requests to avoid hitting RPM limits
+    - Parses retry-after from error messages
     """
     api_keys: List[str]
     model_name: str
     current_key_index: int = 0
     max_retries: int = 6
     temperature: float = 0.7
+    min_request_interval: float = 4.0  # Seconds between requests (15 RPM = 4s interval)
     _current_model: Optional[ChatGoogleGenerativeAI] = None
+    _last_request_time: float = 0
 
     class Config:
         arbitrary_types_allowed = True
@@ -67,6 +74,25 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     def _llm_type(self) -> str:
         return "google-generative-ai-with-rotation"
 
+    def _parse_retry_delay(self, error_str: str) -> float:
+        """Parse retry delay from error message."""
+        import re
+        # Look for patterns like "retry in 51.584462013s" or "retryDelay': '50s'"
+        match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_str.lower())
+        if match:
+            return float(match.group(1))
+        return 5.0  # Default delay
+
+    def _wait_for_rate_limit(self):
+        """Wait to respect rate limit between requests."""
+        import time
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self.min_request_interval:
+            wait_time = self.min_request_interval - elapsed
+            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request")
+            time.sleep(wait_time)
+        self._last_request_time = time.time()
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -80,6 +106,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         last_error = None
         for attempt in range(self.max_retries):
             try:
+                self._wait_for_rate_limit()
                 return self._current_model._generate(
                     messages, stop=stop, run_manager=run_manager, **kwargs
                 )
@@ -89,15 +116,27 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
                 # Check for rate limit errors
                 if "429" in str(e) or "resource_exhausted" in error_str or "quota" in error_str:
-                    logger.warning(f"[Model] Rate limit hit, switching API key (attempt {attempt + 1}/{self.max_retries})")
+                    retry_delay = self._parse_retry_delay(str(e))
+                    logger.warning(f"[Model] Rate limit hit, switching API key and waiting {retry_delay:.1f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_api_key()
-                    time.sleep(1)
+                    time.sleep(min(retry_delay, 10))  # Cap at 10s per attempt
                     continue
                 else:
                     # Non-rate-limit error, raise immediately
                     raise
 
         raise Exception(f"Failed after {self.max_retries} attempts: {last_error}")
+
+    async def _await_rate_limit(self):
+        """Async wait to respect rate limit between requests."""
+        import asyncio
+        import time
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self.min_request_interval:
+            wait_time = self.min_request_interval - elapsed
+            logger.debug(f"[Model] Rate limit: waiting {wait_time:.1f}s before next request")
+            await asyncio.sleep(wait_time)
+        self._last_request_time = time.time()
 
     async def _agenerate(
         self,
@@ -112,6 +151,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         last_error = None
         for attempt in range(self.max_retries):
             try:
+                await self._await_rate_limit()
                 return await self._current_model._agenerate(
                     messages, stop=stop, run_manager=run_manager, **kwargs
                 )
@@ -121,9 +161,10 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
                 # Check for rate limit errors
                 if "429" in str(e) or "resource_exhausted" in error_str or "quota" in error_str:
-                    logger.warning(f"[Model] Rate limit hit, switching API key (attempt {attempt + 1}/{self.max_retries})")
+                    retry_delay = self._parse_retry_delay(str(e))
+                    logger.warning(f"[Model] Rate limit hit, switching API key and waiting {retry_delay:.1f}s (attempt {attempt + 1}/{self.max_retries})")
                     self._switch_api_key()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(min(retry_delay, 10))  # Cap at 10s per attempt
                     continue
                 else:
                     # Non-rate-limit error, raise immediately
