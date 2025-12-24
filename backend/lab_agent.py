@@ -204,6 +204,10 @@ class LabAgent:
             # 6. Parse AI response
             try:
                 ai_response = json.loads(response_text)
+                # Handle array responses - extract first element
+                if isinstance(ai_response, list) and len(ai_response) > 0:
+                    debug_print("PARSE", f"Got array with {len(ai_response)} elements, extracting first")
+                    ai_response = ai_response[0]
                 debug_print("PARSE", "JSON parsed successfully", ai_response)
             except json.JSONDecodeError as e:
                 error_response = {
