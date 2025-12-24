@@ -319,33 +319,3 @@ class BrowserManager:
         except:
             return None
     
-    async def execute_actions(self, actions: List[Dict]) -> List[Dict]:
-        """Execute multiple actions in sequence."""
-        results = []
-        for action in actions:
-            result = await self.execute_action(action)
-            results.append(result)
-            if not result.get("success"):
-                break  # Stop on first failure
-        return results
-    
-    async def check_logged_in(self, indicator_selector: str = None, indicator_text: str = None) -> bool:
-        """Check if user is logged in by looking for an indicator element."""
-        if indicator_selector:
-            element = await self.page.query_selector(indicator_selector)
-            return element is not None
-        
-        if indicator_text:
-            content = await self.get_page_content()
-            return indicator_text.lower() in content.lower()
-        
-        # Default: check for common login indicators
-        login_indicators = ["cerrar sesión", "logout", "mi cuenta", "perfil"]
-        content = await self.get_page_content()
-        content_lower = content.lower()
-        
-        for indicator in login_indicators:
-            if indicator in content_lower:
-                return True
-        
-        return False
