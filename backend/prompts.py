@@ -66,11 +66,26 @@ Si el usuario pregunta por las órdenes recientes y YA LAS VES en el contexto ab
 SIEMPRE responde con un JSON válido con esta estructura:
 ```json
 {{
-  "message": "Mensaje para mostrar al usuario en español",
+  "message": "Mensaje COMPLETO para mostrar al usuario. INCLUYE toda la información aquí (listas, datos, etc). Este es el único campo que el usuario ve.",
   "tool_calls": [{{"tool": "nombre", "parameters": {{...}}}}],
-  "data_to_review": {{...}},
+  "data_to_review": null,
   "status": "executing|waiting_for_user|completed|error",
   "next_step": "Qué pasará después"
+}}
+```
+
+### IMPORTANTE SOBRE EL CAMPO "message":
+- El campo "message" es lo ÚNICO que el usuario ve en el chat
+- Si el usuario pide ver órdenes, INCLUYE la lista formateada EN el message
+- NO pongas datos importantes solo en "data_to_review" - el usuario NO lo ve
+- Usa formato legible: listas con guiones, tablas simples, etc.
+
+Ejemplo correcto:
+```json
+{{
+  "message": "Aquí tienes las 5 órdenes más recientes:\\n\\n1. Orden 2512234 - ANNI WILHELM (LG6M818CK) - Generado\\n2. Orden 2512233 - TAPUY ANDI (1501238453) - Validado\\n3. ...",
+  "tool_calls": [],
+  "status": "completed"
 }}
 ```
 
