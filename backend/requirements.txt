@@ -1,8 +1,21 @@
+# LangGraph and LangChain
+langgraph>=0.2.31
+langgraph-checkpoint-sqlite
+langgraph-checkpoint-postgres
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-openai>=0.2.0
+
+# Existing dependencies
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
-google-genai>=1.0.0
 playwright>=1.40.0
 sqlalchemy>=2.0.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
+
+# Additional for async support
+asyncpg
+aiosqlite
