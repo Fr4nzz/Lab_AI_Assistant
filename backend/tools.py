@@ -8,6 +8,21 @@ TOOL_DEFINITIONS = [
     # DATA RETRIEVAL TOOLS (Background - keeps tab open for reuse)
     # ============================================================
     {
+        "name": "get_ordenes",
+        "description": "Obtiene la lista de órdenes recientes. Navega a /ordenes y extrae las órdenes visibles.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Número máximo de órdenes a obtener (default: 10)"
+                }
+            },
+            "required": []
+        },
+        "execution_mode": "background"
+    },
+    {
         "name": "get_reportes",
         "description": "Obtiene resultados de exámenes para una orden. MANTIENE LA PESTAÑA ABIERTA para ediciones posteriores.",
         "parameters": {

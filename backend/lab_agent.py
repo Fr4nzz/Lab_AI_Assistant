@@ -222,12 +222,20 @@ class LabAgent:
         return ai_response
 
     async def _get_current_context(self) -> dict:
-        """Get context from current page state."""
+        """Get context from current page state. Auto-navigates to orders if on unknown page."""
         if not self.extractor:
             return {"page_type": "unknown", "url": "Browser not initialized", "formatted": "Browser not initialized"}
 
         try:
             data = await self.extractor.extract_current_page()
+
+            # If on unknown page (like welcome), navigate to orders to get useful context
+            if data.get("page_type") == "unknown":
+                debug_print("CONTEXT", "On unknown page, navigating to orders...")
+                await self.browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes")
+                await self.browser.page.wait_for_timeout(2000)  # Wait for Vue.js
+                data = await self.extractor.extract_current_page()
+                debug_print("CONTEXT", f"Now on: {data.get('page_type')}")
 
             # Format data using optimized formatters (reduces tokens by ~50%)
             formatted = self._format_context(data)

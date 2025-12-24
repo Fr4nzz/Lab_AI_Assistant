@@ -5,7 +5,7 @@ from typing import Dict, Optional
 from playwright.async_api import Page, BrowserContext
 
 from browser_manager import BrowserManager
-from extractors import PageDataExtractor, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
+from extractors import PageDataExtractor, EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
 
 
 # CSS para resaltar campos modificados
@@ -135,6 +135,27 @@ class ToolExecutor:
     # ============================================================
     # BACKGROUND TOOLS
     # ============================================================
+
+    async def _exec_get_ordenes(self, p: dict) -> dict:
+        """Obtiene la lista de órdenes recientes."""
+        page = self.browser.page
+        limit = p.get("limit", 10)
+
+        # Navegar a la página de órdenes
+        await page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+        await page.wait_for_timeout(2000)  # Esperar Vue.js
+
+        # Extraer órdenes
+        ordenes = await page.evaluate(EXTRACT_ORDENES_JS)
+
+        # Limitar resultados
+        ordenes = ordenes[:limit]
+
+        return {
+            "ordenes": ordenes,
+            "total": len(ordenes),
+            "page_url": page.url
+        }
 
     async def _exec_get_reportes(self, p: dict) -> dict:
         """Obtiene datos de reportes Y mantiene la pestaña abierta para editar."""

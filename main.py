@@ -11,6 +11,7 @@ import sys
 import os
 import signal
 import time
+import webbrowser
 from pathlib import Path
 
 # Fix para Windows asyncio
@@ -126,11 +127,16 @@ def main():
         )
     processes.append(frontend_proc)
     
+    # Esperar un poco más y abrir el frontend en el navegador
+    time.sleep(2)
+    print("\n🌐 Abriendo frontend en el navegador...")
+    webbrowser.open("http://localhost:5173")
+
     print("\n" + "=" * 60)
     print("✅ Servicios iniciados!")
     print("")
     print("   📡 Backend API:  http://localhost:8000")
-    print("   🌐 Frontend UI:  http://localhost:5173")
+    print("   🌐 Frontend UI:  http://localhost:5173 (abierto en navegador)")
     print("")
     print("   El navegador Edge se abrió con la página del laboratorio.")
     print("   Inicia sesión si es necesario.")
