@@ -121,7 +121,7 @@ TOOL_DEFINITIONS = [
                         },
                         "required": ["orden", "e", "f", "v"]
                     },
-                    "description": "Lista de campos: [{orden, e (examen), f (campo), v (valor)}]"
+                    "description": "Lista de campos a editar"
                 }
             },
             "required": ["data"]
