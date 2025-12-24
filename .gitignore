@@ -18,6 +18,7 @@ dist/
 .vscode/
 .idea/
 .venv/
+.conda/
 
 # OS
 .DS_Store
