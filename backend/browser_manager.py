@@ -47,7 +47,11 @@ class BrowserManager:
             headless=headless,
             channel=browser,  # "msedge" uses installed Edge, "chrome" uses installed Chrome
             viewport={"width": 1280, "height": 900},
-            accept_downloads=True
+            accept_downloads=True,
+            args=[
+                "--no-restore-session-state",
+                "--disable-session-crashed-bubble",
+            ]
         )
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
     
