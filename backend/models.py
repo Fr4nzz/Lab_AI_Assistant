@@ -115,7 +115,14 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     time.sleep(self.min_request_interval - elapsed)
                 _shared_last_request_time = time.time()
 
-                return self._current_model._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+                # Handle both ChatGoogleGenerativeAI and RunnableBinding (from bind_tools)
+                if hasattr(self._current_model, '_generate'):
+                    return self._current_model._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+                else:
+                    # RunnableBinding - use invoke and wrap result
+                    result = self._current_model.invoke(messages, stop=stop, **kwargs)
+                    from langchain_core.outputs import ChatGeneration
+                    return ChatResult(generations=[ChatGeneration(message=result)])
 
             except Exception as e:
                 last_error = e
@@ -148,7 +155,14 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     await asyncio.sleep(self.min_request_interval - elapsed)
                 _shared_last_request_time = time.time()
 
-                return await self._current_model._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+                # Handle both ChatGoogleGenerativeAI and RunnableBinding (from bind_tools)
+                if hasattr(self._current_model, '_agenerate'):
+                    return await self._current_model._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+                else:
+                    # RunnableBinding - use ainvoke and wrap result
+                    result = await self._current_model.ainvoke(messages, stop=stop, **kwargs)
+                    from langchain_core.outputs import ChatGeneration
+                    return ChatResult(generations=[ChatGeneration(message=result)])
 
             except Exception as e:
                 last_error = e
