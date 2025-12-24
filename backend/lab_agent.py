@@ -1,103 +1,24 @@
-"""Lab Agent - The brain that coordinates Gemini AI with browser control."""
+"""
+Lab Agent - Main AI agent that orchestrates everything.
+Coordinates Gemini AI with browser control for lab result entry.
+"""
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from gemini_handler import GeminiHandler, create_image_part, create_audio_part
-from browser_manager import BrowserManager
-from database import Database
-
-
-# System prompt for Gemini
-SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico experto. Tu trabajo es ayudar a ingresar resultados de exámenes en el sistema laboratoriofranz.orion-labs.com.
-
-## Tus capacidades:
-1. Interpretar texto, imágenes de cuadernos manuscritos, y audio
-2. Navegar el sitio web del laboratorio
-3. Extraer y verificar información de pacientes y órdenes
-4. Preparar planes de acción para ingresar resultados
-
-## Reglas importantes:
-1. NUNCA hagas click en botones de "Guardar", "Save", "Eliminar" o "Delete" - el usuario lo hará manualmente
-2. Siempre presenta un plan para que el usuario lo revise antes de ejecutar
-3. Si no tienes suficiente información, explora el sitio primero
-4. Verifica que los pacientes y órdenes existan antes de intentar agregar resultados
-
-## Conocimiento del sitio:
-- /ordenes - Lista de órdenes recientes
-- /ordenes/create - Crear nueva orden
-- /ordenes/{id}/edit - Editar orden existente
-- /reportes2?numeroOrden={id} - Página de resultados para ingresar valores
-
-## Interpretación de abreviaturas manuscritas:
-### EMO (Elemental y Microscópico de Orina):
-- Color: AM/A = Amarillo, AP = Amarillo Claro, AI = Amarillo Intenso
-- Aspecto: TP = Transparente, LT = Ligeramente Turbio, T = Turbio
-- Leucocitos: 10-25 = +, 75 = ++, 500 = +++
-- Proteínas: TRZ = Trazas, valores en mg/dL
-- pH: valores numéricos (5.0, 6.0, 7.0, etc.)
-
-### Coproparasitario:
-- Consistencia: D = Dura, B = Blanda, S = Semiblanda, L = Líquida
-- Si no hay parásitos: seleccionar "No se observan parásitos"
-
-## Formato de respuesta:
-SIEMPRE responde en JSON con esta estructura:
-
-Para exploración (cuando necesitas más información):
-{
-    "mode": "exploration",
-    "reasoning": "Explicación de por qué necesito explorar",
-    "actions": [
-        {"action": "navigate", "url": "..."},
-        {"action": "click", "element_index": N},
-        {"action": "scroll", "direction": "down", "amount": 500}
-    ]
-}
-
-Para hacer una pregunta al usuario:
-{
-    "mode": "question",
-    "question": "Tu pregunta aquí",
-    "options": ["Opción 1", "Opción 2"]  // opcional
-}
-
-Para presentar un plan de acción:
-{
-    "mode": "plan",
-    "understanding": "Resumen de lo que entendí que el usuario quiere hacer",
-    "extracted_data": [
-        {
-            "patient": "Nombre del paciente",
-            "exam": "Nombre del examen",
-            "fields": [
-                {"field": "Campo", "value": "Valor", "unit": "unidad opcional"}
-            ]
-        }
-    ],
-    "steps": [
-        {"action": "navigate", "url": "...", "description": "Descripción para el usuario"},
-        {"action": "type", "element_index": N, "text": "...", "description": "..."}
-    ],
-    "suggestions": [
-        {"type": "correction", "message": "Vi X pero parece Y, ¿corrijo?", "apply": false}
-    ]
-}
-
-## Estado actual del navegador:
-{browser_state}
-
-## Historial de la conversación:
-{chat_history}
-
-## Mensaje del usuario:
-{user_message}
-"""
+from .gemini_handler import GeminiHandler, create_image_part, create_audio_part
+from .browser_manager import BrowserManager
+from .database import Database
+from .extractors import PageDataExtractor
+from .tool_executor import ToolExecutor
+from .tools import get_tools_description
+from .prompts import build_system_prompt, WELCOME_MESSAGE
+from .schemas import validate_ai_response
 
 
 class LabAgent:
-    """Coordinates Gemini AI with browser control for lab result entry."""
-    
+    """Main AI agent that orchestrates everything."""
+
     def __init__(
         self,
         gemini_handler: GeminiHandler,
@@ -108,9 +29,10 @@ class LabAgent:
         self.gemini = gemini_handler
         self.browser = browser_manager
         self.db = database
+        self.extractor: Optional[PageDataExtractor] = None
+        self.executor: Optional[ToolExecutor] = None
         self.site_knowledge = self._load_site_knowledge(site_knowledge_dir)
-        self.max_exploration_steps = 5  # Prevent infinite exploration loops
-    
+
     def _load_site_knowledge(self, directory: str) -> Dict:
         """Load site knowledge JSON files."""
         knowledge = {}
@@ -123,38 +45,50 @@ class LabAgent:
                 except Exception as e:
                     print(f"Warning: Could not load {json_file}: {e}")
         return knowledge
-    
+
+    async def initialize(self):
+        """Initialize extractors and executor after browser is started."""
+        if self.browser.page:
+            self.extractor = PageDataExtractor(self.browser.page)
+            self.executor = ToolExecutor(self.browser)
+
     async def process_message(
         self,
         chat_id: str,
         message: str,
-        attachments: List[Dict] = None,
-        exploration_depth: int = 0
+        attachments: List[Dict] = None
     ) -> Dict[str, Any]:
         """
-        Process a user message and return the appropriate response.
-        
+        Process user message and return AI response.
+
         Args:
             chat_id: The chat session ID
             message: User's text message
             attachments: List of attachments [{type: "image/audio", data: base64, mime_type: ...}]
-            exploration_depth: Current exploration depth (to prevent infinite loops)
-        
+
         Returns:
-            Response dict with mode and relevant data
+            AI response with message, tool_calls, status, etc.
         """
-        # Get chat history
+        # Ensure initialized
+        if not self.extractor:
+            await self.initialize()
+
+        # 1. Get chat history
         history = self.db.get_messages(chat_id, limit=20)
-        
-        # Get browser state
-        browser_state = await self.browser.get_state()
-        
-        # Build the prompt
-        prompt = self._build_prompt(message, history, browser_state)
-        
-        # Build contents for Gemini (text + attachments)
-        contents = [prompt]
-        
+
+        # 2. Get current page context
+        page_context = await self._get_current_context()
+
+        # 3. Build prompt
+        system_prompt = build_system_prompt(
+            tools_description=get_tools_description(),
+            current_context=json.dumps(page_context, ensure_ascii=False, indent=2),
+            chat_history=self._format_history(history)
+        )
+
+        # 4. Build content list (text + images + audio)
+        contents = [message] if message else ["Analiza el contexto actual."]
+
         if attachments:
             for attachment in attachments:
                 if attachment["type"].startswith("image"):
@@ -167,195 +101,187 @@ class LabAgent:
                         attachment["data"],
                         attachment.get("mime_type", "audio/wav")
                     ))
-        
-        # Call Gemini
+
+        # 5. Call Gemini
         response_text, success = await self.gemini.send_request(
-            system_prompt=SYSTEM_PROMPT.replace("{browser_state}", json.dumps(browser_state, ensure_ascii=False))
-                                       .replace("{chat_history}", self._format_history(history))
-                                       .replace("{user_message}", message),
+            system_prompt=system_prompt,
             contents=contents
         )
-        
+
         if not success:
             return {
-                "mode": "error",
-                "error": response_text
+                "status": "error",
+                "message": f"Error al comunicarse con Gemini: {response_text}"
             }
-        
-        # Parse Gemini's response
+
+        # 6. Parse AI response
         try:
-            response_data = json.loads(response_text)
+            ai_response = json.loads(response_text)
         except json.JSONDecodeError as e:
             return {
-                "mode": "error",
-                "error": f"Failed to parse Gemini response: {e}\nRaw: {response_text[:500]}"
+                "status": "error",
+                "message": f"Error al parsear respuesta del AI: {e}\nRespuesta: {response_text[:500]}"
             }
-        
-        mode = response_data.get("mode")
-        
-        if mode == "exploration":
-            # Execute exploration actions and recurse
-            if exploration_depth >= self.max_exploration_steps:
-                return {
-                    "mode": "error",
-                    "error": "Maximum exploration depth reached. Please provide more specific instructions."
-                }
-            
-            actions = response_data.get("actions", [])
-            for action in actions:
-                result = await self.browser.execute_action(action)
-                if not result.get("success"):
-                    break
-            
-            # Recurse with new browser state
-            return await self.process_message(
-                chat_id=chat_id,
-                message="",  # Empty message, just processing new state
-                attachments=None,
-                exploration_depth=exploration_depth + 1
-            )
-        
-        elif mode == "question":
-            # Save assistant message and return question
-            self.db.add_message(chat_id, "assistant", response_data.get("question", ""))
+
+        # 7. Validate response
+        is_valid, error = validate_ai_response(ai_response)
+        if not is_valid:
             return {
-                "mode": "question",
-                "question": response_data.get("question"),
-                "options": response_data.get("options")
+                "status": "error",
+                "message": f"Respuesta inválida del AI: {error}"
             }
-        
-        elif mode == "plan":
-            # Save the plan and return for user review
-            plan = {
-                "understanding": response_data.get("understanding"),
-                "extracted_data": response_data.get("extracted_data", []),
-                "steps": response_data.get("steps", []),
-                "suggestions": response_data.get("suggestions", [])
-            }
-            
-            self.db.save_plan(chat_id, plan)
-            self.db.add_message(chat_id, "assistant", response_data.get("understanding", ""))
-            
+
+        # 8. Execute tool calls if any
+        if ai_response.get("tool_calls"):
+            tool_results = []
+            for call in ai_response["tool_calls"]:
+                result = await self.executor.execute(call["tool"], call["parameters"])
+                tool_results.append({
+                    "tool": call["tool"],
+                    "result": result
+                })
+            ai_response["tool_results"] = tool_results
+
+        # 9. Save messages to database
+        self.db.add_message(chat_id, "user", message)
+        self.db.add_message(chat_id, "assistant", ai_response.get("message", ""))
+
+        return ai_response
+
+    async def _get_current_context(self) -> dict:
+        """Get context from current page state."""
+        if not self.extractor:
+            return {"page_type": "unknown", "url": "Browser not initialized"}
+
+        try:
+            return await self.extractor.extract_current_page()
+        except Exception as e:
             return {
-                "mode": "plan",
-                **plan
+                "page_type": "error",
+                "url": self.browser.page.url if self.browser.page else "N/A",
+                "error": str(e)
             }
-        
-        else:
-            return {
-                "mode": "error",
-                "error": f"Unknown response mode: {mode}"
-            }
-    
-    def _build_prompt(self, message: str, history: List[Dict], browser_state: Dict) -> str:
-        """Build the prompt for Gemini."""
-        parts = []
-        
-        if message:
-            parts.append(f"Mensaje del usuario: {message}")
-        
-        parts.append(f"\nEstado actual del navegador:")
-        parts.append(f"- URL: {browser_state.get('url', 'N/A')}")
-        parts.append(f"- Título: {browser_state.get('title', 'N/A')}")
-        parts.append(f"- Elementos interactivos: {len(browser_state.get('elements', []))} elementos")
-        
-        # Add condensed element list
-        elements = browser_state.get("elements", [])[:30]  # Limit to first 30
-        if elements:
-            parts.append("\nElementos disponibles (primeros 30):")
-            for el in elements:
-                el_desc = f"[{el['index']}] <{el['tag']}>"
-                if el.get('text'):
-                    el_desc += f" '{el['text'][:50]}'"
-                if el.get('placeholder'):
-                    el_desc += f" placeholder='{el['placeholder']}'"
-                if el.get('type'):
-                    el_desc += f" type={el['type']}"
-                parts.append(el_desc)
-        
-        return "\n".join(parts)
-    
+
     def _format_history(self, history: List[Dict]) -> str:
         """Format chat history for the prompt."""
         if not history:
             return "No hay mensajes previos."
-        
+
         formatted = []
         for msg in history[-10:]:  # Last 10 messages
             role = "Usuario" if msg["role"] == "user" else "Asistente"
-            content = msg["content"][:200]  # Truncate long messages
+            content = msg["content"][:300]  # Truncate long messages
             formatted.append(f"{role}: {content}")
-        
+
         return "\n".join(formatted)
-    
-    async def execute_plan(self, plan: Dict) -> Dict[str, Any]:
+
+    async def on_new_chat(self, chat_id: str) -> dict:
+        """Called when a new chat is created - loads initial context."""
+        # Ensure initialized
+        if not self.extractor:
+            await self.initialize()
+
+        try:
+            # Navigate to ordenes and get list
+            await self.browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes")
+            ordenes = await self.extractor.extract_ordenes_list()
+
+            return {
+                "status": "ready",
+                "message": WELCOME_MESSAGE,
+                "context": ordenes
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error al cargar órdenes: {str(e)}"
+            }
+
+    async def execute_approved(self, chat_id: str, edited_data: dict = None) -> dict:
         """
-        Execute an approved plan.
-        
+        Execute approved changes (possibly with user edits).
+
         Args:
-            plan: The plan dict with steps to execute
-        
+            chat_id: Chat session ID
+            edited_data: Data edited by user before approval
+
         Returns:
             Execution result
         """
-        steps = plan.get("steps", [])
+        # Get the last plan from the chat
+        plan = self.db.get_plan(chat_id)
+        if not plan:
+            return {
+                "status": "error",
+                "message": "No hay plan pendiente para ejecutar"
+            }
+
+        # If user edited data, update the plan
+        if edited_data:
+            plan["extracted_data"] = edited_data
+
+        # Execute the plan
         results = []
-        
-        for i, step in enumerate(steps):
-            # Skip forbidden actions (extra safety)
+        for step in plan.get("steps", []):
             if self.browser.is_action_forbidden(step):
                 results.append({
-                    "step": i,
                     "action": step.get("action"),
                     "success": False,
-                    "error": "Action skipped: involves save/delete"
+                    "error": "Acción prohibida: guardado/eliminación"
                 })
                 continue
-            
+
             result = await self.browser.execute_action(step)
-            results.append({
-                "step": i,
-                "action": step.get("action"),
-                "description": step.get("description", ""),
-                **result
-            })
-            
+            results.append(result)
+
             if not result.get("success"):
                 break
-        
+
         all_success = all(r.get("success", False) for r in results)
-        
+
         return {
-            "success": all_success,
-            "results": results,
-            "message": "Campos llenados. Por favor haz click en 'Guardar' en el navegador." if all_success else "Algunas acciones fallaron. Revisa el navegador."
+            "status": "completed" if all_success else "error",
+            "message": "Campos llenados. Por favor haz click en 'Guardar' en el navegador." if all_success else "Algunas acciones fallaron.",
+            "results": results
         }
-    
-    async def get_orders_summary(self) -> Dict[str, Any]:
-        """Get a summary of recent orders from the orders page."""
-        await self.browser.navigate(f"{self.browser.page.url.split('/')[0]}//{self.browser.page.url.split('/')[2]}/ordenes")
-        
-        # Extract order information from the page
-        orders_data = await self.browser.page.evaluate("""
-            () => {
-                const rows = document.querySelectorAll('table tbody tr');
-                const orders = [];
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length > 0) {
-                        orders.push({
-                            number: cells[0]?.innerText?.trim(),
-                            patient: cells[1]?.innerText?.trim(),
-                            date: cells[2]?.innerText?.trim(),
-                            status: cells[3]?.innerText?.trim()
-                        });
-                    }
-                });
-                return orders.slice(0, 20);  // Last 20 orders
+
+    async def continue_after_user_action(self, chat_id: str, action_type: str) -> dict:
+        """
+        Called after user completes a requested action (e.g., clicked Save).
+
+        Args:
+            chat_id: Chat session ID
+            action_type: Type of action completed (save, validate, etc.)
+
+        Returns:
+            Next steps or completion message
+        """
+        if action_type == "save":
+            return {
+                "status": "completed",
+                "message": "¡Guardado! ¿Necesitas ingresar más resultados?"
             }
-        """)
-        
-        return {
-            "url": self.browser.page.url,
-            "orders": orders_data
-        }
+        elif action_type == "validate":
+            return {
+                "status": "completed",
+                "message": "¡Validado! ¿Algo más en lo que pueda ayudar?"
+            }
+        else:
+            return {
+                "status": "ready",
+                "message": "Entendido. ¿En qué más puedo ayudarte?"
+            }
+
+    async def get_orders_summary(self) -> Dict[str, Any]:
+        """Get a summary of recent orders."""
+        if not self.extractor:
+            await self.initialize()
+
+        try:
+            await self.browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes")
+            return await self.extractor.extract_ordenes_list()
+        except Exception as e:
+            return {
+                "page_type": "error",
+                "error": str(e)
+            }
