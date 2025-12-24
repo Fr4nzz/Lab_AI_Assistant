@@ -120,7 +120,13 @@ def create_lab_agent(browser_manager=None):
             for tc in response.tool_calls:
                 logger.info(f"  -> {tc.get('name', 'unknown')}")
         elif response.content:
-            content_preview = response.content[:200] if len(response.content) > 200 else response.content
+            # Handle both string and list content (Gemini 3 with thinking)
+            content = response.content
+            if isinstance(content, list):
+                # Extract text parts only for logging
+                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                content = ''.join(text_parts)
+            content_preview = content[:200] if len(content) > 200 else content
             logger.info(f"[Agent] LLM response: {content_preview}")
         else:
             logger.warning(f"[Agent] LLM returned empty! additional_kwargs: {getattr(response, 'additional_kwargs', {})}")

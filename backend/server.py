@@ -461,20 +461,28 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                     elif event_type == "on_chat_model_stream":
                         chunk = event["data"].get("chunk")
                         if chunk and hasattr(chunk, 'content') and chunk.content:
-                            full_response.append(chunk.content)
-                            data = {
-                                "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                                "object": "chat.completion.chunk",
-                                "model": request.model,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {"content": chunk.content},
-                                    "finish_reason": None
-                                }]
-                            }
-                            yield f"data: {json.dumps(data)}\n\n"
+                            # Handle both string and list content (Gemini 3 with thinking)
+                            content = chunk.content
+                            if isinstance(content, list):
+                                # Extract text parts only, skip thinking parts
+                                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                content = ''.join(text_parts)
+                            if content:
+                                full_response.append(content)
+                                data = {
+                                    "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                                    "object": "chat.completion.chunk",
+                                    "model": request.model,
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {"content": content},
+                                        "finish_reason": None
+                                    }]
+                                }
+                                yield f"data: {json.dumps(data)}\n\n"
 
-                logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
+                if full_response:
+                    logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
                 yield "data: [DONE]\n\n"
 
             except Exception as e:
