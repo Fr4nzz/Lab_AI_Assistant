@@ -50,6 +50,28 @@ export default function ChatInterface({ chatId, onRefreshChats }: Props) {
   }
 
   const handleResponse = (response: AgentResponse) => {
+    // Handle new backend format (status-based)
+    if (response.status) {
+      if (response.status === 'error') {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `❌ Error: ${response.message || 'Unknown error'}`,
+          created_at: new Date().toISOString()
+        }])
+      } else {
+        // For completed, executing, waiting_for_user - just show the message
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: response.message || 'Respuesta recibida.',
+          created_at: new Date().toISOString()
+        }])
+      }
+      return
+    }
+
+    // Handle legacy format (mode-based)
     if (response.mode === 'error') {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
