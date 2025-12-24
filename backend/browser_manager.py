@@ -57,9 +57,44 @@ class BrowserManager:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
-    
+
+    async def ensure_page(self) -> Page:
+        """
+        Ensure we have a valid page. If the page was closed, open a new one.
+        Returns the valid page.
+        """
+        try:
+            # Check if page is still valid by trying a simple operation
+            if self.page and not self.page.is_closed():
+                # Try to get URL - this will fail if page is actually closed
+                _ = self.page.url
+                return self.page
+        except Exception:
+            pass
+
+        # Page is invalid, need to create a new one
+        print("[BrowserManager] Page was closed, opening new tab...")
+
+        if self.context:
+            # Try to use existing page from context
+            if self.context.pages:
+                self.page = self.context.pages[0]
+                print(f"[BrowserManager] Using existing tab: {self.page.url}")
+            else:
+                # Create new page
+                self.page = await self.context.new_page()
+                print("[BrowserManager] Created new tab")
+                # Navigate to orders by default
+                await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+                print("[BrowserManager] Navigated to orders page")
+        else:
+            raise RuntimeError("Browser context is not available")
+
+        return self.page
+
     async def navigate(self, url: str, wait_for: str = "networkidle"):
         """Navigate to a URL and wait for the page to load."""
+        await self.ensure_page()
         await self.page.goto(url, timeout=60000)
         await self.page.wait_for_load_state(wait_for, timeout=30000)
     

@@ -258,6 +258,11 @@ class LabAgent:
             return {"page_type": "unknown", "url": "Browser not initialized", "formatted": "Browser not initialized"}
 
         try:
+            # Ensure we have a valid page (reopen if closed)
+            page = await self.browser.ensure_page()
+            # Update extractor's page reference
+            self.extractor.page = page
+
             data = await self.extractor.extract_current_page()
 
             # If on unknown page (like welcome), navigate to orders to get useful context

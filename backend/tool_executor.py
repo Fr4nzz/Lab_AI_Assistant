@@ -138,7 +138,8 @@ class ToolExecutor:
 
     async def _exec_get_ordenes(self, p: dict) -> dict:
         """Obtiene la lista de órdenes recientes."""
-        page = self.browser.page
+        # Ensure we have a valid page
+        page = await self.browser.ensure_page()
         limit = p.get("limit", 10)
 
         # Navegar a la página de órdenes
