@@ -1,6 +1,7 @@
 """
 Test extractors using saved HTML files with BeautifulSoup.
 This version doesn't require Playwright and can run in any environment.
+Improved extraction based on actual HTML structure analysis.
 """
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -15,22 +16,45 @@ HTML_SAMPLES_DIR = SCRIPT_DIR / "html_samples"
 def extract_ordenes_from_html(html_content: str) -> list:
     """
     Extract orders from HTML using BeautifulSoup.
-    Mimics the JavaScript extraction logic.
+    Based on actual HTML structure:
+    - Cell 0: Order number (may contain | separator)
+    - Cell 1: Date and time
+    - Cell 2: Patient info (cedula, age, sex, name)
+    - Cell 3: Status (contains data-registro)
+    - Cell 4: Value
     """
     soup = BeautifulSoup(html_content, 'lxml')
     ordenes = []
 
-    # Find table rows
-    rows = soup.select('table tbody tr')
+    # Find main orders table (first table with proper headers)
+    tables = soup.find_all('table')
+    orders_table = None
+
+    for table in tables:
+        thead = table.find('thead')
+        if thead:
+            headers = [th.get_text(strip=True) for th in thead.find_all('th')]
+            if 'No.' in headers and 'Paciente' in headers:
+                orders_table = table
+                break
+
+    if not orders_table:
+        return ordenes
+
+    tbody = orders_table.find('tbody')
+    if not tbody:
+        return ordenes
+
+    rows = tbody.find_all('tr')
 
     for i, row in enumerate(rows[:20]):
         cells = row.find_all('td')
-        if len(cells) < 4:
+        if len(cells) < 5:
             continue
 
-        # Extract ID from data-registro attribute
+        # Extract ID from data-registro attribute (in cell 3)
         id_interno = None
-        data_registro = row.select_one('[data-registro]')
+        data_registro = cells[3].find(attrs={'data-registro': True}) if len(cells) > 3 else None
         if data_registro:
             try:
                 data = json.loads(data_registro.get('data-registro', '{}'))
@@ -38,27 +62,59 @@ def extract_ordenes_from_html(html_content: str) -> list:
             except json.JSONDecodeError:
                 pass
 
-        # Patient cell (usually cell 2)
-        paciente_text = cells[2].get_text(separator='\n').strip() if len(cells) > 2 else ''
-        paciente_lines = paciente_text.split('\n')
-        cedula = paciente_lines[0].split(' ')[0] if paciente_lines else ''
+        # Order number - clean up separator
+        num_text = cells[0].get_text(separator='', strip=True)
 
-        # Extract sex and age
-        sexo, edad = None, None
-        match = re.search(r'([MF])\s*(\d+a)', paciente_text)
-        if match:
-            sexo = match.group(1)
-            edad = match.group(2)
+        # Date - use separator to get proper format
+        fecha_text = cells[1].get_text(separator=' ', strip=True)
+
+        # Patient cell - complex structure
+        # Format: "CEDULA E: AGE S: SEX NAME buttons..."
+        paciente_cell = cells[2]
+        paciente_text = paciente_cell.get_text(separator='|', strip=True)
+        parts = paciente_text.split('|')
+
+        cedula = parts[0].strip() if parts else ''
+        edad = None
+        sexo = None
+        nombre = ''
+
+        # Parse the patient info
+        for j, part in enumerate(parts):
+            part = part.strip()
+            if part.startswith('E:'):
+                # Next part might be age
+                pass
+            elif re.match(r'^\d+a$', part):
+                edad = part
+            elif part.startswith('S:'):
+                pass
+            elif part in ['M', 'F']:
+                sexo = part
+            elif len(part) > 5 and part.isupper() and not any(c.isdigit() for c in part):
+                # Likely the patient name (all caps, no numbers)
+                nombre = part
+                break
+
+        # Estado
+        estado = cells[3].get_text(strip=True) if len(cells) > 3 else None
+        # Remove the badge/button text if present
+        estado_badge = cells[3].find(class_='badge') if len(cells) > 3 else None
+        if estado_badge:
+            estado = estado_badge.get_text(strip=True)
+
+        # Valor
+        valor = cells[4].get_text(strip=True) if len(cells) > 4 else None
 
         orden = {
-            'num': cells[0].get_text(strip=True) if cells else None,
-            'fecha': cells[1].get_text(strip=True).replace('\n', ' ') if len(cells) > 1 else None,
+            'num': num_text,
+            'fecha': fecha_text,
             'cedula': cedula,
-            'paciente': paciente_lines[1] if len(paciente_lines) > 1 else '',
+            'paciente': nombre,
             'sexo': sexo,
             'edad': edad,
-            'estado': cells[3].get_text(strip=True) if len(cells) > 3 else None,
-            'valor': cells[4].get_text(strip=True) if len(cells) > 4 else None,
+            'estado': estado,
+            'valor': valor,
             'id': id_interno
         }
         ordenes.append(orden)
@@ -69,7 +125,9 @@ def extract_ordenes_from_html(html_content: str) -> list:
 def extract_reportes_from_html(html_content: str) -> dict:
     """
     Extract exam results from HTML using BeautifulSoup.
-    Mimics the JavaScript extraction logic.
+    Based on actual HTML structure:
+    - tr.examen: One cell with <strong> for name, .badge for status
+    - tr.parametro: 5 cells - name, input/select, reference, etc.
     """
     soup = BeautifulSoup(html_content, 'lxml')
     examenes = []
@@ -86,18 +144,30 @@ def extract_reportes_from_html(html_content: str) -> dict:
             if current_exam and current_exam['campos']:
                 examenes.append(current_exam)
 
-            # Start new exam
-            nombre_text = row.get_text(strip=True).split('\n')[0]
+            # Extract exam name from <strong> tag
+            strong = row.find('strong')
+            nombre = strong.get_text(strip=True) if strong else ''
+
+            # Extract status from badge
             badge = row.select_one('.badge')
             estado = badge.get_text(strip=True) if badge else None
 
-            # Clean nombre
-            nombre = nombre_text.replace(estado, '').strip() if estado else nombre_text
+            # Extract tipo_muestra - usually after the number
+            full_text = row.get_text(separator='|', strip=True)
+            tipo_muestra = None
+
+            # Parse: "NOMBRE|1|TIPO_MUESTRA|ESTADO|..."
+            text_parts = full_text.split('|')
+            for part in text_parts:
+                part = part.strip()
+                if part in ['Sangre Total EDTA', 'Suero', 'Orina', 'Heces']:
+                    tipo_muestra = part
+                    break
 
             current_exam = {
                 'nombre': nombre,
                 'estado': estado,
-                'tipo_muestra': None,
+                'tipo_muestra': tipo_muestra,
                 'campos': []
             }
 
@@ -124,7 +194,7 @@ def extract_reportes_from_html(html_content: str) -> dict:
             if select:
                 selected = select.select_one('option[selected]')
                 campo['val'] = selected.get_text(strip=True) if selected else ''
-                campo['opciones'] = [opt.get_text(strip=True) for opt in select.find_all('option')]
+                campo['opciones'] = [opt.get_text(strip=True) for opt in select.find_all('option') if opt.get_text(strip=True)]
             elif inp:
                 campo['val'] = inp.get('value', '')
 
@@ -144,6 +214,9 @@ def extract_reportes_from_html(html_content: str) -> dict:
 def extract_orden_edit_from_html(html_content: str) -> dict:
     """
     Extract order edit data from HTML using BeautifulSoup.
+    Based on actual HTML structure:
+    - #examenes-seleccionados contains the exams table
+    - First cell format: "CODE - NAME|V|1|tiempo"
     """
     soup = BeautifulSoup(html_content, 'lxml')
 
@@ -162,34 +235,69 @@ def extract_orden_edit_from_html(html_content: str) -> dict:
         }
     }
 
-    # Numero de orden from title
-    titulo = soup.select_one('h1, h2, .card-header')
-    if titulo:
-        match = re.search(r'(\d{7})', titulo.get_text())
-        if match:
-            result['numero_orden'] = match.group(1)
+    # Try to find order number from URL-like pattern or title
+    # Look in script tags or data attributes
+    scripts = soup.find_all('script')
+    for script in scripts:
+        if script.string:
+            match = re.search(r'numeroOrden["\']?\s*[:=]\s*["\']?(\d{7})', script.string)
+            if match:
+                result['numero_orden'] = match.group(1)
+                break
 
-    # Patient data
-    id_input = soup.select_one('#identificacion')
-    if id_input:
-        result['paciente']['identificacion'] = id_input.get('value', '')
+    # Look for patient name - find span.paciente with actual name (not just label)
+    paciente_spans = soup.select('span.paciente')
+    for span in paciente_spans:
+        text = span.get_text(strip=True)
+        # Skip if just "Paciente" label, look for actual name
+        if text and text != 'Paciente' and len(text) > 3:
+            result['paciente']['nombres'] = text
+            break
 
-    # Exams selected
+    # Also try to find cedula/identificacion in visible text
+    cedula_match = re.search(r'\b(\d{10})\b', soup.get_text())
+    if cedula_match:
+        result['paciente']['identificacion'] = cedula_match.group(1)
+
+    # Exams from #examenes-seleccionados
     container = soup.select_one('#examenes-seleccionados')
     if container:
         for row in container.select('tbody tr'):
             cells = row.find_all('td')
-            if len(cells) < 2:
+            if len(cells) < 1:
                 continue
 
-            nombre = cells[0].get_text(strip=True)
-            valor = cells[1].get_text(strip=True)
-            badge = cells[0].select_one('.badge')
-            estado = badge.get_text(strip=True) if badge else None
+            # First cell contains: "CODE - NAME|V|1|time"
+            cell_text = cells[0].get_text(separator='|', strip=True)
+            parts = cell_text.split('|')
+
+            # First part is "CODE - NAME"
+            nombre_raw = parts[0].strip() if parts else ''
+
+            # Clean the name - extract just the exam name
+            # Format: "BH - BIOMETRÍA HEMÁTICA" -> "BIOMETRÍA HEMÁTICA"
+            nombre = nombre_raw
+            if ' - ' in nombre_raw:
+                nombre = nombre_raw.split(' - ', 1)[1].strip()
+
+            # Find estado (usually V = Validado)
+            estado = None
+            for part in parts[1:]:
+                part = part.strip()
+                if part == 'V':
+                    estado = 'Validado'
+                    break
+                elif part == 'P':
+                    estado = 'Pendiente'
+                    break
+
+            # Valor from second cell
+            valor = cells[1].get_text(strip=True) if len(cells) > 1 else None
 
             if nombre:
                 result['examenes'].append({
-                    'nombre': nombre.replace(estado, '').strip() if estado else nombre,
+                    'codigo': nombre_raw.split(' - ')[0].strip() if ' - ' in nombre_raw else None,
+                    'nombre': nombre,
                     'valor': valor,
                     'estado': estado
                 })
@@ -206,7 +314,7 @@ def test_extract_ordenes():
         return False
 
     print(f"\n{'='*70}")
-    print("TEST: extract_ordenes_list (BeautifulSoup)")
+    print("TEST: extract_ordenes_list")
     print(f"{'='*70}")
     print(f"  HTML file: {html_file.name}")
 
@@ -219,18 +327,27 @@ def test_extract_ordenes():
     print(f"    Total ordenes extracted: {len(result)}")
 
     if result:
-        print(f"\n  Sample order (first):")
-        for key, value in result[0].items():
-            print(f"    {key}: {value}")
+        print(f"\n  First 3 orders:")
+        for i, orden in enumerate(result[:3]):
+            print(f"\n    Order {i+1}:")
+            print(f"      num: {orden['num']}")
+            print(f"      fecha: {orden['fecha']}")
+            print(f"      cedula: {orden['cedula']}")
+            print(f"      paciente: {orden['paciente']}")
+            print(f"      sexo: {orden['sexo']}, edad: {orden['edad']}")
+            print(f"      estado: {orden['estado']}")
+            print(f"      id: {orden['id']}")
 
-        expected_fields = ['num', 'fecha', 'cedula', 'paciente', 'estado', 'id']
-        missing = [f for f in expected_fields if f not in result[0]]
-        if missing:
-            print(f"\n  WARNING: Missing fields: {missing}")
-            return False
-        else:
-            print(f"\n  All expected fields present!")
+        # Validate
+        has_paciente = any(o['paciente'] for o in result[:5])
+        has_id = any(o['id'] for o in result[:5])
+
+        if has_paciente and has_id:
+            print(f"\n  VALIDATION: Patient names and IDs extracted correctly!")
             return True
+        else:
+            print(f"\n  WARNING: Missing patient ({has_paciente}) or ID ({has_id})")
+            return False
     else:
         print("  WARNING: No orders extracted!")
         return False
@@ -245,7 +362,7 @@ def test_extract_reportes():
         return False
 
     print(f"\n{'='*70}")
-    print("TEST: extract_reportes (BeautifulSoup)")
+    print("TEST: extract_reportes")
     print(f"{'='*70}")
     print(f"  HTML file: {html_file.name}")
 
@@ -260,17 +377,27 @@ def test_extract_reportes():
     examenes = result.get('examenes', [])
     if examenes:
         print(f"\n  Examenes encontrados:")
-        for exam in examenes:
+        for exam in examenes[:5]:
             campos = exam.get('campos', [])
-            print(f"    - {exam.get('nombre', 'N/A')} ({len(campos)} campos)")
+            estado = f" [{exam.get('estado', 'N/A')}]" if exam.get('estado') else ""
+            muestra = f" ({exam.get('tipo_muestra', '')})" if exam.get('tipo_muestra') else ""
+            print(f"    - {exam.get('nombre', 'N/A')}{estado}{muestra} - {len(campos)} campos")
+
             if campos:
                 sample = campos[0]
-                print(f"      Sample: {sample.get('f', 'N/A')} [{sample.get('tipo', '?')}] = {sample.get('val', 'N/A')}")
-                if sample.get('opciones'):
-                    print(f"        Opciones: {sample['opciones'][:3]}...")
+                ref = f" ref: {sample.get('ref', '')}" if sample.get('ref') else ""
+                print(f"        {sample.get('f', 'N/A')} [{sample.get('tipo', '?')}] = {sample.get('val', 'N/A')}{ref}")
 
-        print(f"\n  Extraction successful!")
-        return True
+        # Validate names are clean
+        first_name = examenes[0].get('nombre', '')
+        is_clean = len(first_name) < 50 and 'Seleccione' not in first_name
+
+        if is_clean:
+            print(f"\n  VALIDATION: Exam names are clean!")
+            return True
+        else:
+            print(f"\n  WARNING: Exam names may be dirty: '{first_name}'")
+            return False
     else:
         print("  WARNING: No exams extracted!")
         return False
@@ -285,7 +412,7 @@ def test_extract_orden_edit():
         return False
 
     print(f"\n{'='*70}")
-    print("TEST: extract_orden_edit (BeautifulSoup)")
+    print("TEST: extract_orden_edit")
     print(f"{'='*70}")
     print(f"  HTML file: {html_file.name}")
 
@@ -296,25 +423,39 @@ def test_extract_orden_edit():
 
     print(f"\n  Results:")
     print(f"    Numero orden: {result.get('numero_orden', 'N/A')}")
-    print(f"    Paciente ID: {result.get('paciente', {}).get('identificacion', 'N/A')}")
+    print(f"    Paciente: {result.get('paciente', {}).get('nombres', 'N/A')}")
     print(f"    Total examenes: {len(result.get('examenes', []))}")
 
     examenes = result.get('examenes', [])
     if examenes:
         print(f"\n  Examenes en la orden:")
         for exam in examenes[:5]:
-            print(f"    - {exam.get('nombre', 'N/A')} - {exam.get('valor', 'N/A')}")
+            codigo = f"[{exam.get('codigo', '')}] " if exam.get('codigo') else ""
+            estado = f" - {exam.get('estado', '')}" if exam.get('estado') else ""
+            print(f"    - {codigo}{exam.get('nombre', 'N/A')}{estado}")
+
         if len(examenes) > 5:
             print(f"    ... y {len(examenes) - 5} más")
 
-    print(f"\n  Extraction successful!")
+        # Validate names are clean
+        first_name = examenes[0].get('nombre', '')
+        is_clean = 'hace un año' not in first_name and len(first_name) < 50
+
+        if is_clean:
+            print(f"\n  VALIDATION: Exam names are clean!")
+            return True
+        else:
+            print(f"\n  WARNING: Exam names may be dirty: '{first_name}'")
+            return False
+
+    print(f"\n  Extraction completed!")
     return True
 
 
 def main():
     """Run all tests."""
     print("\n" + "="*70)
-    print("EXTRACTOR TESTS WITH SAVED HTML FILES (BeautifulSoup)")
+    print("EXTRACTOR TESTS WITH SAVED HTML FILES")
     print("="*70)
 
     if not HTML_SAMPLES_DIR.exists():
@@ -348,7 +489,7 @@ def main():
     if passed == total:
         print("\n  All tests passed!")
     else:
-        print(f"\n  {total - passed} test(s) failed.")
+        print(f"\n  {total - passed} test(s) failed. Review output above.")
 
 
 if __name__ == "__main__":
