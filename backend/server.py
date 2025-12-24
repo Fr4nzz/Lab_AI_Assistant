@@ -20,9 +20,19 @@ import asyncio
 import base64
 import uuid
 import json
+import logging
+from datetime import datetime
 from typing import Optional, List
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Set up Windows event loop policy if on Windows
 if sys.platform == "win32":
@@ -374,19 +384,41 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             break
 
     if not last_user_message:
+        logger.error("No user message found in request")
         return {"error": "No user message found"}
+
+    logger.info("=" * 60)
+    logger.info(f"USER MESSAGE: {last_user_message[:200]}{'...' if len(last_user_message) > 200 else ''}")
+    logger.info(f"Thread ID: {thread_id}, Stream: {request.stream}")
 
     if request.stream:
         async def generate():
+            full_response = []
             try:
                 async for event in graph.astream_events(
                     {"messages": [HumanMessage(content=last_user_message)]},
                     config,
                     version="v2"
                 ):
-                    if event["event"] == "on_chat_model_stream":
+                    event_type = event.get("event", "")
+
+                    # Log tool calls
+                    if event_type == "on_tool_start":
+                        tool_name = event.get("name", "unknown")
+                        tool_input = event.get("data", {}).get("input", {})
+                        logger.info(f"TOOL CALL: {tool_name}")
+                        logger.debug(f"  Input: {json.dumps(tool_input, ensure_ascii=False)[:500]}")
+
+                    elif event_type == "on_tool_end":
+                        tool_name = event.get("name", "unknown")
+                        tool_output = event.get("data", {}).get("output", "")
+                        logger.info(f"TOOL RESULT: {tool_name}")
+                        logger.debug(f"  Output: {str(tool_output)[:500]}")
+
+                    elif event_type == "on_chat_model_stream":
                         chunk = event["data"].get("chunk")
                         if chunk and hasattr(chunk, 'content') and chunk.content:
+                            full_response.append(chunk.content)
                             data = {
                                 "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
                                 "object": "chat.completion.chunk",
@@ -399,35 +431,68 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                             }
                             yield f"data: {json.dumps(data)}\n\n"
 
+                logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
                 yield "data: [DONE]\n\n"
 
             except Exception as e:
+                logger.error(f"Stream error: {str(e)}", exc_info=True)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     else:
-        result = await graph.ainvoke(
-            {"messages": [HumanMessage(content=last_user_message)]},
-            config
-        )
+        try:
+            logger.info("Invoking LangGraph agent...")
+            result = await graph.ainvoke(
+                {"messages": [HumanMessage(content=last_user_message)]},
+                config
+            )
 
-        last_msg = result["messages"][-1]
-        response_text = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+            # Log all messages for debugging
+            for i, msg in enumerate(result["messages"]):
+                msg_type = type(msg).__name__
+                content = msg.content if hasattr(msg, 'content') else str(msg)
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    logger.info(f"  [{i}] {msg_type}: {len(msg.tool_calls)} tool calls")
+                    for tc in msg.tool_calls:
+                        logger.info(f"      -> {tc.get('name', 'unknown')}: {json.dumps(tc.get('args', {}), ensure_ascii=False)[:200]}")
+                else:
+                    logger.info(f"  [{i}] {msg_type}: {content[:150]}{'...' if len(content) > 150 else ''}")
 
-        return {
-            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-            "object": "chat.completion",
-            "model": request.model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": response_text
-                },
-                "finish_reason": "stop"
-            }]
-        }
+            last_msg = result["messages"][-1]
+            response_text = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+
+            logger.info(f"AI RESPONSE: {response_text[:300]}{'...' if len(response_text) > 300 else ''}")
+            logger.info("=" * 60)
+
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                "object": "chat.completion",
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response_text
+                    },
+                    "finish_reason": "stop"
+                }]
+            }
+        except Exception as e:
+            logger.error(f"Error invoking agent: {str(e)}", exc_info=True)
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                "object": "chat.completion",
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Error: {str(e)}"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }
 
 
 # ============================================================
