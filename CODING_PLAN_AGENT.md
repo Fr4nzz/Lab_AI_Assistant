@@ -150,200 +150,247 @@ class PageDataExtractor:
 
 Define the tools the AI agent can use. These are JSON-schema defined functions.
 
-### 2.1 File: `backend/tools.py`
+**Design Principles:**
+1. **Short names** to minimize token output costs
+2. **Context-first** - AI receives orders list with first message
+3. **No search needed** - If patient not in list → CREATE NEW ORDER (old orders have old data)
+4. **Reuse tabs** - When retrieving data, keep tab open for editing
+5. **Auto-highlight** - Fields are highlighted automatically when edited
+
+### 2.1 Logic: Patient Not in Orders List
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Patient NOT in orders list?                                      │
+│                                                                  │
+│ DON'T search for old orders!                                    │
+│ → Old orders have old/validated data                            │
+│ → New exam results need a NEW order                             │
+│                                                                  │
+│ INSTEAD: Create new order directly                              │
+│ → create_orden(cedula="...", exams=["EMO", ...])               │
+│ → Ask user to click Save                                        │
+│ → Then fill results                                             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Typical Flow (Patient in List)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ FIRST MESSAGE: AI receives context with recent orders list      │
+│                                                                 │
+│ User: "Ingresa EMO para Chandi" + image                        │
+│                                                                 │
+│ AI already has:                                                 │
+│ {                                                               │
+│   "ordenes": [                                                  │
+│     {"num": "2512233", "paciente": "CHANDI...", "id": 14561},  │
+│     ...                                                         │
+│   ]                                                             │
+│ }                                                               │
+│                                                                 │
+│ AI finds Chandi in list → Use existing order!                  │
+│ AI calls: get_reportes(orden="2512233")  ← Gets data + keeps tab│
+│ AI calls: fill_many(...)                  ← Edits in same tab  │
+│ AI calls: ask_user(action="save")         ← User clicks Guardar│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2.3 File: `backend/tools.py`
 
 ```python
 TOOL_DEFINITIONS = [
+    # ============================================================
+    # DATA RETRIEVAL TOOLS (Background - keeps tab open for reuse)
+    # ============================================================
     {
-        "name": "navigate_to_ordenes",
-        "description": "Navigate to the orders list page. Use this to see recent orders or search for a patient.",
+        "name": "get_reportes",
+        "description": "Get exam results for an order. KEEPS TAB OPEN for subsequent edits.",
         "parameters": {
             "type": "object",
             "properties": {
-                "search_query": {
-                    "type": "string",
-                    "description": "Optional search query (patient name, cedula, or order number)"
+                "orden": {"type": "string", "description": "Order number"}
+            },
+            "required": ["orden"]
+        },
+        "execution_mode": "background_keep_tab"
+    },
+    {
+        "name": "get_orden",
+        "description": "Get order details (exams list, patient info). Use to check if exam exists before editing.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "Internal order ID"}
+            },
+            "required": ["id"]
+        },
+        "execution_mode": "background"
+    },
+    
+    # ============================================================
+    # ORDER MANAGEMENT TOOLS (Visible - user interaction needed)
+    # ============================================================
+    {
+        "name": "create_orden",
+        "description": "Create new order. Use when patient is NOT in the orders list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cedula": {"type": "string", "description": "Patient cedula"},
+                "exams": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of exam codes to add (e.g., ['EMO', 'BH'])"
                 }
             },
-            "required": []
-        }
+            "required": ["cedula", "exams"]
+        },
+        "execution_mode": "visible"
     },
     {
-        "name": "navigate_to_reportes",
-        "description": "Navigate to the results/reporting page for a specific order. Use this to view or edit exam results.",
+        "name": "add_exam",
+        "description": "Add exam to existing order (navigates to edit page).",
         "parameters": {
             "type": "object",
             "properties": {
-                "numero_orden": {
-                    "type": "string",
-                    "description": "The order number (e.g., '2512233')"
-                }
+                "id": {"type": "integer", "description": "Internal order ID"},
+                "exam": {"type": "string", "description": "Exam code"}
             },
-            "required": ["numero_orden"]
-        }
+            "required": ["id", "exam"]
+        },
+        "execution_mode": "visible"
     },
+    
+    # ============================================================
+    # RESULT EDITING TOOLS (Visible - auto-highlights changes)
+    # ============================================================
     {
-        "name": "navigate_to_edit_orden",
-        "description": "Navigate to edit an existing order. Use this to add or remove exams from an order.",
+        "name": "fill",
+        "description": "Fill a single exam result field. Auto-highlights the modified field.",
         "parameters": {
             "type": "object",
             "properties": {
-                "id_interno": {
-                    "type": "integer",
-                    "description": "The internal ID of the order (from ordenes list)"
-                }
+                "e": {"type": "string", "description": "Exam name"},
+                "f": {"type": "string", "description": "Field name"},
+                "v": {"type": "string", "description": "Value"}
             },
-            "required": ["id_interno"]
-        }
+            "required": ["e", "f", "v"]
+        },
+        "execution_mode": "visible",
+        "auto_highlight": true
     },
     {
-        "name": "navigate_to_create_orden",
-        "description": "Navigate to create a new order. Use this when the patient doesn't have an existing order.",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "fill_patient_cedula",
-        "description": "Fill the patient identification field and press Enter to load patient data. Only works on create/edit order pages.",
+        "name": "fill_many",
+        "description": "Fill multiple exam result fields. Auto-highlights all modified fields.",
         "parameters": {
             "type": "object",
             "properties": {
-                "cedula": {
-                    "type": "string",
-                    "description": "Patient's cedula (ID number)"
-                }
-            },
-            "required": ["cedula"]
-        }
-    },
-    {
-        "name": "add_exam_to_order",
-        "description": "Add an exam to the current order. Only works on create/edit order pages.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "exam_name": {
-                    "type": "string",
-                    "description": "Name or code of the exam to add (e.g., 'EMO', 'COPRO', 'BH')"
-                }
-            },
-            "required": ["exam_name"]
-        }
-    },
-    {
-        "name": "fill_exam_result",
-        "description": "Fill a specific field in the exam results. Only works on reportes page.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "exam_name": {
-                    "type": "string",
-                    "description": "Name of the exam (e.g., 'BIOMETRÍA HEMÁTICA')"
-                },
-                "field_name": {
-                    "type": "string",
-                    "description": "Name of the field to fill (e.g., 'Hemoglobina')"
-                },
-                "value": {
-                    "type": "string",
-                    "description": "Value to enter"
-                }
-            },
-            "required": ["exam_name", "field_name", "value"]
-        }
-    },
-    {
-        "name": "fill_multiple_results",
-        "description": "Fill multiple exam result fields at once. More efficient than calling fill_exam_result multiple times.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "results": {
+                "data": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "exam_name": {"type": "string"},
-                            "field_name": {"type": "string"},
-                            "value": {"type": "string"}
+                            "e": {"type": "string"},
+                            "f": {"type": "string"},
+                            "v": {"type": "string"}
                         },
-                        "required": ["exam_name", "field_name", "value"]
-                    },
-                    "description": "Array of results to fill"
+                        "required": ["e", "f", "v"]
+                    }
                 }
             },
-            "required": ["results"]
-        }
+            "required": ["data"]
+        },
+        "execution_mode": "visible",
+        "auto_highlight": true
     },
+    
+    # ============================================================
+    # UI TOOLS
+    # ============================================================
     {
-        "name": "open_new_tab",
-        "description": "Open a new browser tab for a different patient/order. Useful for parallel work.",
+        "name": "hl",
+        "description": "Highlight specific fields for user attention (without editing them).",
         "parameters": {
             "type": "object",
             "properties": {
-                "url": {
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Field names to highlight"
+                },
+                "color": {
                     "type": "string",
-                    "description": "URL to open in new tab (e.g., reportes page for another order)"
+                    "enum": ["yellow", "green", "red", "blue"],
+                    "description": "Highlight color (default: yellow)"
                 }
             },
-            "required": ["url"]
-        }
+            "required": ["fields"]
+        },
+        "execution_mode": "visible"
     },
     {
-        "name": "switch_to_tab",
-        "description": "Switch to a specific browser tab.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "tab_index": {
-                    "type": "integer",
-                    "description": "Index of the tab to switch to (0-based)"
-                }
-            },
-            "required": ["tab_index"]
-        }
-    },
-    {
-        "name": "get_current_page_data",
-        "description": "Get structured data from the current page. Use this to understand what's on screen.",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "highlight_changes",
-        "description": "Visually highlight fields that have been modified by the AI. Helps user review changes.",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "request_user_action",
-        "description": "Ask the user to perform an action (like clicking Save). The AI cannot click Save/Delete buttons.",
+        "name": "ask_user",
+        "description": "Request user action (save, validate, provide info).",
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["click_save", "click_validate", "confirm_data", "provide_info"],
-                    "description": "What action to request from user"
+                    "enum": ["save", "validate", "info"]
                 },
-                "message": {
-                    "type": "string",
-                    "description": "Message to show the user explaining what they need to do"
-                }
+                "msg": {"type": "string", "description": "Message for user"}
             },
-            "required": ["action", "message"]
-        }
+            "required": ["action", "msg"]
+        },
+        "execution_mode": "visible"
     }
 ]
+```
+
+### 2.4 Execution Modes Explained
+
+```python
+EXECUTION_MODES = {
+    "background": {
+        # Opens hidden tab, executes, closes tab, returns data
+        "headless": True,
+        "keep_tab": False
+    },
+    "background_keep_tab": {
+        # Opens tab (hidden initially), executes, KEEPS tab for reuse
+        # Tab becomes visible when fill/fill_many is called
+        "headless": True,
+        "keep_tab": True,
+        "show_on_edit": True
+    },
+    "visible": {
+        # Uses visible browser, user sees everything
+        "headless": False,
+        "keep_tab": True
+    }
+}
+```
+
+### 2.5 Auto-Highlight Behavior
+
+When `auto_highlight: true` is set on a tool:
+1. After filling a field, automatically add CSS highlight
+2. Show value change indicator: `16.4 → 15.5`
+3. Scroll to first modified field
+4. No need for AI to call separate highlight tool
+
+```python
+# In tool_executor.py, fill operations automatically do:
+async def _exec_fill(self, p: dict) -> dict:
+    result = await self._fill_field(p)
+    
+    if result.get("ok"):
+        # Auto-highlight is built into the fill operation
+        await self._highlight_field(p["f"], result["prev"], result["new"])
+    
+    return result
 ```
 
 ---
@@ -352,33 +399,25 @@ TOOL_DEFINITIONS = [
 
 Define the JSON schema for AI responses. The AI must ALWAYS respond in this format.
 
+**Note:** Gemini 2.5+ has built-in thinking that's separate from the response. We don't need a `thinking` field in our schema - Gemini handles it internally.
+
 ### 3.1 File: `backend/schemas.py`
 
 ```python
 AI_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "thinking": {
-            "type": "string",
-            "description": "AI's internal reasoning (shown in debug mode only)"
-        },
         "message": {
             "type": "string",
-            "description": "Message to display to the user in the chat"
+            "description": "Message to display to the user in the chat (Spanish)"
         },
         "tool_calls": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "tool": {
-                        "type": "string",
-                        "description": "Name of the tool to call"
-                    },
-                    "parameters": {
-                        "type": "object",
-                        "description": "Parameters for the tool"
-                    }
+                    "tool": {"type": "string"},
+                    "parameters": {"type": "object"}
                 },
                 "required": ["tool", "parameters"]
             },
@@ -387,40 +426,29 @@ AI_RESPONSE_SCHEMA = {
         "data_to_review": {
             "type": "object",
             "properties": {
-                "title": {"type": "string"},
-                "items": {
+                "patient": {"type": "string"},
+                "exam": {"type": "string"},
+                "changes": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "patient": {"type": "string"},
-                            "exam": {"type": "string"},
-                            "fields": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {"type": "string"},
-                                        "value": {"type": "string"},
-                                        "previous_value": {"type": "string"},
-                                        "editable": {"type": "boolean"}
-                                    }
-                                }
-                            }
+                            "f": {"type": "string", "description": "Field name"},
+                            "v": {"type": "string", "description": "New value"},
+                            "prev": {"type": "string", "description": "Previous value"}
                         }
                     }
                 }
             },
-            "description": "Data for user to review/edit before execution"
+            "description": "Data for user to review before saving"
         },
         "status": {
             "type": "string",
-            "enum": ["thinking", "executing", "waiting_for_user", "completed", "error"],
-            "description": "Current status of the AI agent"
+            "enum": ["executing", "waiting_for_user", "completed", "error"]
         },
         "next_step": {
             "type": "string",
-            "description": "What will happen next (for user information)"
+            "description": "What will happen next (optional)"
         }
     },
     "required": ["message", "status"]
@@ -429,86 +457,80 @@ AI_RESPONSE_SCHEMA = {
 
 ### 3.2 Example AI Responses
 
-#### Example 1: AI needs to navigate to see orders
+#### Example 1: Typical flow - patient in context
 ```json
 {
-  "thinking": "User wants to add EMO results for patient Chandi. First I need to search for existing orders.",
-  "message": "Voy a buscar las órdenes del paciente Chandi para ver si ya tiene una orden con EMO.",
+  "message": "Encontré a Chandi en las órdenes. Obteniendo resultados...",
   "tool_calls": [
-    {
-      "tool": "navigate_to_ordenes",
-      "parameters": {"search_query": "Chandi"}
-    }
+    {"tool": "get_reportes", "parameters": {"orden": "2501181"}}
   ],
-  "status": "executing",
-  "next_step": "Buscaré al paciente en las órdenes existentes"
+  "status": "executing"
 }
 ```
 
-#### Example 2: AI ready to fill results
+After get_reportes returns (tab ready for editing):
 ```json
 {
-  "thinking": "Found the order. The reportes page has EMO exam. I can fill the values from the image.",
-  "message": "Encontré la orden #2512233. Voy a ingresar los resultados del EMO que interpreté de la imagen.",
+  "message": "Ingresando resultados del EMO...",
   "tool_calls": [
-    {
-      "tool": "fill_multiple_results",
-      "parameters": {
-        "results": [
-          {"exam_name": "ELEMENTAL Y MICROSCOPICO DE ORINA", "field_name": "Color", "value": "Amarillo"},
-          {"exam_name": "ELEMENTAL Y MICROSCOPICO DE ORINA", "field_name": "Aspecto", "value": "Transparente"},
-          {"exam_name": "ELEMENTAL Y MICROSCOPICO DE ORINA", "field_name": "pH", "value": "6.0"}
-        ]
-      }
-    },
-    {
-      "tool": "highlight_changes",
-      "parameters": {}
-    }
+    {"tool": "fill_many", "parameters": {
+      "data": [
+        {"e": "ELEMENTAL Y MICROSCOPICO DE ORINA", "f": "Color", "v": "Amarillo"},
+        {"e": "ELEMENTAL Y MICROSCOPICO DE ORINA", "f": "Aspecto", "v": "Transparente"},
+        {"e": "ELEMENTAL Y MICROSCOPICO DE ORINA", "f": "pH", "v": "6.0"}
+      ]
+    }},
+    {"tool": "ask_user", "parameters": {"action": "save", "msg": "Revisa los datos resaltados y haz click en Guardar"}}
   ],
   "data_to_review": {
-    "title": "Resultados a ingresar - EMO",
-    "items": [
-      {
-        "patient": "CHANDI VILLARROEL FRANZ ALEXANDER",
-        "exam": "ELEMENTAL Y MICROSCOPICO DE ORINA",
-        "fields": [
-          {"name": "Color", "value": "Amarillo", "previous_value": "", "editable": true},
-          {"name": "Aspecto", "value": "Transparente", "previous_value": "", "editable": true},
-          {"name": "pH", "value": "6.0", "previous_value": "", "editable": true}
-        ]
-      }
+    "patient": "CHANDI VILLARROEL FRANZ ALEXANDER",
+    "exam": "EMO",
+    "changes": [
+      {"f": "Color", "v": "Amarillo"},
+      {"f": "Aspecto", "v": "Transparente"},
+      {"f": "pH", "v": "6.0"}
     ]
   },
-  "status": "waiting_for_user",
-  "next_step": "Revisa los datos. Si están correctos, haz click en 'Guardar' en el navegador."
+  "status": "waiting_for_user"
 }
 ```
 
-#### Example 3: AI needs user to create order first
+#### Example 2: Patient NOT in list - create new order (don't search!)
 ```json
 {
-  "thinking": "Patient doesn't have an order with EMO. Need to create one or add EMO to existing order.",
-  "message": "El paciente tiene una orden pero no incluye el examen EMO. Necesito agregar el examen a la orden existente.",
+  "message": "Martinez no está en las órdenes recientes. Creando nueva orden...",
   "tool_calls": [
-    {
-      "tool": "navigate_to_edit_orden",
-      "parameters": {"id_interno": 14561}
-    },
-    {
-      "tool": "add_exam_to_order",
-      "parameters": {"exam_name": "EMO"}
-    },
-    {
-      "tool": "request_user_action",
-      "parameters": {
-        "action": "click_save",
-        "message": "He agregado el examen EMO a la orden. Por favor haz click en 'Guardar' para confirmar."
-      }
-    }
+    {"tool": "create_orden", "parameters": {
+      "cedula": "1234567890",
+      "exams": ["EMO", "BH"]
+    }},
+    {"tool": "ask_user", "parameters": {"action": "save", "msg": "Creé la orden. Haz click en Guardar."}}
   ],
   "status": "waiting_for_user",
-  "next_step": "Después de guardar, podré ingresar los resultados del EMO."
+  "next_step": "Después de guardar, ingresaré los resultados"
+}
+```
+
+#### Example 3: Need to add exam to existing order
+```json
+{
+  "message": "La orden no tiene EMO. Agregándolo...",
+  "tool_calls": [
+    {"tool": "add_exam", "parameters": {"id": 4282, "exam": "EMO"}},
+    {"tool": "ask_user", "parameters": {"action": "save", "msg": "Agregué EMO. Haz click en Guardar."}}
+  ],
+  "status": "waiting_for_user"
+}
+```
+
+#### Example 4: Highlight fields for user attention
+```json
+{
+  "message": "Estos valores están fuera del rango de referencia:",
+  "tool_calls": [
+    {"tool": "hl", "parameters": {"fields": ["Hemoglobina", "Hematocrito"], "color": "red"}}
+  ],
+  "status": "completed"
 }
 ```
 
@@ -536,20 +558,19 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 
 ## FLUJO DE TRABAJO TÍPICO
 
-### Para ingresar resultados de un paciente existente:
-1. Buscar al paciente en la lista de órdenes
-2. Ir a la página de reportes de esa orden
+### Para ingresar resultados de un paciente EN LA LISTA de órdenes:
+1. Encontrar al paciente en la lista de órdenes (ya la tienes en el contexto)
+2. Usar get_reportes para obtener los campos del examen
 3. Verificar que el examen existe en la orden
-4. Si no existe, ir a editar orden → agregar examen → pedir al usuario que guarde
-5. Llenar los campos del examen
-6. Resaltar cambios y pedir al usuario que guarde
+4. Si no existe, usar add_exam → pedir al usuario que guarde
+5. Llenar los campos con fill_many (se resaltan automáticamente)
+6. Pedir al usuario que guarde
 
-### Para un paciente nuevo:
-1. Ir a crear nueva orden
-2. Ingresar cédula del paciente
-3. Agregar los exámenes necesarios
-4. Pedir al usuario que guarde
-5. Ir a reportes e ingresar resultados
+### Para un paciente que NO ESTÁ en la lista de órdenes:
+1. NO busques órdenes antiguas (tienen datos viejos)
+2. Crear nueva orden con create_orden (cédula + exámenes)
+3. Pedir al usuario que guarde
+4. Luego usar get_reportes e ingresar resultados
 
 ## INTERPRETACIÓN DE ABREVIATURAS (EMO)
 - Color: AM/A = Amarillo, AP = Amarillo Claro, AI = Amarillo Intenso
@@ -568,7 +589,6 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 SIEMPRE responde con un JSON válido con esta estructura:
 ```json
 {
-  "thinking": "Tu razonamiento interno",
   "message": "Mensaje para mostrar al usuario en español",
   "tool_calls": [{"tool": "nombre", "parameters": {...}}],
   "data_to_review": {...},  // Opcional: datos para que el usuario revise
@@ -593,91 +613,343 @@ SIEMPRE responde con un JSON válido con esta estructura:
 
 ```python
 class ToolExecutor:
-    """Executes AI tool calls safely"""
+    """Executes AI tool calls with tab reuse and auto-highlight"""
     
-    def __init__(self, browser_manager: BrowserManager, extractor: PageDataExtractor):
+    def __init__(self, browser_manager: BrowserManager):
         self.browser = browser_manager
-        self.extractor = extractor
-        self.tabs = []  # Track open tabs
+        self.active_tabs = {}  # {orden_num: Page} - reusable tabs
+        self.bg_context = None  # Background browser context
     
-    async def execute(self, tool_name: str, parameters: dict) -> dict:
+    async def init_background_context(self):
+        """Initialize hidden browser for background operations"""
+        if not self.bg_context:
+            self.bg_context = await self.browser.playwright.chromium.launch_persistent_context(
+                user_data_dir=self.browser.user_data_dir,
+                headless=True,
+                channel="msedge"
+            )
+    
+    async def execute(self, tool_name: str, params: dict) -> dict:
         """Execute a tool and return result"""
-        
         method = getattr(self, f"_exec_{tool_name}", None)
         if not method:
-            return {"success": False, "error": f"Unknown tool: {tool_name}"}
+            return {"ok": False, "err": f"Unknown: {tool_name}"}
         
         try:
-            result = await method(parameters)
-            return {"success": True, "result": result}
+            return {"ok": True, **await method(params)}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"ok": False, "err": str(e)}
     
-    async def _exec_navigate_to_ordenes(self, params: dict) -> dict:
-        """Navigate to orders list with optional search"""
-        await self.browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes")
+    # ============================================================
+    # BACKGROUND TOOLS
+    # ============================================================
+    
+    async def _exec_get_reportes(self, p: dict) -> dict:
+        """Get reportes data AND keep tab open for editing"""
+        orden = p["orden"]
         
-        if params.get("search_query"):
-            search_input = self.browser.page.locator('input[placeholder*="Buscar"]')
-            await search_input.fill(params["search_query"])
-            await self.browser.page.keyboard.press("Enter")
-            await self.browser.page.wait_for_timeout(2000)
+        # Check if tab already exists for this order
+        if orden in self.active_tabs:
+            page = self.active_tabs[orden]
+            await page.reload()
+        else:
+            # Create new tab (hidden initially, will show on edit)
+            page = await self.browser.context.new_page()
+            self.active_tabs[orden] = page
         
-        return await self.extractor.extract_ordenes_list()
-    
-    async def _exec_navigate_to_reportes(self, params: dict) -> dict:
-        """Navigate to reportes page for an order"""
-        url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={params['numero_orden']}"
-        await self.browser.navigate(url)
-        await self.browser.page.wait_for_timeout(2000)
-        return await self.extractor.extract_reportes()
-    
-    async def _exec_navigate_to_edit_orden(self, params: dict) -> dict:
-        """Navigate to edit order page"""
-        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{params['id_interno']}/edit"
-        await self.browser.navigate(url)
-        await self.browser.page.wait_for_timeout(2000)
-        return await self.extractor.extract_orden_edit()
-    
-    async def _exec_fill_exam_result(self, params: dict) -> dict:
-        """Fill a single exam result field"""
-        exam_name = params["exam_name"]
-        field_name = params["field_name"]
-        value = params["value"]
+        url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
+        await page.goto(url, timeout=30000)
+        await page.wait_for_timeout(2000)
         
-        # Implementation using the proven JavaScript from test_edit_reportes.py
-        result = await self.browser.page.evaluate("""...""")
+        # Inject highlight styles preemptively
+        await self._inject_highlight_styles(page)
+        
+        data = await page.evaluate(EXTRACT_REPORTES_JS)
+        return {"orden": orden, "tab_ready": True, **data}
+    
+    async def _exec_get_orden(self, p: dict) -> dict:
+        """Get order details - background"""
+        await self.init_background_context()
+        page = await self._get_bg_page()
+        
+        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{p['id']}/edit"
+        await page.goto(url, timeout=30000)
+        await page.wait_for_timeout(1500)
+        
+        return await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+    
+    # ============================================================
+    # ORDER MANAGEMENT TOOLS (Visible)
+    # ============================================================
+    
+    async def _exec_create_orden(self, p: dict) -> dict:
+        """Create new order with patient and exams"""
+        page = self.browser.page
+        await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
+        await page.wait_for_timeout(1000)
+        
+        # Fill cedula
+        cedula_input = page.locator('#identificacion')
+        await cedula_input.fill(p["cedula"])
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(2000)
+        
+        # Add each exam
+        for exam in p.get("exams", []):
+            search = page.locator('#buscar-examen-input')
+            await search.fill(exam)
+            await page.wait_for_timeout(800)
+            add_btn = page.locator(f'button[id*="examen"]').first
+            await add_btn.click()
+            await page.wait_for_timeout(500)
+        
+        return {"created": True, "cedula": p["cedula"], "exams": p.get("exams", [])}
+    
+    async def _exec_add_exam(self, p: dict) -> dict:
+        """Add exam to existing order"""
+        page = self.browser.page
+        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{p['id']}/edit"
+        await page.goto(url)
+        await page.wait_for_timeout(1500)
+        
+        search = page.locator('#buscar-examen-input')
+        await search.fill(p["exam"])
+        await page.wait_for_timeout(800)
+        
+        add_btn = page.locator('button[id*="examen"]').first
+        await add_btn.click()
+        
+        return {"added": p["exam"], "order_id": p["id"]}
+    
+    # ============================================================
+    # RESULT EDITING TOOLS (Visible, Auto-Highlight)
+    # ============================================================
+    
+    async def _exec_fill(self, p: dict) -> dict:
+        """Fill single field with auto-highlight"""
+        # Get the tab for this order (created by get_reportes)
+        page = self._get_active_page()
+        
+        # Make tab visible
+        await page.bring_to_front()
+        
+        result = await page.evaluate("""
+            (params) => {
+                const rows = document.querySelectorAll('tr.parametro');
+                for (const row of rows) {
+                    const label = row.querySelector('td:first-child')?.innerText?.trim();
+                    if (!label || !label.includes(params.f)) continue;
+                    
+                    const input = row.querySelector('input');
+                    const select = row.querySelector('select');
+                    const control = input || select;
+                    
+                    if (!control) continue;
+                    
+                    const prev = input ? input.value : select.options[select.selectedIndex]?.text;
+                    
+                    if (input) {
+                        input.value = params.v;
+                        input.dispatchEvent(new Event('input', {bubbles: true}));
+                        input.dispatchEvent(new Event('change', {bubbles: true}));
+                    } else {
+                        // Find matching option for select
+                        for (const opt of select.options) {
+                            if (opt.text.toLowerCase().includes(params.v.toLowerCase())) {
+                                select.value = opt.value;
+                                select.dispatchEvent(new Event('change', {bubbles: true}));
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // AUTO-HIGHLIGHT
+                    control.classList.add('ai-modified');
+                    row.classList.add('ai-modified-row');
+                    
+                    // Add change indicator
+                    const indicator = document.createElement('span');
+                    indicator.className = 'ai-change-badge';
+                    indicator.textContent = prev + ' → ' + params.v;
+                    control.parentNode.appendChild(indicator);
+                    
+                    // Scroll into view
+                    control.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    
+                    return {field: label, prev: prev, new: params.v};
+                }
+                return {err: 'Field not found: ' + params.f};
+            }
+        """, {"e": p["e"], "f": p["f"], "v": p["v"]})
+        
         return result
     
-    async def _exec_fill_multiple_results(self, params: dict) -> dict:
-        """Fill multiple results efficiently"""
+    async def _exec_fill_many(self, p: dict) -> dict:
+        """Fill multiple fields with auto-highlight"""
         results = []
-        for item in params["results"]:
-            result = await self._exec_fill_exam_result(item)
-            results.append(result)
-        return {"filled": len(results), "results": results}
+        for item in p["data"]:
+            r = await self._exec_fill(item)
+            results.append(r)
+        
+        filled = len([r for r in results if "field" in r])
+        return {"filled": filled, "total": len(p["data"]), "details": results}
     
-    async def _exec_highlight_changes(self, params: dict) -> dict:
-        """Inject CSS to highlight modified fields"""
-        # Uses the CSS injection from test_edit_reportes.py
-        await self.browser.page.evaluate("""...""")
-        return {"highlighted": True}
+    # ============================================================
+    # UI TOOLS
+    # ============================================================
     
-    async def _exec_open_new_tab(self, params: dict) -> dict:
-        """Open new browser tab"""
-        new_page = await self.browser.context.new_page()
-        await new_page.goto(params["url"])
-        self.tabs.append(new_page)
-        return {"tab_index": len(self.tabs) - 1, "url": params["url"]}
+    async def _exec_hl(self, p: dict) -> dict:
+        """Highlight specific fields (without editing)"""
+        page = self._get_active_page()
+        color_map = {
+            "yellow": "#fef3c7",
+            "green": "#d1fae5", 
+            "red": "#fee2e2",
+            "blue": "#dbeafe"
+        }
+        color = color_map.get(p.get("color", "yellow"), "#fef3c7")
+        
+        await page.evaluate("""
+            (params) => {
+                const rows = document.querySelectorAll('tr.parametro');
+                for (const row of rows) {
+                    const label = row.querySelector('td:first-child')?.innerText?.trim();
+                    for (const field of params.fields) {
+                        if (label && label.includes(field)) {
+                            row.style.backgroundColor = params.color;
+                            row.scrollIntoView({behavior: 'smooth', block: 'center'});
+                        }
+                    }
+                }
+            }
+        """, {"fields": p["fields"], "color": color})
+        
+        return {"highlighted": p["fields"]}
     
-    async def _exec_switch_to_tab(self, params: dict) -> dict:
-        """Switch to specific tab"""
-        index = params["tab_index"]
-        if index < len(self.tabs):
-            self.browser.page = self.tabs[index]
-            await self.browser.page.bring_to_front()
-            return {"switched_to": index}
-        return {"error": f"Tab {index} not found"}
+    async def _exec_ask_user(self, p: dict) -> dict:
+        """Request user action"""
+        return {
+            "waiting": True,
+            "action": p["action"],
+            "msg": p["msg"]
+        }
+    
+    # ============================================================
+    # HELPERS
+    # ============================================================
+    
+    async def _get_bg_page(self):
+        """Get or create background page"""
+        if self.bg_context.pages:
+            return self.bg_context.pages[0]
+        return await self.bg_context.new_page()
+    
+    def _get_active_page(self):
+        """Get the most recent active tab, or main browser page"""
+        if self.active_tabs:
+            return list(self.active_tabs.values())[-1]
+        return self.browser.page
+    
+    async def _inject_highlight_styles(self, page):
+        """Inject CSS for highlighting"""
+        await page.evaluate("""
+            () => {
+                if (document.getElementById('ai-styles')) return;
+                const style = document.createElement('style');
+                style.id = 'ai-styles';
+                style.textContent = `
+                    .ai-modified {
+                        background-color: #fef3c7 !important;
+                        border: 2px solid #f59e0b !important;
+                        box-shadow: 0 0 8px rgba(245, 158, 11, 0.4) !important;
+                    }
+                    .ai-modified-row {
+                        background-color: #fffbeb !important;
+                    }
+                    .ai-change-badge {
+                        display: inline-block;
+                        background: #dc2626;
+                        color: white;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        margin-left: 8px;
+                        animation: pulse 1.5s infinite;
+                    }
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.7; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        """)
+```
+
+### 5.2 JavaScript Constants for Data Extraction
+
+```python
+EXTRACT_ORDENES_JS = r"""
+() => {
+    return Array.from(document.querySelectorAll('table tbody tr')).slice(0, 20).map(row => {
+        const cells = row.querySelectorAll('td');
+        let id = null;
+        const dr = row.querySelector('[data-registro]');
+        if (dr) try { id = JSON.parse(dr.getAttribute('data-registro')).id; } catch(e) {}
+        const txt = cells[2]?.innerText?.split('\n') || [];
+        return {
+            num: cells[0]?.innerText?.trim(),
+            fecha: cells[1]?.innerText?.trim().replace(/\n/g, ' '),
+            cedula: txt[0]?.split(' ')[0],
+            paciente: txt[1] || '',
+            estado: cells[3]?.innerText?.trim(),
+            id: id
+        };
+    });
+}
+"""
+
+EXTRACT_REPORTES_JS = r"""
+() => {
+    const examenes = [];
+    let current = null;
+    
+    document.querySelectorAll('tr.examen, tr.parametro').forEach(row => {
+        if (row.classList.contains('examen')) {
+            if (current && current.campos.length) examenes.push(current);
+            current = {nombre: row.innerText.trim().split('\n')[0], campos: []};
+        } else if (current) {
+            const cells = row.querySelectorAll('td');
+            const sel = cells[1]?.querySelector('select');
+            const inp = cells[1]?.querySelector('input');
+            if (sel || inp) {
+                current.campos.push({
+                    f: cells[0]?.innerText?.trim(),
+                    tipo: sel ? 'select' : 'input',
+                    val: sel ? sel.options[sel.selectedIndex]?.text : inp?.value,
+                    ref: cells[2]?.innerText?.trim() || null
+                });
+            }
+        }
+    });
+    if (current && current.campos.length) examenes.push(current);
+    return {examenes};
+}
+"""
+
+EXTRACT_ORDEN_EDIT_JS = r"""
+() => {
+    const examenes = [];
+    document.querySelectorAll('#examenes-seleccionados tbody tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const nombre = cells[0]?.innerText?.trim();
+        const valor = cells[1]?.innerText?.trim();
+        const canDelete = !row.querySelector('button[disabled]');
+        if (nombre) examenes.push({nombre, valor, canDelete});
+    });
+    return {examenes};
+}
+"""
 ```
 
 ---
@@ -932,3 +1204,103 @@ lab-assistant/
 5. **Keep the highlight CSS injection** - It's important for user review.
 
 6. **Remember forbidden actions** - The `FORBIDDEN_WORDS` list in `browser_manager.py` is critical.
+
+7. **Background vs Visible execution** - Use headless=True for data retrieval, headless=False for user-facing operations.
+
+---
+
+## Quick Reference: Tools (Final - 7 tools)
+
+| Tool | Mode | Auto-HL | Description |
+|------|------|---------|-------------|
+| `get_reportes` | BG+Tab | - | Get exam results, **keeps tab open** |
+| `get_orden` | BG | - | Get order details (exams list) |
+| `create_orden` | VIS | - | Create new order with cedula + exams |
+| `add_exam` | VIS | - | Add exam to existing order |
+| `fill` | VIS | ✅ | Fill single field (auto-highlights) |
+| `fill_many` | VIS | ✅ | Fill multiple fields (auto-highlights) |
+| `hl` | VIS | - | Highlight fields (without editing) |
+| `ask_user` | VIS | - | Request user action (save/validate) |
+
+**Modes:**
+- **BG** = Background (headless, user doesn't see)
+- **BG+Tab** = Background but keeps tab for reuse
+- **VIS** = Visible (user sees browser)
+
+**Note:** No `search` tool! If patient not in orders list → create new order.
+
+---
+
+## Model Configuration
+
+```dotenv
+# .env
+GEMINI_MODEL=gemini-2.5-flash-preview-05-20
+```
+
+Gemini 2.5+ has built-in thinking that's separate from the response output. The API handles this internally via `thinking_config`. See `gemini_handler.py` for implementation.
+
+---
+
+## Key Optimizations Summary
+
+### 1. Context-First Approach
+- Orders list sent with first message
+- AI doesn't need to search
+- Patient not in list → Create new order (NOT search)
+
+### 2. Tab Reuse
+- `get_reportes` opens tab and keeps it
+- `fill`/`fill_many` reuse the same tab
+- No redundant navigation
+
+### 3. Auto-Highlight
+- `fill` and `fill_many` automatically highlight changes
+- Shows `prev → new` badge
+- Scrolls to modified field
+- No separate highlight tool call needed
+
+### 4. Minimal Tokens
+```
+7 tools total (removed search)
+Short names: fill, hl, ask_user
+Short params: e, f, v instead of exam_name, field_name, value
+
+Savings per typical operation: ~60% fewer tokens
+```
+
+---
+
+## Typical Complete Flow
+
+```
+1. Chat created → Backend fetches orders → sends list to AI
+2. User: "Ingresa EMO para Chandi" + image
+3. AI finds Chandi in context (NO search)
+4. AI: get_reportes(orden="2501181")  
+   → Tab opens, data returned, tab stays open
+5. AI: fill_many([...])
+   → Same tab, fields filled, auto-highlighted
+6. AI: ask_user(action="save", msg="...")
+   → Frontend shows "waiting for user"
+7. User clicks Guardar in browser
+8. User tells AI "listo" or sends next request
+9. AI continues with next patient
+```
+
+---
+
+## If Patient NOT in List
+
+```
+1. User: "Ingresa EMO para Martinez, cédula 1234567890"
+2. AI checks context → Martinez NOT in orders list
+3. AI does NOT search (old orders = old data)
+4. AI: create_orden(cedula="1234567890", exams=["EMO"])
+5. AI: ask_user(action="save", msg="Creé la orden...")
+6. User clicks Guardar
+7. User: "listo"
+8. AI: get_reportes(orden="NEW_ORDER_NUM")
+9. AI: fill_many([...])
+10. AI: ask_user(action="save", msg="...")
+```
