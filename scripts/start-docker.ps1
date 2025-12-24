@@ -42,7 +42,6 @@ docker run -d `
     -e OPENAI_PROXY_URL=http://host.docker.internal:8000/v1 `
     -e OPENAI_API_KEY=dummy-key `
     -e "OPENAI_MODEL_LIST=+lab-assistant=Lab Assistant<100000:vision:fc>" `
-    -e ACCESS_CODE=lobe66 `
     --add-host=host.docker.internal:host-gateway `
     lobehub/lobe-chat
 
@@ -53,7 +52,6 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Backend:  http://localhost:8000" -ForegroundColor Yellow
 Write-Host "Frontend: http://localhost:3210" -ForegroundColor Yellow
-Write-Host "Access Code: lobe66" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "To stop:" -ForegroundColor Cyan
 Write-Host "  - Close the backend PowerShell window" -ForegroundColor White
