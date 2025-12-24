@@ -106,6 +106,9 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     ) -> ChatResult:
         """Generate with automatic key rotation on rate limits."""
         global _shared_last_request_time
+        logger.info(f"[Model] _generate called with {len(messages)} messages")
+        logger.info(f"[Model] _current_model type: {type(self._current_model)}")
+        logger.info(f"[Model] _current_model has _generate: {hasattr(self._current_model, '_generate')}")
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -120,7 +123,14 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     return self._current_model._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
                 else:
                     # RunnableBinding - use invoke and wrap result
+                    logger.debug(f"[Model] Calling RunnableBinding.invoke with {len(messages)} messages")
                     result = self._current_model.invoke(messages, stop=stop, **kwargs)
+                    logger.debug(f"[Model] RunnableBinding result type: {type(result)}")
+                    logger.debug(f"[Model] RunnableBinding result: {result}")
+                    if hasattr(result, 'content'):
+                        logger.debug(f"[Model] Result content: {result.content[:200] if result.content else '(empty)'}")
+                    if hasattr(result, 'tool_calls'):
+                        logger.debug(f"[Model] Result tool_calls: {result.tool_calls}")
                     from langchain_core.outputs import ChatGeneration
                     return ChatResult(generations=[ChatGeneration(message=result)])
 
@@ -160,7 +170,14 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     return await self._current_model._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
                 else:
                     # RunnableBinding - use ainvoke and wrap result
+                    logger.debug(f"[Model] Calling RunnableBinding.ainvoke with {len(messages)} messages")
                     result = await self._current_model.ainvoke(messages, stop=stop, **kwargs)
+                    logger.debug(f"[Model] RunnableBinding result type: {type(result)}")
+                    logger.debug(f"[Model] RunnableBinding result: {result}")
+                    if hasattr(result, 'content'):
+                        logger.debug(f"[Model] Result content: {result.content[:200] if result.content else '(empty)'}")
+                    if hasattr(result, 'tool_calls'):
+                        logger.debug(f"[Model] Result tool_calls: {result.tool_calls}")
                     from langchain_core.outputs import ChatGeneration
                     return ChatResult(generations=[ChatGeneration(message=result)])
 
