@@ -106,10 +106,15 @@ def create_lab_agent(browser_manager=None):
         # Call LLM
         response = model_with_tools.invoke(messages)
 
-        # Detailed logging of response
-        logger.debug(f"[Agent] Raw response type: {type(response)}")
-        logger.debug(f"[Agent] Response attributes: {[a for a in dir(response) if not a.startswith('_')]}")
+        # Log thinking if present (Gemini 3+ with include_thoughts=True)
+        if hasattr(response, 'additional_kwargs'):
+            thoughts = response.additional_kwargs.get('thoughts', [])
+            if thoughts:
+                for thought in thoughts[:2]:  # Show first 2 thoughts
+                    thought_preview = thought[:300] + "..." if len(thought) > 300 else thought
+                    logger.info(f"[Agent] 💭 Thinking: {thought_preview}")
 
+        # Log response type
         if hasattr(response, 'tool_calls') and response.tool_calls:
             logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls:")
             for tc in response.tool_calls:
@@ -118,7 +123,7 @@ def create_lab_agent(browser_manager=None):
             content_preview = response.content[:200] if len(response.content) > 200 else response.content
             logger.info(f"[Agent] LLM response: {content_preview}")
         else:
-            logger.warning(f"[Agent] LLM returned empty response! Raw: {response}")
+            logger.warning(f"[Agent] LLM returned empty! additional_kwargs: {getattr(response, 'additional_kwargs', {})}")
 
         return {"messages": [response]}
 
