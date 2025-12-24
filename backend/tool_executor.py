@@ -143,23 +143,20 @@ class ToolExecutor:
         limit = p.get("limit", 10)
         search = p.get("search", "")
 
-        # Navegar a la página de órdenes
-        await page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
-        await page.wait_for_timeout(2000)  # Esperar Vue.js
-
-        # Si hay búsqueda, usar la barra de búsqueda del sitio
+        # Build URL with search parameter if provided
         if search:
-            # Buscar el input de búsqueda (puede tener diferentes selectores)
-            search_input = page.locator('input[type="search"], input[placeholder*="Buscar"], input[placeholder*="buscar"], #search, .search-input').first
-            if await search_input.count() > 0:
-                await search_input.fill(search)
-                await page.keyboard.press("Enter")
-                await page.wait_for_timeout(2000)  # Esperar resultados
+            url = f"https://laboratoriofranz.orion-labs.com/ordenes?cadenaBusqueda={search}&page=1"
+        else:
+            url = "https://laboratoriofranz.orion-labs.com/ordenes"
 
-        # Extraer órdenes
+        # Navigate to the orders page
+        await page.goto(url, timeout=30000)
+        await page.wait_for_timeout(2000)  # Wait for Vue.js
+
+        # Extract orders
         ordenes = await page.evaluate(EXTRACT_ORDENES_JS)
 
-        # Limitar resultados
+        # Limit results
         ordenes = ordenes[:limit]
 
         return {
