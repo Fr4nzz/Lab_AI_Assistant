@@ -28,13 +28,13 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_reportes",
-        "description": "Obtiene resultados de exámenes para una orden. MANTIENE LA PESTAÑA ABIERTA para ediciones posteriores.",
+        "description": "Obtiene campos de exámenes para ingresar resultados. USA el campo 'num' (NO 'id'). Mantiene pestaña abierta.",
         "parameters": {
             "type": "object",
             "properties": {
                 "orden": {
                     "type": "string",
-                    "description": "Número de orden (ej: '2501181')"
+                    "description": "Campo 'num' de la orden (ej: '2501181'). NO usar 'id'."
                 }
             },
             "required": ["orden"]
@@ -43,13 +43,13 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_orden",
-        "description": "Obtiene detalles de una orden (lista de exámenes, info del paciente). Usar para verificar si un examen existe antes de editar.",
+        "description": "Obtiene detalles de una orden (exámenes, paciente). USA el campo 'id' interno (NO 'num').",
         "parameters": {
             "type": "object",
             "properties": {
                 "id": {
                     "type": "integer",
-                    "description": "ID interno de la orden"
+                    "description": "Campo 'id' interno de la orden (ej: 4282). NO usar 'num'."
                 }
             },
             "required": ["id"]
