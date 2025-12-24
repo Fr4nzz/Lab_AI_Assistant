@@ -53,24 +53,11 @@ class GeminiHandler:
         """
         last_error = None
 
-        # Debug info
-        content_summary = []
-        for c in contents:
-            if isinstance(c, str):
-                content_summary.append(f"text({len(c)} chars)")
-            elif hasattr(c, 'inline_data'):
-                content_summary.append(f"media({c.inline_data.mime_type})")
-            else:
-                content_summary.append(str(type(c).__name__))
-
-        print(f"\n[GEMINI] Sending request to {self.model_name}")
-        print(f"[GEMINI] System prompt: {len(system_prompt)} chars")
-        print(f"[GEMINI] Contents: {content_summary}")
-        print(f"[GEMINI] Using API key index: {self.current_key_index}")
+        # Compact debug
+        print(f"[GEMINI] Sending to {self.model_name} (prompt:{len(system_prompt)}c, key:{self.current_key_index})")
 
         for attempt in range(self.max_retries):
             try:
-                print(f"[GEMINI] Attempt {attempt + 1}/{self.max_retries}...")
 
                 config = types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -84,29 +71,16 @@ class GeminiHandler:
                     config=config
                 )
 
-                # Debug response structure
-                print(f"[GEMINI] Response received!")
-                if response.candidates:
-                    print(f"[GEMINI] Candidates: {len(response.candidates)}")
-                    if response.candidates[0].content:
-                        print(f"[GEMINI] Parts: {len(response.candidates[0].content.parts)}")
-                    else:
-                        print(f"[GEMINI] WARNING: No content in first candidate")
-                        print(f"[GEMINI] Candidate finish_reason: {response.candidates[0].finish_reason}")
-                else:
-                    print(f"[GEMINI] WARNING: No candidates in response")
-
                 # Extract text from response
                 if response.candidates and response.candidates[0].content:
                     text = ""
                     for part in response.candidates[0].content.parts:
                         if hasattr(part, 'text') and part.text:
                             text += part.text
-                    print(f"[GEMINI] Extracted text: {len(text)} chars")
-                    print(f"[GEMINI] First 200 chars: {text[:200]}")
+                    print(f"[GEMINI] OK ({len(text)}c): {text[:150]}...")
                     return text, True
 
-                print(f"[GEMINI] ERROR: Could not extract text from response")
+                print(f"[GEMINI] ERROR: No content in response")
                 return "", False
 
             except APIError as e:

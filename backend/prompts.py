@@ -54,11 +54,16 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
 {tools_description}
 
 ### CUÁNDO USAR CADA HERRAMIENTA
-- **get_ordenes(search, limit)**: Para buscar órdenes. Usa el parámetro `search` para buscar por nombre de paciente o cédula.
-- **get_reportes(orden)**: Para obtener los campos de un examen específico cuando vas a ingresar resultados.
-- **get_orden(id)**: Para ver detalles de una orden específica por ID interno.
-- **fill/fill_many**: Para llenar campos de resultados.
-- **ask_user**: Cuando necesites que el usuario haga algo (guardar, validar, etc.)
+
+**IMPORTANTE: Diferencia entre `num` e `id` en órdenes:**
+- `num` = Número de orden visible (ej: "2501181") - USAR para get_reportes
+- `id` = ID interno del sistema (ej: 4282) - USAR para get_orden
+
+- **get_ordenes(search, limit)**: Buscar órdenes por nombre o cédula.
+- **get_reportes(orden)**: Obtener campos de exámenes. USA EL CAMPO `num` (número de orden), NO el `id`.
+- **get_orden(id)**: Ver detalles de orden. Usa el campo `id` interno.
+- **fill/fill_many**: Llenar campos de resultados.
+- **ask_user**: Pedir acción al usuario (guardar, etc.)
 
 ### CUÁNDO NO USAR get_ordenes
 - Si el usuario pregunta por las órdenes recientes y YA LAS VES en el contexto, responde con esa información.

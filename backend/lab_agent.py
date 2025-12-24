@@ -27,26 +27,24 @@ DEBUG = True
 
 
 def debug_print(category: str, message: str, data: Any = None):
-    """Print debug info with category."""
+    """Print concise debug info. No separators to reduce token usage."""
     if not DEBUG:
         return
 
-    prefix = f"[{category}]"
-    print(f"\n{'='*60}")
-    print(f"{prefix} {message}")
+    # Compact output format
     if data is not None:
         if isinstance(data, str):
             # Truncate long strings
-            if len(data) > 500:
-                print(f"{data[:500]}...")
-                print(f"  ... ({len(data)} chars total)")
-            else:
-                print(data)
+            preview = data[:200] + "..." if len(data) > 200 else data
+            print(f"[{category}] {message}: {preview}")
         elif isinstance(data, dict):
-            print(json.dumps(data, ensure_ascii=False, indent=2)[:1000])
+            # Compact JSON preview
+            preview = json.dumps(data, ensure_ascii=False)[:300]
+            print(f"[{category}] {message}: {preview}")
         else:
-            print(str(data)[:500])
-    print('='*60)
+            print(f"[{category}] {message}: {str(data)[:200]}")
+    else:
+        print(f"[{category}] {message}")
 
 
 class LabAgent:
