@@ -49,10 +49,21 @@ class BrowserManager:
             viewport={"width": 1280, "height": 900},
             accept_downloads=True,
             args=[
-                "--no-restore-session-state",
+                "--no-first-run",
+                "--no-default-browser-check",
                 "--disable-session-crashed-bubble",
-            ]
+                "--disable-restore-session-state",
+                "--disable-restore-background-contents",
+                "--hide-crash-restore-bubble",
+                "--noerrdialogs",
+            ],
+            ignore_default_args=["--enable-automation"],  # Less intrusive automation
         )
+        # Close any restored tabs and start fresh
+        if len(self.context.pages) > 1:
+            print(f"[BrowserManager] Closing {len(self.context.pages) - 1} restored tab(s)...")
+            for page in self.context.pages[1:]:
+                await page.close()
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
     
     async def stop(self):
