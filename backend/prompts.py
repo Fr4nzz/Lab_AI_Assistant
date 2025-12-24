@@ -71,8 +71,8 @@ SYSTEM_PROMPT = """Eres un asistente de laboratorio clínico especializado en el
   - Una orden: `get_exam_fields(ordenes=["2501181"])`
   - Múltiples: `get_exam_fields(ordenes=["2501181", "25011314"])`
 - **get_order_details(id)**: Ver detalles de orden. Usa el campo `id` interno.
-- **edit_results(data)**: Editar campos. Cada item: {orden, e (examen), f (campo), v (valor)}.
-  Ejemplo: `edit_results(data=[{orden:"2501181", e:"GLUCOSA", f:"Glucosa", v:"100"}])`
+- **edit_results(data)**: Editar campos. Cada item tiene: orden, e (examen), f (campo), v (valor).
+  Ejemplo: `edit_results(data=[...])` donde cada item es un objeto con esas 4 propiedades.
 - **ask_user**: Pedir acción al usuario (guardar, etc.)
 
 ### CUÁNDO NO USAR search_orders
