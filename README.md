@@ -1,200 +1,190 @@
 # Lab Assistant AI
 
-Sistema de chat con IA para ayudar al personal de laboratorio a ingresar resultados de exámenes en laboratoriofranz.orion-labs.com.
+AI-powered assistant for clinical laboratory staff to enter exam results in laboratoriofranz.orion-labs.com.
 
-## Características
+## Features
 
-- 💬 **Chat con IA**: Envía texto, imágenes del cuaderno, o audio con instrucciones
-- 🔍 **Extracción automática**: Obtiene lista de órdenes y datos del sitio
-- 🛠️ **Herramientas de IA**: 8 herramientas especializadas (get_reportes, fill, add_exam, etc.)
-- 📊 **Contexto optimizado**: Formateadores que reducen tokens en ~52%
-- 📋 **Revisión de datos**: Tabla editable para verificar datos antes de ejecutar
-- 🔒 **Seguro**: El agente NUNCA hace click en "Guardar" - solo el usuario puede
+- **AI Chat**: Send text, notebook images, or audio with instructions
+- **Browser Automation**: AI controls the browser to fill forms (but NEVER saves)
+- **Tool Calling**: 8 specialized tools (search_orders, edit_results, etc.)
+- **Safe**: AI only fills forms - user must click "Save" to confirm
+- **Multi-key Rotation**: Automatic API key rotation on rate limits
 
-## Requisitos
+## Architecture
+
+```
+User (LobeChat) → FastAPI Backend → Gemini AI → Playwright Browser
+                                         ↓
+                              Tool calls (search, edit, etc.)
+                                         ↓
+                              Browser fills forms
+                                         ↓
+                              User clicks "Save"
+```
+
+## Quick Start (Docker)
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/yourusername/Lab_AI_Assistant.git
+cd Lab_AI_Assistant
+
+# Copy example config
+cp .env.example .env
+```
+
+### 2. Edit `.env` file
+
+```bash
+# Required: Gemini API keys (get from https://aistudio.google.com/apikey)
+GEMINI_API_KEYS=key1,key2,key3
+
+# Optional: OpenRouter for LobeChat topic naming (https://openrouter.ai/keys)
+OPENROUTER_API_KEY=sk-or-v1-xxxxx
+```
+
+### 3. Start with Docker
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **Backend** on http://localhost:8000 (Lab Assistant API)
+- **LobeChat** on http://localhost:3210 (Chat UI)
+
+### 4. Open LobeChat
+
+1. Go to http://localhost:3210
+2. Create a new chat
+3. Select **"Lab Assistant"** as the model
+4. Start chatting!
+
+## Quick Start (Local Development)
+
+### Prerequisites
 
 - Python 3.11+
-- Node.js 18+
-- Microsoft Edge instalado
-- API keys de Gemini
+- Microsoft Edge browser installed
 
-## Instalación
+### 1. Setup
 
-### 1. Clonar y configurar
+```powershell
+# Clone
+git clone https://github.com/yourusername/Lab_AI_Assistant.git
+cd Lab_AI_Assistant
 
-```bash
-git clone <tu-repo>
-cd lab-assistant
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 
-# Configurar variables de entorno
+# Install dependencies
+pip install -r backend/requirements.txt
+
+# Copy and edit config
 cp .env.example .env
-# Edita .env y agrega tus GEMINI_API_KEYS
+# Edit .env with your GEMINI_API_KEYS
 ```
 
-### 2. Instalar dependencias
+### 2. Run Backend
 
-```bash
-# Backend
+```powershell
 cd backend
-python -m venv venv
-venv\Scripts\activate   # Windows
-pip install -r requirements.txt
-playwright install      # Instalar drivers de Playwright
-cd ..
-
-# Frontend
-cd frontend
-npm install
-cd ..
+python server.py
 ```
 
-## Ejecución
+Backend runs on http://localhost:8000
 
-### Opción 1: Ejecutar todo junto (recomendado)
+### 3. Run LobeChat (Docker)
 
 ```bash
-python main.py
+docker run -d -p 3210:3210 \
+  -e OPENAI_PROXY_URL=http://host.docker.internal:8000/v1 \
+  -e OPENAI_API_KEY=dummy \
+  -e "OPENAI_MODEL_LIST=-all,+lab-assistant=Lab Assistant<100000:vision:fc>" \
+  lobehub/lobe-chat:latest
 ```
 
-Esto inicia:
-- Backend en http://localhost:8000
-- Frontend en http://localhost:5173
-- Abre Edge con la página del laboratorio
+## Configuration
 
-### Opción 2: Ejecutar por separado
+### Environment Variables
 
-**Terminal 1 - Backend:**
-```bash
-cd backend
-venv\Scripts\activate
-python run_windows.py
-```
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `GEMINI_API_KEYS` | Comma-separated Gemini API keys | `key1,key2,key3` |
+| `GEMINI_MODEL` | Model to use | `gemini-2.0-flash` |
+| `OPENROUTER_API_KEY` | For LobeChat topic naming | `sk-or-v1-xxx` |
+| `BROWSER_CHANNEL` | Browser to use | `msedge`, `chrome`, `chromium` |
+| `TARGET_URL` | Lab system URL | `https://laboratoriofranz.orion-labs.com/` |
 
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm run dev
-```
+### LobeChat Model Selection
 
-## Desarrollo y Testing
+In LobeChat Settings → System Assistant:
+- **Topic Naming Model**: Use OpenRouter free model (e.g., `meta-llama/llama-3.2-3b-instruct:free`)
+- **Default Chat Model**: Use `lab-assistant` (your backend)
 
-### Inspección del sitio
+## Usage
 
-Para ver cómo el código extrae datos de las páginas:
+1. Open http://localhost:3210
+2. Login to the lab system in the browser window that opens
+3. Send a message like: *"busca las ordenes de Juan Perez y llena la hemoglobina con 15.5"*
+4. AI will:
+   - Search for orders
+   - Open the report page
+   - Fill the field
+   - Highlight changes
+5. **Review and click "Save" in the browser**
 
-```bash
-cd backend
-venv\Scripts\activate
-python inspect_ordenes.py      # Inspecciona lista de órdenes
-python inspect_reportes.py     # Inspecciona página de reportes
-python inspect_edit_orden.py   # Inspecciona edición de orden
-```
+## AI Tools
 
-Los scripts guardan HTML en `html_samples/` para análisis offline.
+| Tool | Description |
+|------|-------------|
+| `search_orders` | Search orders by patient name or ID |
+| `get_exam_fields` | Get exam fields for one or more orders |
+| `get_order_details` | Get order details by ID |
+| `edit_results` | Fill multiple fields across orders |
+| `add_exam_to_order` | Add exam to an existing order |
+| `create_new_order` | Create new order for patient |
+| `highlight_fields` | Highlight fields in browser |
+| `ask_user` | Ask user for clarification |
 
-### Tests de extracción (sin Playwright)
-
-Valida los extractores usando archivos HTML guardados:
-
-```bash
-cd backend
-python test_extractors_static.py
-```
-
-### Comparar formatos de contexto
-
-Ver cómo se optimiza el contexto enviado a la IA:
-
-```bash
-cd backend
-python preview_ai_context.py
-```
-
-Muestra comparación OLD vs NEW con ahorro de tokens (~52% reducción).
-
-## Uso
-
-1. Ejecuta `python main.py`
-2. Abre http://localhost:5173
-3. Inicia sesión en Edge si es necesario
-4. Crea un nuevo chat
-5. Envía mensaje, imagen o audio
-6. Revisa el plan generado
-7. Aprueba la ejecución
-8. **Haz click en "Guardar" manualmente**
-
-## Arquitectura
+## Project Structure
 
 ```
-Usuario (texto/imagen/audio)
-       ↓
-  Frontend React ←→ Backend FastAPI
-       ↓
-  Gemini AI (contexto optimizado + herramientas)
-       ↓
-  Genera tool_calls (get_reportes, fill, etc.)
-       ↓
-  ToolExecutor ejecuta en Playwright
-       ↓
-  Usuario hace click en Guardar
-```
-
-## Estructura
-
-```
-lab-assistant/
-├── main.py                      # 🚀 Launcher principal
+Lab_AI_Assistant/
 ├── backend/
-│   ├── main.py                  # FastAPI app
-│   ├── run_windows.py           # Runner para Windows
-│   ├── lab_agent.py             # Agente principal
-│   ├── gemini_handler.py        # Gemini con rotación de keys
-│   ├── browser_manager.py       # Control con Playwright
-│   ├── database.py              # SQLite para chats
-│   │
-│   ├── # Módulos del agente IA
-│   ├── extractors.py            # JavaScript extractors por página
-│   ├── tools.py                 # 8 herramientas para la IA
-│   ├── tool_executor.py         # Ejecuta tool_calls
-│   ├── prompts.py               # System prompt + abreviaturas
-│   ├── schemas.py               # Validación de respuestas
-│   ├── context_formatters.py    # Formateo optimizado (~52% menos tokens)
-│   │
-│   ├── # Scripts de inspección
-│   ├── inspect_ordenes.py       # Inspecciona /ordenes
-│   ├── inspect_reportes.py      # Inspecciona /reportes2
-│   ├── inspect_edit_orden.py    # Inspecciona /ordenes/{id}/edit
-│   │
-│   ├── # Testing
-│   ├── test_extractors_static.py  # Tests offline con BeautifulSoup
-│   ├── preview_ai_context.py      # Comparar formatos OLD vs NEW
-│   ├── analyze_html.py            # Utilidad para analizar HTML
-│   │
-│   ├── html_samples/            # HTML guardado para testing
-│   └── site_knowledge/          # JSONs con info de exámenes
-│
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   └── components/
-│   └── package.json
-│
-└── .env
+│   ├── server.py           # FastAPI server (OpenAI-compatible)
+│   ├── models.py           # Gemini wrapper with key rotation
+│   ├── browser_manager.py  # Playwright browser control
+│   ├── prompts.py          # System prompt
+│   └── graph/
+│       ├── agent.py        # LangGraph agent
+│       └── tools.py        # Tool definitions
+├── docker-compose.yml      # Docker setup
+├── .env.example            # Example configuration
+└── README.md
 ```
 
-## Herramientas de la IA
+## Troubleshooting
 
-| Herramienta | Descripción |
-|-------------|-------------|
-| `get_reportes` | Navega a reportes y extrae campos de exámenes |
-| `get_orden` | Navega a editar orden y extrae datos |
-| `create_orden` | Navega a crear nueva orden |
-| `add_exam` | Agrega examen a una orden |
-| `fill` | Llena un campo específico |
-| `fill_many` | Llena múltiples campos a la vez |
-| `hl` | Resalta campos para el usuario |
-| `ask_user` | Pregunta al usuario cuando hay ambigüedad |
+### Port already in use
 
-## Licencia
+```bash
+# Find what's using the port
+netstat -ano | findstr :3210
+# Kill the process
+taskkill /PID <PID> /F
+```
+
+### Rate limits (429 errors)
+
+Add more API keys to `GEMINI_API_KEYS` in `.env`. The system rotates automatically.
+
+### Browser not opening
+
+Make sure Microsoft Edge is installed, or change `BROWSER_CHANNEL` to `chrome` or `chromium`.
+
+## License
 
 MIT
