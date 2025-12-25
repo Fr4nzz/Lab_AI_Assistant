@@ -20,7 +20,8 @@ goto parse_args
 if %RESTART_DOCKER%==1 (
     echo Starting Lab Assistant with Docker restart...
 ) else (
-    echo Starting Lab Assistant (quick start - use -r to restart Docker)...
+    echo Starting Lab Assistant - quick start mode
+    echo Use -r flag to restart Docker container
 )
 echo.
 powershell -ExecutionPolicy Bypass -File "%~dp0scripts\start-docker.ps1" -RestartDocker:%RESTART_DOCKER%
