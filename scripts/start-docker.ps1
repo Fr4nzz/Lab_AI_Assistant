@@ -34,8 +34,9 @@ try {
     exit 1
 }
 
-# Stop any existing frontend container
+# Stop any existing frontend container (ignore errors if not exists)
 Write-Host "Cleaning up existing containers..." -ForegroundColor Yellow
+$ErrorActionPreference = "SilentlyContinue"
 docker stop lobe-chat 2>&1 | Out-Null
 docker rm lobe-chat 2>&1 | Out-Null
 
@@ -43,6 +44,7 @@ docker rm lobe-chat 2>&1 | Out-Null
 Set-Location $ProjectDir
 docker-compose stop frontend 2>&1 | Out-Null
 docker-compose rm -f frontend 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
 
 # Kill any existing process on port 8000
 Write-Host "Checking for existing backend..." -ForegroundColor Yellow
