@@ -228,22 +228,33 @@ async def extract_initial_context() -> str:
     lines = []
 
     try:
-        # Make sure we're on the orders page
-        if "/ordenes" not in browser.page.url:
-            logger.info("[Context] Navigating to orders page...")
-            await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+        # Fetch orders from page 1
+        page1_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=1"
+        logger.info("[Context] Fetching orders page 1...")
+        await browser.page.goto(page1_url, timeout=30000)
+        await browser.page.wait_for_timeout(2000)
+        ordenes_page1 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
 
-        await browser.page.wait_for_timeout(2000)  # Wait for page to load
-        ordenes = await browser.page.evaluate(EXTRACT_ORDENES_JS)
-        if ordenes:
-            lines.append("# Órdenes Recientes")
+        # Fetch orders from page 2
+        page2_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=2"
+        logger.info("[Context] Fetching orders page 2...")
+        await browser.page.goto(page2_url, timeout=30000)
+        await browser.page.wait_for_timeout(2000)
+        ordenes_page2 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
+
+        # Combine orders from both pages
+        all_ordenes = ordenes_page1 + ordenes_page2
+
+        if all_ordenes:
+            lines.append("# Órdenes Recientes (40 más recientes)")
             lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado | ID |")
             lines.append("|---|-------|-------|----------|--------|--------|-----|")
-            for i, o in enumerate(ordenes[:15]):
+            for i, o in enumerate(all_ordenes[:40]):
                 paciente = (o.get('paciente', '') or '')[:30]
                 lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
             lines.append("")
             lines.append("*Usa 'num' para get_order_results(), 'id' para get_order_info() o edit_order_exams()*")
+            logger.info(f"[Context] Extracted {len(all_ordenes)} orders from 2 pages")
     except Exception as e:
         logger.warning(f"Could not extract orders context: {e}")
 
