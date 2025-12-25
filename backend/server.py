@@ -81,6 +81,41 @@ browser: Optional[BrowserManager] = None
 graph = None
 checkpointer = None
 initial_orders_context: str = ""  # Store initial orders for context
+orders_context_sent: bool = False  # Track if we've sent valid orders context
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def is_logged_in() -> bool:
+    """Check if the browser is logged in (not on login page)."""
+    if browser and browser.page:
+        return "/login" not in browser.page.url
+    return False
+
+
+async def get_orders_context() -> str:
+    """
+    Get orders context, checking login state first.
+    Returns empty string with login message if not logged in.
+    Returns orders table if logged in and orders found.
+    """
+    global browser, initial_orders_context, orders_context_sent
+
+    if not is_logged_in():
+        logger.info("[Context] User not logged in - browser is on login page")
+        return "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión en el navegador para que pueda acceder a las órdenes del laboratorio."
+
+    # If we haven't sent valid orders yet, try to extract them
+    if not orders_context_sent or not initial_orders_context:
+        logger.info("[Context] Extracting orders context...")
+        initial_orders_context = await extract_initial_context()
+        if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
+            orders_context_sent = True
+            logger.info(f"[Context] Extracted {initial_orders_context.count('|') // 8} orders")
+
+    return initial_orders_context
 
 
 # ============================================================
@@ -132,10 +167,12 @@ async def lifespan(app: FastAPI):
     await browser.navigate(settings.target_url)
     set_browser(browser)
 
-    # Extract initial orders context
-    initial_orders_context = await extract_initial_context()
-    if initial_orders_context:
+    # Extract initial orders context (will handle login state)
+    initial_orders_context = await get_orders_context()
+    if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
         logger.info(f"Extracted initial context with {initial_orders_context.count('|') // 8} orders")
+    elif "SESIÓN NO INICIADA" in initial_orders_context:
+        logger.warning("[Startup] Not logged in - waiting for user to login")
 
     # Initialize checkpointer for conversation persistence
     # Using MemorySaver for development (in-memory, not persistent across restarts)
@@ -504,6 +541,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
     if request.stream:
         async def generate():
+            global orders_context_sent
             full_response = []
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             created_time = int(time_module.time())  # Unix timestamp
@@ -512,11 +550,18 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 existing_state = await graph.aget_state(config)
                 is_first_message = not existing_state.values.get("messages")
 
-                # Only include context on first message of thread
+                # Get current context (checks login state, fetches orders if needed)
+                current_context = await get_orders_context()
+
+                # Include context if: first message OR we haven't sent valid orders yet
                 initial_state = {"messages": [HumanMessage(content=last_user_message)]}
-                if is_first_message and initial_orders_context:
-                    initial_state["current_page_context"] = initial_orders_context
-                    logger.info("[Chat] First message - including orders context")
+                should_include_context = is_first_message or not orders_context_sent
+                if should_include_context and current_context:
+                    initial_state["current_page_context"] = current_context
+                    if "SESIÓN NO INICIADA" in current_context:
+                        logger.info("[Chat] Not logged in - sending login reminder")
+                    else:
+                        logger.info("[Chat] Including orders context")
 
                 async for event in graph.astream_events(
                     initial_state,
@@ -600,11 +645,18 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             existing_state = await graph.aget_state(config)
             is_first_message = not existing_state.values.get("messages")
 
-            # Only include context on first message of thread
+            # Get current context (checks login state, fetches orders if needed)
+            current_context = await get_orders_context()
+
+            # Include context if: first message OR we haven't sent valid orders yet
             initial_state = {"messages": [HumanMessage(content=last_user_message)]}
-            if is_first_message and initial_orders_context:
-                initial_state["current_page_context"] = initial_orders_context
-                logger.info("[Chat] First message - including orders context")
+            should_include_context = is_first_message or not orders_context_sent
+            if should_include_context and current_context:
+                initial_state["current_page_context"] = current_context
+                if "SESIÓN NO INICIADA" in current_context:
+                    logger.info("[Chat] Not logged in - sending login reminder")
+                else:
+                    logger.info("[Chat] Including orders context")
 
             logger.info("Invoking LangGraph agent...")
             result = await graph.ainvoke(initial_state, config)
