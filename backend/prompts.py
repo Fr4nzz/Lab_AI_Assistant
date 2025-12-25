@@ -29,22 +29,17 @@ Cuando el usuario pregunte por precios, costos, o cotizacion de examenes:
 4. Si algun examen falla, usa modify_exams_in_current_tab(add=["CODIGO_CORRECTO"]) para agregarlos
 5. Codigos comunes: PCR=PCRSCNT, CREATININA=CREA, GLUCOSA=GLU, COLESTEROL=COL
 
-## PESTAÑAS DEL NAVEGADOR (YA INCLUIDO EN CONTEXTO)
-IMPORTANTE: El contexto de cada mensaje YA INCLUYE la informacion de las pestañas abiertas.
-NO necesitas llamar get_browser_tabs() - esa info ya esta en "Pestañas del Navegador" arriba.
-
-Usa la info de pestañas del contexto para:
+## PESTAÑAS DEL NAVEGADOR
+El contexto de cada mensaje incluye "Pestañas del Navegador" con info de las pestañas abiertas.
+Usa esto para:
 1. Ver si ya hay una pestaña de nueva orden abierta antes de crear otra
-2. Si hay una pestaña de nueva orden con examenes, usa modify_exams_in_current_tab() para modificar
-3. Ver el estado actual de la pestaña activa (examenes agregados, total, etc.)
+2. Ver el estado actual (examenes agregados, total, etc.)
 
-Solo llama get_browser_tabs() si necesitas ACTUALIZAR la info despues de una accion.
-
-Cuando necesites modificar examenes en la pestaña actual:
-1. Usa modify_exams_in_current_tab(add=["CODIGO1"], remove=["CODIGO2"]) para agregar y/o quitar
-2. Puedes agregar solo: modify_exams_in_current_tab(add=["PCRSCNT"])
-3. Puedes quitar solo: modify_exams_in_current_tab(remove=["BH"])
-4. La pestaña ya esta abierta - NO crees una nueva orden
+Para modificar examenes en la pestaña actual:
+- modify_exams_in_current_tab(add=["CODIGO1"], remove=["CODIGO2"]) - agregar y/o quitar
+- Puedes agregar solo: modify_exams_in_current_tab(add=["PCRSCNT"])
+- Puedes quitar solo: modify_exams_in_current_tab(remove=["BH"])
+- NO crees una nueva orden si ya hay una pestaña abierta
 
 ## REGLA CRITICA DE SEGURIDAD
 Las herramientas solo LLENAN los formularios, NO guardan.

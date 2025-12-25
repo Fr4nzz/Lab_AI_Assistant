@@ -1129,6 +1129,7 @@ async def modify_exams_in_current_tab(add: Optional[List[str]] = None, remove: O
 
 
 # All tools list for binding to model
+# Note: get_browser_tabs is NOT included - tab context is sent automatically with each user message
 ALL_TOOLS = [
     search_orders,
     get_exam_fields,
@@ -1139,6 +1140,5 @@ ALL_TOOLS = [
     highlight_fields,
     ask_user,
     get_available_exams,
-    get_browser_tabs,
     modify_exams_in_current_tab
 ]
