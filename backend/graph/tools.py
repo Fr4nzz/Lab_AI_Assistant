@@ -23,7 +23,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from browser_manager import BrowserManager
-from extractors import EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS
+from extractors import (
+    EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS,
+    EXTRACT_AVAILABLE_EXAMS_JS, EXTRACT_ADDED_EXAMS_JS
+)
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +386,43 @@ async def _highlight_impl(fields: List[str], color: str = "yellow") -> dict:
     }
 
 
+async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
+    """
+    Internal async implementation of get_available_exams.
+    Gets list of available exams from create or edit order page.
+    """
+    logger.info(f"[get_available_exams] Getting available exams, order_id={order_id}")
+    page = await _browser.ensure_page()
+
+    # Navigate to create or edit page based on order_id
+    if order_id:
+        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
+    else:
+        url = "https://laboratoriofranz.orion-labs.com/ordenes/create"
+
+    await page.goto(url, timeout=30000)
+    await page.wait_for_timeout(1500)
+
+    # Extract available exams
+    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+    # Also extract currently added exams if on edit page
+    added = []
+    if order_id:
+        added = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+
+    logger.info(f"[get_available_exams] Found {len(available)} available, {len(added)} added")
+
+    return {
+        "order_id": order_id,
+        "available_exams": available,
+        "total_available": len(available),
+        "added_exams": added if order_id else [],
+        "total_added": len(added) if order_id else 0,
+        "tip": "Use exam 'codigo' field with add_exam_to_order() to add exams"
+    }
+
+
 # ============================================================
 # TOOL DEFINITIONS (Sync wrappers that LangGraph can call)
 # ============================================================
@@ -542,6 +582,35 @@ def ask_user(action: str, message: str) -> str:
     }, ensure_ascii=False)
 
 
+@tool
+async def get_available_exams(order_id: Optional[int] = None) -> str:
+    """
+    Get list of available exams that can be added to orders.
+    Also returns currently added exams if editing an existing order.
+
+    Use this tool:
+    - Before creating a new order to see what exams are available
+    - When user wants to add exams but you don't know the exact codes
+    - To check what exams are already added to an order
+
+    Args:
+        order_id: Optional internal order ID. If provided, navigates to edit page
+                  and also returns currently added exams.
+                  If not provided, navigates to create new order page.
+
+    Returns:
+        JSON with available_exams (list with codigo, nombre) and added_exams if editing.
+
+    Example - For new order:
+        get_available_exams()
+
+    Example - For existing order:
+        get_available_exams(order_id=4282)
+    """
+    result = await _get_available_exams_impl(order_id)
+    return json.dumps(result, ensure_ascii=False)
+
+
 # All tools list for binding to model
 ALL_TOOLS = [
     search_orders,
@@ -551,5 +620,6 @@ ALL_TOOLS = [
     add_exam_to_order,
     create_new_order,
     highlight_fields,
-    ask_user
+    ask_user,
+    get_available_exams
 ]
