@@ -577,6 +577,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             step_counter = 0
             total_input_tokens = 0
             total_output_tokens = 0
+            seen_run_ids = set()  # Track unique LLM calls to avoid double counting
 
             # Gemini pricing (per 1M tokens) - adjust based on model
             # Gemini 3 Flash Preview: $0.50 input, $3.00 output (incl. thinking tokens)
@@ -609,10 +610,19 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 ):
                     event_type = event.get("event", "")
 
-                    # Track LLM calls for step enumeration
+                    # Track LLM calls for step enumeration (avoid double counting from wrapper)
                     if event_type == "on_chat_model_start":
-                        step_counter += 1
-                        logger.info(f"[Step {step_counter}] LLM call started")
+                        run_id = event.get("run_id", "")
+                        # Only count if this is a new run_id (wrapper and inner model share same run_id parent)
+                        # Check metadata to see if this is the actual Gemini call
+                        metadata = event.get("metadata", {})
+                        model_name = event.get("name", "")
+                        # Only count events from the actual ChatGoogleGenerativeAI, not the wrapper
+                        if "ChatGoogleGenerativeAI" in model_name or "gemini" in model_name.lower():
+                            if run_id and run_id not in seen_run_ids:
+                                seen_run_ids.add(run_id)
+                                step_counter += 1
+                                logger.info(f"[Step {step_counter}] LLM call started (run_id: {run_id[:8]})")
 
                     # Stream tool calls to show "thinking" in LobeChat
                     if event_type == "on_tool_start":
@@ -699,25 +709,33 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
                         # Try to extract token usage from response
                         if output:
-                            # Check for usage_metadata (Gemini)
+                            # Check for usage_metadata on AIMessage (it's a dict, not object)
+                            # LangChain format: {'input_tokens': X, 'output_tokens': Y, 'total_tokens': Z}
                             usage = getattr(output, 'usage_metadata', None)
-                            if usage:
-                                input_tokens = getattr(usage, 'input_tokens', 0) or getattr(usage, 'prompt_token_count', 0) or 0
-                                output_tokens = getattr(usage, 'output_tokens', 0) or getattr(usage, 'candidates_token_count', 0) or 0
-                                total_input_tokens += input_tokens
-                                total_output_tokens += output_tokens
-                                logger.info(f"[Step {step_counter}] Tokens: in={input_tokens}, out={output_tokens}")
-
-                            # Also check response_metadata for langchain
-                            resp_meta = getattr(output, 'response_metadata', {})
-                            if resp_meta and 'usage_metadata' in resp_meta:
-                                usage_meta = resp_meta['usage_metadata']
-                                input_tokens = usage_meta.get('prompt_token_count', 0)
-                                output_tokens = usage_meta.get('candidates_token_count', 0)
+                            if usage and isinstance(usage, dict):
+                                input_tokens = usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
+                                output_tokens = usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
                                 if input_tokens or output_tokens:
                                     total_input_tokens += input_tokens
                                     total_output_tokens += output_tokens
-                                    logger.info(f"[Step {step_counter}] Tokens (from meta): in={input_tokens}, out={output_tokens}")
+                                    # Log thinking tokens if available
+                                    output_details = usage.get('output_token_details', {})
+                                    thinking_tokens = output_details.get('reasoning', 0) if output_details else 0
+                                    logger.info(f"[Step {step_counter}] Tokens: in={input_tokens}, out={output_tokens}" +
+                                               (f" (thinking={thinking_tokens})" if thinking_tokens else ""))
+
+                            # Also check response_metadata for langchain (Google-specific format)
+                            resp_meta = getattr(output, 'response_metadata', {}) or {}
+                            if resp_meta and 'usage_metadata' in resp_meta:
+                                usage_meta = resp_meta['usage_metadata']
+                                # Google format: prompt_token_count, candidates_token_count
+                                input_tokens = usage_meta.get('prompt_token_count', 0)
+                                output_tokens = usage_meta.get('candidates_token_count', 0)
+                                # Avoid double counting - only add if we didn't get from usage_metadata above
+                                if (input_tokens or output_tokens) and not usage:
+                                    total_input_tokens += input_tokens
+                                    total_output_tokens += output_tokens
+                                    logger.info(f"[Step {step_counter}] Tokens (from response_meta): in={input_tokens}, out={output_tokens}")
 
                         if output and hasattr(output, 'content') and output.content:
                             content = output.content
