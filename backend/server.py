@@ -572,6 +572,17 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             full_response = []
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             created_time = int(time_module.time())  # Unix timestamp
+
+            # Step tracking for enumeration
+            step_counter = 0
+            total_input_tokens = 0
+            total_output_tokens = 0
+
+            # Gemini pricing (per 1M tokens) - adjust based on model
+            # Gemini 2.0 Flash: $0.10 input, $0.40 output per 1M tokens
+            INPUT_PRICE_PER_1M = 0.10
+            OUTPUT_PRICE_PER_1M = 0.40
+
             try:
                 # Check if this is first message in conversation (from frontend history)
                 is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
@@ -598,6 +609,11 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 ):
                     event_type = event.get("event", "")
 
+                    # Track LLM calls for step enumeration
+                    if event_type == "on_chat_model_start":
+                        step_counter += 1
+                        logger.info(f"[Step {step_counter}] LLM call started")
+
                     # Stream tool calls to show "thinking" in LobeChat
                     if event_type == "on_tool_start":
                         tool_name = event.get("name", "unknown")
@@ -605,8 +621,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         logger.info(f"TOOL CALL: {tool_name}")
                         logger.debug(f"  Input: {json.dumps(tool_input, ensure_ascii=False)[:500]}")
 
-                        # Send tool call as a "thinking" step to frontend
-                        tool_display = f"🔧 **{tool_name}**"
+                        # Send tool call as a "thinking" step to frontend with step number
+                        tool_display = f"**[{step_counter}]** 🔧 **{tool_name}**"
                         if tool_input:
                             # Show key parameters
                             params = []
@@ -677,9 +693,32 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                 }
                                 yield f"data: {json.dumps(data)}\n\n"
 
-                    # Handle non-streaming model responses (after key rotation)
+                    # Handle non-streaming model responses (after key rotation) and extract token usage
                     elif event_type == "on_chat_model_end":
                         output = event.get("data", {}).get("output")
+
+                        # Try to extract token usage from response
+                        if output:
+                            # Check for usage_metadata (Gemini)
+                            usage = getattr(output, 'usage_metadata', None)
+                            if usage:
+                                input_tokens = getattr(usage, 'input_tokens', 0) or getattr(usage, 'prompt_token_count', 0) or 0
+                                output_tokens = getattr(usage, 'output_tokens', 0) or getattr(usage, 'candidates_token_count', 0) or 0
+                                total_input_tokens += input_tokens
+                                total_output_tokens += output_tokens
+                                logger.info(f"[Step {step_counter}] Tokens: in={input_tokens}, out={output_tokens}")
+
+                            # Also check response_metadata for langchain
+                            resp_meta = getattr(output, 'response_metadata', {})
+                            if resp_meta and 'usage_metadata' in resp_meta:
+                                usage_meta = resp_meta['usage_metadata']
+                                input_tokens = usage_meta.get('prompt_token_count', 0)
+                                output_tokens = usage_meta.get('candidates_token_count', 0)
+                                if input_tokens or output_tokens:
+                                    total_input_tokens += input_tokens
+                                    total_output_tokens += output_tokens
+                                    logger.info(f"[Step {step_counter}] Tokens (from meta): in={input_tokens}, out={output_tokens}")
+
                         if output and hasattr(output, 'content') and output.content:
                             content = output.content
                             if isinstance(content, list):
@@ -703,6 +742,34 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
                 if full_response:
                     logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
+
+                # Calculate and display usage summary
+                total_tokens = total_input_tokens + total_output_tokens
+                input_cost = (total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+                output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+                total_cost = input_cost + output_cost
+
+                # Send usage summary at the end
+                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                if total_tokens > 0:
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
+                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                usage_summary += "\n"
+
+                data = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": request.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": usage_summary},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+
+                logger.info(f"[Usage] Steps: {step_counter}, Input: {total_input_tokens}, Output: {total_output_tokens}, Cost: ${total_cost:.6f}")
 
                 # Send final chunk with finish_reason to signal completion
                 final_chunk = {
