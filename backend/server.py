@@ -51,7 +51,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Local imports
 from graph.agent import create_lab_agent, compile_agent
-from graph.tools import set_browser, close_all_tabs, get_active_tabs
+from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
@@ -116,6 +116,89 @@ async def get_orders_context() -> str:
             logger.info(f"[Context] Extracted {initial_orders_context.count('|') // 8} orders")
 
     return initial_orders_context
+
+
+async def get_browser_tabs_context() -> str:
+    """
+    Get browser tabs context - info about all open tabs and active tab state.
+    This is sent to the AI at every new user message.
+    """
+    try:
+        tabs_info = await _get_browser_tabs_impl()
+
+        if not tabs_info.get("tabs"):
+            return ""
+
+        lines = ["# Pestañas del Navegador"]
+
+        # List all tabs
+        for tab in tabs_info.get("tabs", []):
+            tab_type = tab.get("type", "unknown")
+            is_active = tab.get("active", False)
+            marker = "→ " if is_active else "  "
+            type_display = {
+                "ordenes_list": "Lista de Órdenes",
+                "nueva_orden": "Nueva Orden",
+                "orden_edit": "Editar Orden",
+                "resultados": "Resultados",
+                "login": "Login",
+                "unknown": "Otra"
+            }.get(tab_type, tab_type)
+            lines.append(f"{marker}[{tab.get('index')}] {type_display}")
+
+        # Active tab detailed state
+        active_state = tabs_info.get("active_tab_state")
+        if active_state and active_state.get("page_type"):
+            page_type = active_state.get("page_type")
+            lines.append("")
+            lines.append("## Pestaña Activa")
+
+            if page_type == "orden_create":
+                lines.append("**Tipo:** Nueva Orden (creación)")
+                exams = active_state.get("examenes_agregados", []) or active_state.get("examenes_seleccionados", [])
+                if exams:
+                    lines.append(f"**Exámenes agregados:** {len(exams)}")
+                    for exam in exams[:10]:  # Limit to 10
+                        codigo = exam.get('codigo', '')
+                        nombre = exam.get('nombre', '')[:30]
+                        valor = exam.get('valor', '')
+                        lines.append(f"  - {codigo}: {nombre} ({valor})")
+                totals = active_state.get("totales", {})
+                if totals and totals.get("total"):
+                    lines.append(f"**Total:** {totals.get('total')}")
+                lines.append("")
+                lines.append("*Usa add_exam_to_current_tab() para agregar más exámenes a esta pestaña.*")
+
+            elif page_type == "orden_edit":
+                lines.append("**Tipo:** Edición de Orden")
+                orden_num = active_state.get("numero_orden", "?")
+                lines.append(f"**Orden:** {orden_num}")
+                paciente = active_state.get("paciente", {})
+                if paciente.get("nombres"):
+                    lines.append(f"**Paciente:** {paciente.get('nombres')}")
+
+            elif page_type == "ordenes_list":
+                lines.append("**Tipo:** Lista de Órdenes")
+                ordenes = active_state.get("ordenes", [])
+                if ordenes:
+                    lines.append(f"**Órdenes visibles:** {len(ordenes)}")
+
+            elif page_type == "reportes":
+                lines.append("**Tipo:** Ingreso de Resultados")
+                orden_num = active_state.get("numero_orden", "?")
+                lines.append(f"**Orden:** {orden_num}")
+                paciente = active_state.get("paciente", "")
+                if paciente:
+                    lines.append(f"**Paciente:** {paciente}")
+                examenes = active_state.get("examenes", [])
+                if examenes:
+                    lines.append(f"**Exámenes:** {len(examenes)}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.warning(f"[Context] Could not get browser tabs context: {e}")
+        return ""
 
 
 # ============================================================
@@ -646,17 +729,31 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 # Get current context (checks login state, fetches orders if needed)
                 current_context = await get_orders_context()
 
+                # Get browser tabs context (always at each user message)
+                tabs_context = await get_browser_tabs_context()
+
                 # Pass full conversation history to the graph
                 initial_state = {"messages": conversation_messages}
 
-                # Include context if: first message OR we haven't sent valid orders yet
-                should_include_context = is_first_message or not orders_context_sent
-                if should_include_context and current_context:
-                    initial_state["current_page_context"] = current_context
+                # Build full context
+                context_parts = []
+
+                # Include orders context if: first message OR we haven't sent valid orders yet
+                should_include_orders = is_first_message or not orders_context_sent
+                if should_include_orders and current_context:
+                    context_parts.append(current_context)
                     if "SESIÓN NO INICIADA" in current_context:
                         logger.info("[Chat] Not logged in - sending login reminder")
                     else:
                         logger.info("[Chat] Including orders context")
+
+                # Always include tabs context at every message
+                if tabs_context:
+                    context_parts.append(tabs_context)
+                    logger.info("[Chat] Including browser tabs context")
+
+                if context_parts:
+                    initial_state["current_page_context"] = "\n\n".join(context_parts)
 
                 async for event in graph.astream_events(
                     initial_state,
@@ -881,17 +978,31 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             # Get current context (checks login state, fetches orders if needed)
             current_context = await get_orders_context()
 
+            # Get browser tabs context (always at each user message)
+            tabs_context = await get_browser_tabs_context()
+
             # Pass full conversation history to the graph
             initial_state = {"messages": conversation_messages}
 
-            # Include context if: first message OR we haven't sent valid orders yet
-            should_include_context = is_first_message or not orders_context_sent
-            if should_include_context and current_context:
-                initial_state["current_page_context"] = current_context
+            # Build full context
+            context_parts = []
+
+            # Include orders context if: first message OR we haven't sent valid orders yet
+            should_include_orders = is_first_message or not orders_context_sent
+            if should_include_orders and current_context:
+                context_parts.append(current_context)
                 if "SESIÓN NO INICIADA" in current_context:
                     logger.info("[Chat] Not logged in - sending login reminder")
                 else:
                     logger.info("[Chat] Including orders context")
+
+            # Always include tabs context at every message
+            if tabs_context:
+                context_parts.append(tabs_context)
+                logger.info("[Chat] Including browser tabs context")
+
+            if context_parts:
+                initial_state["current_page_context"] = "\n\n".join(context_parts)
 
             logger.info("Invoking LangGraph agent...")
             result = await graph.ainvoke(initial_state, config)
