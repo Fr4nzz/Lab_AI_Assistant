@@ -8,18 +8,23 @@ param(
     [string]$Service = "all"
 )
 
-# Get local IP address for network access
-function Get-LocalIP {
-    $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-           Where-Object { $_.PrefixOrigin -eq 'Dhcp' -or $_.PrefixOrigin -eq 'Manual' } |
-           Where-Object { $_.InterfaceAlias -notmatch 'vEthernet|Loopback|WSL' } |
-           Select-Object -First 1).IPAddress
-    if (-not $ip) {
-        $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-               Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' } |
-               Select-Object -First 1).IPAddress
-    }
-    return $ip
+# Get all network adapters with their IPs (for display)
+function Get-NetworkIPs {
+    $adapters = @()
+    Get-NetIPAddress -AddressFamily IPv4 |
+        Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' } |
+        ForEach-Object {
+            $alias = $_.InterfaceAlias
+            $ip = $_.IPAddress
+            $category = "Other"
+            $priority = 99
+            if ($alias -match 'Wi-Fi|Wireless|WLAN') { $category = "Wi-Fi"; $priority = 1 }
+            elseif ($alias -match '^Ethernet' -and $alias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V') { $category = "Ethernet"; $priority = 2 }
+            elseif ($alias -match 'VMware|VirtualBox') { $category = "Virtual (VM)"; $priority = 50 }
+            elseif ($alias -match 'vEthernet|WSL|Hyper-V') { $category = "Virtual (WSL/Hyper-V)"; $priority = 51 }
+            $adapters += [PSCustomObject]@{ Alias = $alias; IP = $ip; Category = $category; Priority = $priority }
+        }
+    return $adapters | Sort-Object Priority
 }
 
 Write-Host "Stopping containers..." -ForegroundColor Yellow
@@ -40,7 +45,7 @@ Write-Host ""
 Write-Host "Container status:" -ForegroundColor Cyan
 docker-compose ps
 
-$LocalIP = Get-LocalIP
+$NetworkAdapters = Get-NetworkIPs
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -51,9 +56,16 @@ Write-Host "Local access:" -ForegroundColor Cyan
 Write-Host "  http://localhost:3210/chat" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Network access (other devices):" -ForegroundColor Cyan
-Write-Host "  http://${LocalIP}:3210/chat" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "Backend API:" -ForegroundColor Cyan
-Write-Host "  http://${LocalIP}:8000" -ForegroundColor Yellow
+
+$shownAdapters = $NetworkAdapters | Where-Object { $_.Priority -le 10 }
+if ($shownAdapters) {
+    foreach ($adapter in $shownAdapters) {
+        Write-Host "  [$($adapter.Category)] http://$($adapter.IP):3210/chat" -ForegroundColor Yellow
+    }
+} else {
+    $firstIP = ($NetworkAdapters | Select-Object -First 1).IP
+    if ($firstIP) { Write-Host "  http://${firstIP}:3210/chat" -ForegroundColor Yellow }
+}
+
 Write-Host ""
 Write-Host "Clear browser cache (Ctrl+Shift+Delete) if needed" -ForegroundColor Gray
