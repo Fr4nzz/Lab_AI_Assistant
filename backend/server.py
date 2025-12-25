@@ -406,8 +406,15 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     This translates OpenAI format to our LangGraph agent format,
     allowing LobeChat to use our agent as a model provider.
     """
+    import time as time_module
+
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Debug: log raw request
+    logger.debug(f"[Request] Messages count: {len(request.messages)}")
+    for i, msg in enumerate(request.messages):
+        logger.debug(f"[Request] [{i}] role={msg.get('role')}, content={str(msg.get('content', ''))[:100]}")
 
     # Extract the last user message
     last_user_message = None
@@ -428,6 +435,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         async def generate():
             full_response = []
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
+            created_time = int(time_module.time())  # Unix timestamp
             try:
                 # Check if this is a new thread (no existing messages)
                 existing_state = await graph.aget_state(config)
@@ -473,6 +481,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                 data = {
                                     "id": response_id,
                                     "object": "chat.completion.chunk",
+                                    "created": created_time,
                                     "model": request.model,
                                     "choices": [{
                                         "index": 0,
@@ -489,6 +498,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 final_chunk = {
                     "id": response_id,
                     "object": "chat.completion.chunk",
+                    "created": created_time,
                     "model": request.model,
                     "choices": [{
                         "index": 0,
@@ -503,7 +513,15 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 logger.error(f"Stream error: {str(e)}", exc_info=True)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            }
+        )
 
     else:
         try:
