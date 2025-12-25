@@ -579,9 +579,9 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             total_output_tokens = 0
 
             # Gemini pricing (per 1M tokens) - adjust based on model
-            # Gemini 2.0 Flash: $0.10 input, $0.40 output per 1M tokens
-            INPUT_PRICE_PER_1M = 0.10
-            OUTPUT_PRICE_PER_1M = 0.40
+            # Gemini 3 Flash Preview: $0.50 input, $3.00 output (incl. thinking tokens)
+            INPUT_PRICE_PER_1M = 0.50
+            OUTPUT_PRICE_PER_1M = 3.00
 
             try:
                 # Check if this is first message in conversation (from frontend history)
