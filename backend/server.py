@@ -408,13 +408,53 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     """
     import time as time_module
 
-    thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
-
     # Debug: log raw request
     logger.debug(f"[Request] Messages count: {len(request.messages)}")
     for i, msg in enumerate(request.messages):
         logger.debug(f"[Request] [{i}] role={msg.get('role')}, content={str(msg.get('content', ''))[:100]}")
+
+    # Detect and reject LobeChat's auxiliary requests (topic naming, translation, etc.)
+    # These have role=developer/system with summarization/translation prompts
+    for msg in request.messages:
+        role = msg.get("role", "")
+        if role in ["developer", "system"]:
+            content = str(msg.get("content", "")).lower()
+            if any(keyword in content for keyword in ["summarizer", "summarize", "title", "translate", "translation", "compress"]):
+                logger.info(f"[Request] Skipping auxiliary request (topic naming/translation)")
+                # Return a simple response without invoking the agent
+                response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+                created_time = int(time_module.time())
+                if request.stream:
+                    async def simple_stream():
+                        data = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": request.model,
+                            "choices": [{"index": 0, "delta": {"content": "Lab Assistant"}, "finish_reason": None}]
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+                        final = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": request.model,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+                        }
+                        yield f"data: {json.dumps(final)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(simple_stream(), media_type="text/event-stream")
+                else:
+                    return {
+                        "id": response_id,
+                        "object": "chat.completion",
+                        "created": created_time,
+                        "model": request.model,
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "Lab Assistant"}, "finish_reason": "stop"}]
+                    }
+
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
 
     # Extract the last user message
     last_user_message = None
