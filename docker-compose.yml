@@ -36,6 +36,9 @@ services:
       # Disable unused providers
       - ENABLED_OLLAMA=0
 
+      # System agents configuration (topic naming, translation use free OpenRouter)
+      - SYSTEM_AGENT=default=openai/gpt-4o,topic=openrouter/nvidia/nemotron-3-nano-30b-a3b:free,translation=openrouter/nvidia/nemotron-3-nano-30b-a3b:free
+
       # OpenRouter for auxiliary tasks (topic naming, translation) - free models
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - ENABLED_OPENROUTER=1
