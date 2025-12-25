@@ -167,7 +167,7 @@ async def get_browser_tabs_context() -> str:
                 if totals and totals.get("total"):
                     lines.append(f"**Total:** {totals.get('total')}")
                 lines.append("")
-                lines.append("*Usa add_exam_to_current_tab() para agregar más exámenes a esta pestaña.*")
+                lines.append("*Usa modify_exams_in_current_tab(add=[...], remove=[...]) para modificar exámenes.*")
 
             elif page_type == "orden_edit":
                 lines.append("**Tipo:** Edición de Orden")
