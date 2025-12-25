@@ -41,6 +41,81 @@ _results_tabs: Dict[str, Any] = {}  # {order_num: Page} - for reportes2
 _order_tabs: Dict[int, Any] = {}     # {order_id: Page} - for ordenes/edit
 
 
+class TabStateManager:
+    """
+    Manages tab state tracking to send only changed info to AI.
+
+    - Tracks known state per tab (what AI has seen)
+    - Computes delta between known and current state
+    - Enumerates duplicate tabs with same order/report
+    """
+
+    def __init__(self):
+        # Known state per tab, keyed by unique tab identifier
+        # Format: {tab_key: {state_dict}}
+        self._known_states: Dict[str, Dict] = {}
+        # Track which tabs AI knows about
+        self._known_tab_keys: set = set()
+
+    def _get_tab_key(self, url: str, index: int) -> str:
+        """Generate unique key for a tab based on URL and index."""
+        return f"{index}:{url}"
+
+    def _extract_id_from_url(self, url: str, tab_type: str) -> Optional[str]:
+        """Extract order_num or order_id from URL."""
+        if tab_type == "resultados":
+            match = re.search(r'numeroOrden=(\d+)', url)
+            return match.group(1) if match else None
+        elif tab_type == "orden_edit":
+            match = re.search(r'/ordenes/(\d+)/edit', url)
+            return match.group(1) if match else None
+        return None
+
+    def compute_state_delta(self, known: Dict, current: Dict) -> Dict:
+        """Compute what changed between known and current state."""
+        if not known:
+            return current  # All is new
+
+        delta = {}
+        for key, value in current.items():
+            if key not in known:
+                delta[key] = value
+            elif known[key] != value:
+                # For nested dicts/lists, just mark as changed
+                delta[key] = value
+
+        return delta
+
+    def update_known_state(self, tab_key: str, state: Dict):
+        """Update known state for a tab after AI has seen it."""
+        self._known_states[tab_key] = state.copy() if state else {}
+        self._known_tab_keys.add(tab_key)
+
+    def get_known_state(self, tab_key: str) -> Optional[Dict]:
+        """Get known state for a tab."""
+        return self._known_states.get(tab_key)
+
+    def is_new_tab(self, tab_key: str) -> bool:
+        """Check if this is a new tab AI hasn't seen."""
+        return tab_key not in self._known_tab_keys
+
+    def clear_closed_tabs(self, current_tab_keys: set):
+        """Remove state for tabs that are no longer open."""
+        closed = self._known_tab_keys - current_tab_keys
+        for key in closed:
+            self._known_states.pop(key, None)
+        self._known_tab_keys = self._known_tab_keys & current_tab_keys
+
+    def reset(self):
+        """Reset all known states (e.g., on new conversation)."""
+        self._known_states.clear()
+        self._known_tab_keys.clear()
+
+
+# Global tab state manager
+_tab_state_manager = TabStateManager()
+
+
 # CSS for highlighting modified fields
 HIGHLIGHT_STYLES = """
     .ai-modified {
@@ -153,6 +228,17 @@ def close_all_tabs():
     _order_tabs.clear()
 
 
+def reset_tab_state():
+    """Reset tab state tracking (call on new conversation)."""
+    global _tab_state_manager
+    _tab_state_manager.reset()
+
+
+def get_tab_state_manager() -> TabStateManager:
+    """Get the global tab state manager."""
+    return _tab_state_manager
+
+
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
@@ -246,22 +332,114 @@ async def _find_or_create_order_tab(order_id: int) -> Any:
     return page
 
 
+async def _extract_tab_state(page, tab_type: str) -> dict:
+    """Extract detailed state from a tab based on its type."""
+    state = {}
+
+    try:
+        if tab_type == "resultados":
+            # Extract results page state
+            data = await page.evaluate(EXTRACT_REPORTES_JS)
+            state["paciente"] = data.get("paciente")
+            state["order_num"] = data.get("numero_orden")
+            # Extract exam field values (simplified)
+            examenes = data.get("examenes", [])
+            state["examenes_count"] = len(examenes)
+            # Track field values for change detection
+            field_values = {}
+            for exam in examenes:
+                exam_name = exam.get("nombre", "")
+                for param in exam.get("parametros", []):
+                    field_key = f"{exam_name}:{param.get('nombre', '')}"
+                    field_values[field_key] = param.get("valor", "")
+            state["field_values"] = field_values
+
+        elif tab_type == "orden_edit":
+            # Extract order edit page state
+            data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+            state["paciente"] = data.get("paciente", {}).get("nombres") if isinstance(data.get("paciente"), dict) else data.get("paciente")
+            added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+            state["exams"] = [e.get("codigo") for e in added_exams]
+            state["exams_count"] = len(added_exams)
+
+        elif tab_type == "nueva_orden":
+            # Extract new order page state
+            added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+            state["exams"] = [e.get("codigo") for e in added_exams]
+            state["exams_count"] = len(added_exams)
+            # Get total
+            totals = await page.evaluate(r"""
+                () => {
+                    let total = null;
+                    document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                        const text = el.innerText?.trim() || '';
+                        if (text.startsWith('$') && !total) total = text;
+                    });
+                    return { total };
+                }
+            """)
+            state["total"] = totals.get("total")
+
+    except Exception as e:
+        state["error"] = str(e)
+
+    return state
+
+
 async def _get_all_tabs_info() -> dict:
-    """Get info about all open browser tabs with IDs and patient names."""
+    """
+    Get info about all open browser tabs with state tracking.
+
+    Returns:
+        - tabs: List of tab info with state and changes
+        - Each tab includes: type, id, paciente, is_new, changes (if any)
+        - Duplicate tabs are enumerated
+    """
+    global _tab_state_manager
+
     if not _browser or not _browser.context:
         return {"error": "Browser not available", "tabs": []}
 
     pages = _browser.context.pages
     tabs_info = []
+    current_tab_keys = set()
 
+    # Count tabs by ID to detect duplicates
+    id_counts: Dict[str, int] = {}
+    id_indices: Dict[str, int] = {}
+
+    # First pass: count duplicates
+    for page in pages:
+        url = page.url
+        tab_type = "unknown"
+        tab_id = None
+
+        if '/ordenes/create' in url:
+            tab_type = "nueva_orden"
+        elif '/ordenes/' in url and '/edit' in url:
+            tab_type = "orden_edit"
+            tab_id = _extract_order_id_from_url(url)
+        elif '/reportes2' in url:
+            tab_type = "resultados"
+            tab_id = _extract_order_num_from_url(url)
+
+        if tab_id:
+            key = f"{tab_type}:{tab_id}"
+            id_counts[key] = id_counts.get(key, 0) + 1
+
+    # Second pass: build tab info with enumeration
     for i, page in enumerate(pages):
         url = page.url
+        tab_key = _tab_state_manager._get_tab_key(url, i)
+        current_tab_keys.add(tab_key)
+
         tab_info = {
             "index": i,
-            "url": url,
             "type": "unknown",
             "id": None,
-            "paciente": None
+            "paciente": None,
+            "is_new": _tab_state_manager.is_new_tab(tab_key),
+            "active": page == _browser.page
         }
 
         # Determine tab type and extract ID
@@ -278,34 +456,37 @@ async def _get_all_tabs_info() -> dict:
         elif '/login' in url:
             tab_info["type"] = "login"
 
-        # Try to extract patient name for relevant tabs
-        if tab_info["type"] in ["resultados", "orden_edit", "nueva_orden"]:
-            try:
-                paciente = await page.evaluate(r"""
-                    () => {
-                        // Try various selectors for patient name
-                        const selectors = ['span.paciente', '.paciente', '[data-paciente]'];
-                        for (const sel of selectors) {
-                            const el = document.querySelector(sel);
-                            if (el) {
-                                const text = el.innerText?.trim();
-                                if (text && text !== 'Paciente' && text.length > 3) {
-                                    return text;
-                                }
-                            }
-                        }
-                        return null;
-                    }
-                """)
-                tab_info["paciente"] = paciente
-            except Exception:
-                pass
+        # Add enumeration for duplicates
+        if tab_info["id"]:
+            dup_key = f"{tab_info['type']}:{tab_info['id']}"
+            if id_counts.get(dup_key, 0) > 1:
+                id_indices[dup_key] = id_indices.get(dup_key, 0) + 1
+                tab_info["instance"] = id_indices[dup_key]
 
-        # Mark active tab
-        if page == _browser.page:
-            tab_info["active"] = True
+        # Extract detailed state for relevant tabs
+        if tab_info["type"] in ["resultados", "orden_edit", "nueva_orden"]:
+            current_state = await _extract_tab_state(page, tab_info["type"])
+            tab_info["paciente"] = current_state.get("paciente")
+
+            # Get known state and compute delta
+            known_state = _tab_state_manager.get_known_state(tab_key)
+
+            if tab_info["is_new"]:
+                # New tab: include full state
+                tab_info["state"] = current_state
+            else:
+                # Known tab: include only changes
+                delta = _tab_state_manager.compute_state_delta(known_state or {}, current_state)
+                if delta:
+                    tab_info["changes"] = delta
+
+            # Update known state
+            _tab_state_manager.update_known_state(tab_key, current_state)
 
         tabs_info.append(tab_info)
+
+    # Clean up closed tabs
+    _tab_state_manager.clear_closed_tabs(current_tab_keys)
 
     return {"tabs": tabs_info, "total": len(tabs_info)}
 
