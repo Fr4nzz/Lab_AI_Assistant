@@ -510,16 +510,43 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Extract the last user message
+    # Convert OpenAI-format messages to LangGraph messages
+    # This preserves full conversation history from the frontend
+    conversation_messages = []
+    for msg in request.messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        # Handle multimodal content (images) - convert to LangChain format
+        if isinstance(content, list):
+            # Convert OpenAI multimodal format to LangChain format
+            lc_content = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        lc_content.append({"type": "text", "text": part.get("text", "")})
+                    elif part.get("type") == "image_url":
+                        image_url = part.get("image_url", {})
+                        url = image_url.get("url", "") if isinstance(image_url, dict) else image_url
+                        lc_content.append({"type": "image_url", "image_url": {"url": url}})
+            content = lc_content if lc_content else ""
+
+        if role == "user":
+            conversation_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            conversation_messages.append(AIMessage(content=content))
+        # Skip system/developer roles - they're handled separately
+
+    if not conversation_messages:
+        logger.error("No messages found in request")
+        return {"error": "No messages found"}
+
+    # Get the last user message for logging
     last_user_message = None
     for msg in reversed(request.messages):
         if msg["role"] == "user":
             last_user_message = msg["content"]
             break
-
-    if not last_user_message:
-        logger.error("No user message found in request")
-        return {"error": "No user message found"}
 
     logger.info("=" * 60)
     # Handle multimodal user message for logging
@@ -537,7 +564,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     else:
         user_msg_display = str(last_user_message)[:200]
     logger.info(f"USER MESSAGE: {user_msg_display}{'...' if len(str(last_user_message)) > 200 else ''}")
-    logger.info(f"Thread ID: {thread_id}, Stream: {request.stream}")
+    logger.info(f"Thread ID: {thread_id}, Stream: {request.stream}, History: {len(conversation_messages)} messages")
 
     if request.stream:
         async def generate():
@@ -546,15 +573,16 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             created_time = int(time_module.time())  # Unix timestamp
             try:
-                # Check if this is a new thread (no existing messages)
-                existing_state = await graph.aget_state(config)
-                is_first_message = not existing_state.values.get("messages")
+                # Check if this is first message in conversation (from frontend history)
+                is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
 
                 # Get current context (checks login state, fetches orders if needed)
                 current_context = await get_orders_context()
 
+                # Pass full conversation history to the graph
+                initial_state = {"messages": conversation_messages}
+
                 # Include context if: first message OR we haven't sent valid orders yet
-                initial_state = {"messages": [HumanMessage(content=last_user_message)]}
                 should_include_context = is_first_message or not orders_context_sent
                 if should_include_context and current_context:
                     initial_state["current_page_context"] = current_context
@@ -641,15 +669,16 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
     else:
         try:
-            # Check if this is a new thread (no existing messages)
-            existing_state = await graph.aget_state(config)
-            is_first_message = not existing_state.values.get("messages")
+            # Check if this is first message in conversation (from frontend history)
+            is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
 
             # Get current context (checks login state, fetches orders if needed)
             current_context = await get_orders_context()
 
+            # Pass full conversation history to the graph
+            initial_state = {"messages": conversation_messages}
+
             # Include context if: first message OR we haven't sent valid orders yet
-            initial_state = {"messages": [HumanMessage(content=last_user_message)]}
             should_include_context = is_first_message or not orders_context_sent
             if should_include_context and current_context:
                 initial_state["current_page_context"] = current_context
