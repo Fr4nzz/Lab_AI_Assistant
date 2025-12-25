@@ -27,8 +27,9 @@ services:
       - "3210:3210"
     environment:
       # Lab Assistant backend (as OpenAI-compatible provider)
+      # Use host.docker.internal when backend runs locally, or backend:8000 when both in Docker
       - ENABLED_OPENAI=1
-      - OPENAI_PROXY_URL=http://backend:8000/v1
+      - OPENAI_PROXY_URL=http://host.docker.internal:8000/v1
       - OPENAI_API_KEY=not-needed
       - OPENAI_MODEL_LIST=-all,+gpt-4o=Gemini Lab Assistant
 
