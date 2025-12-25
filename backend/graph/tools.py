@@ -305,22 +305,48 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
 
 async def _add_exam_impl(order_id: int, exam_code: str) -> dict:
     """Internal async implementation of add_exam_to_order."""
-    logger.info(f"[add_exam] Adding {exam_code} to order {order_id}")
+    exam_code_upper = exam_code.upper().strip()
+    logger.info(f"[add_exam] Adding {exam_code_upper} to order {order_id}")
 
     page = await _browser.ensure_page()
     url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
     await page.goto(url)
     await page.wait_for_timeout(1500)
 
+    # Clear and search for the exam
     search = page.locator('#buscar-examen-input')
-    await search.fill(exam_code)
-    await page.wait_for_timeout(800)
+    await search.fill('')
+    await page.wait_for_timeout(200)
+    await search.fill(exam_code_upper)
+    await page.wait_for_timeout(1000)  # Wait for search results
 
-    add_btn = page.locator('button[id*="examen"]').first
-    if await add_btn.count() > 0:
-        await add_btn.click()
-        return {"added": exam_code, "order_id": order_id, "status": "pending_save"}
-    return {"err": f"Could not find exam {exam_code}"}
+    # Extract available exams after search to find exact match
+    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+    # Find exact match by code
+    matched_exam = None
+    for exam in available:
+        if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+            matched_exam = exam
+            break
+
+    if matched_exam:
+        # Click the specific button for this exam
+        button_id = matched_exam['button_id']
+        btn = page.locator(f'#{button_id}')
+        if await btn.count() > 0:
+            await btn.click()
+            logger.info(f"[add_exam] Added: {matched_exam['codigo']} - {matched_exam['nombre']}")
+            return {
+                "added": {
+                    "codigo": matched_exam['codigo'],
+                    "nombre": matched_exam['nombre']
+                },
+                "order_id": order_id,
+                "status": "pending_save"
+            }
+
+    return {"error": f"Could not find exam with code '{exam_code_upper}'", "order_id": order_id}
 
 
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
@@ -337,17 +363,59 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     await page.wait_for_timeout(2000)
 
     added_exams = []
-    for exam in exams:
-        search = page.locator('#buscar-examen-input')
-        await search.fill(exam)
-        await page.wait_for_timeout(800)
-        add_btn = page.locator('button[id*="examen"]').first
-        if await add_btn.count() > 0:
-            await add_btn.click()
-            added_exams.append(exam)
-            await page.wait_for_timeout(500)
+    failed_exams = []
 
-    return {"cedula": cedula, "exams_added": added_exams, "status": "pending_save"}
+    for exam_code in exams:
+        exam_code_upper = exam_code.upper().strip()
+
+        # Clear and search for the exam
+        search = page.locator('#buscar-examen-input')
+        await search.fill('')
+        await page.wait_for_timeout(200)
+        await search.fill(exam_code_upper)
+        await page.wait_for_timeout(1000)  # Wait for search results
+
+        # Extract available exams after search to find exact match
+        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        # Find exact match by code
+        matched_exam = None
+        for exam in available:
+            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                matched_exam = exam
+                break
+
+        if matched_exam:
+            # Click the specific button for this exam
+            button_id = matched_exam['button_id']
+            btn = page.locator(f'#{button_id}')
+            if await btn.count() > 0:
+                await btn.click()
+                added_exams.append({
+                    'codigo': matched_exam['codigo'],
+                    'nombre': matched_exam['nombre']
+                })
+                logger.info(f"[create_order] Added exam: {matched_exam['codigo']} - {matched_exam['nombre']}")
+                await page.wait_for_timeout(500)
+            else:
+                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
+                logger.warning(f"[create_order] Button {button_id} not found for {exam_code_upper}")
+        else:
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
+            logger.warning(f"[create_order] No exact match for exam code: {exam_code_upper}")
+
+    result = {
+        "cedula": cedula,
+        "exams_added": added_exams,
+        "exams_failed": failed_exams,
+        "status": "pending_save",
+        "next_step": "User must click 'Guardar' to create the order."
+    }
+
+    if failed_exams:
+        result["warning"] = f"Some exams could not be added: {[e['codigo'] for e in failed_exams]}"
+
+    return result
 
 
 async def _highlight_impl(fields: List[str], color: str = "yellow") -> dict:
