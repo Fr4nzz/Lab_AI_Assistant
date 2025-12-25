@@ -123,7 +123,7 @@ async def get_orders_context() -> str:
 
 async def get_browser_tabs_context() -> str:
     """
-    Get browser tabs context - info about all open tabs and active tab state.
+    Get browser tabs context - list of all open tabs with IDs and patient names.
     This is sent to the AI at every new user message.
     """
     try:
@@ -134,10 +134,13 @@ async def get_browser_tabs_context() -> str:
 
         lines = ["# Pestañas del Navegador"]
 
-        # List all tabs
+        # List all tabs with IDs and patient names
         for tab in tabs_info.get("tabs", []):
             tab_type = tab.get("type", "unknown")
             is_active = tab.get("active", False)
+            tab_id = tab.get("id")
+            paciente = tab.get("paciente")
+
             marker = "→ " if is_active else "  "
             type_display = {
                 "ordenes_list": "Lista de Órdenes",
@@ -147,55 +150,18 @@ async def get_browser_tabs_context() -> str:
                 "login": "Login",
                 "unknown": "Otra"
             }.get(tab_type, tab_type)
-            lines.append(f"{marker}[{tab.get('index')}] {type_display}")
 
-        # Active tab detailed state
-        active_state = tabs_info.get("active_tab_state")
-        if active_state and active_state.get("page_type"):
-            page_type = active_state.get("page_type")
-            lines.append("")
-            lines.append("## Pestaña Activa")
+            # Build tab line with ID and patient if available
+            tab_line = f"{marker}{type_display}"
+            if tab_id:
+                if tab_type == "resultados":
+                    tab_line += f" (order_num={tab_id})"
+                elif tab_type == "orden_edit":
+                    tab_line += f" (order_id={tab_id})"
+            if paciente:
+                tab_line += f" - {paciente[:30]}"
 
-            if page_type == "orden_create":
-                lines.append("**Tipo:** Nueva Orden (creación)")
-                exams = active_state.get("examenes_agregados", []) or active_state.get("examenes_seleccionados", [])
-                if exams:
-                    lines.append(f"**Exámenes agregados:** {len(exams)}")
-                    for exam in exams[:10]:  # Limit to 10
-                        codigo = exam.get('codigo', '')
-                        nombre = exam.get('nombre', '')[:30]
-                        valor = exam.get('valor', '')
-                        lines.append(f"  - {codigo}: {nombre} ({valor})")
-                totals = active_state.get("totales", {})
-                if totals and totals.get("total"):
-                    lines.append(f"**Total:** {totals.get('total')}")
-                lines.append("")
-                lines.append("*Usa modify_exams_in_current_tab(add=[...], remove=[...]) para modificar exámenes.*")
-
-            elif page_type == "orden_edit":
-                lines.append("**Tipo:** Edición de Orden")
-                orden_num = active_state.get("numero_orden", "?")
-                lines.append(f"**Orden:** {orden_num}")
-                paciente = active_state.get("paciente", {})
-                if paciente.get("nombres"):
-                    lines.append(f"**Paciente:** {paciente.get('nombres')}")
-
-            elif page_type == "ordenes_list":
-                lines.append("**Tipo:** Lista de Órdenes")
-                ordenes = active_state.get("ordenes", [])
-                if ordenes:
-                    lines.append(f"**Órdenes visibles:** {len(ordenes)}")
-
-            elif page_type == "reportes":
-                lines.append("**Tipo:** Ingreso de Resultados")
-                orden_num = active_state.get("numero_orden", "?")
-                lines.append(f"**Orden:** {orden_num}")
-                paciente = active_state.get("paciente", "")
-                if paciente:
-                    lines.append(f"**Paciente:** {paciente}")
-                examenes = active_state.get("examenes", [])
-                if examenes:
-                    lines.append(f"**Exámenes:** {len(examenes)}")
+            lines.append(tab_line)
 
         return "\n".join(lines)
 
@@ -229,7 +195,7 @@ async def extract_initial_context() -> str:
                 paciente = (o.get('paciente', '') or '')[:30]
                 lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
             lines.append("")
-            lines.append("*Usa 'num' para get_exam_fields(), 'id' para get_order_details()*")
+            lines.append("*Usa 'num' para get_order_results(), 'id' para get_order_info() o edit_order_exams()*")
     except Exception as e:
         logger.warning(f"Could not extract orders context: {e}")
 
