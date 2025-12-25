@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from browser_manager import BrowserManager
 from extractors import (
     EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS,
-    EXTRACT_AVAILABLE_EXAMS_JS, EXTRACT_ADDED_EXAMS_JS
+    EXTRACT_AVAILABLE_EXAMS_JS, EXTRACT_ADDED_EXAMS_JS, PageDataExtractor
 )
 
 logger = logging.getLogger(__name__)
@@ -626,6 +626,187 @@ async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
     }
 
 
+async def _get_browser_tabs_impl() -> dict:
+    """
+    Internal async implementation of get_browser_tabs.
+    Gets info about all open browser tabs, with detailed state for the active tab.
+    """
+    logger.info("[get_browser_tabs] Getting browser tabs info...")
+
+    tabs_info = []
+    active_tab_index = None
+    active_tab_state = None
+
+    # Get all pages from browser context
+    if not _browser or not _browser.context:
+        return {"error": "Browser not available", "tabs": []}
+
+    pages = _browser.context.pages
+
+    for i, page in enumerate(pages):
+        url = page.url
+
+        # Determine tab type based on URL
+        tab_type = "unknown"
+        if '/ordenes/create' in url:
+            tab_type = "nueva_orden"
+        elif '/ordenes/' in url and '/edit' in url:
+            tab_type = "orden_edit"
+        elif '/ordenes' in url and '/ordenes/' not in url:
+            tab_type = "ordenes_list"
+        elif '/reportes2' in url:
+            tab_type = "resultados"
+        elif '/login' in url:
+            tab_type = "login"
+
+        tab_info = {
+            "index": i,
+            "url": url,
+            "type": tab_type
+        }
+
+        # Check if this is the active (front) tab
+        # The main page from browser manager is typically the active one
+        if page == _browser.page:
+            active_tab_index = i
+            tab_info["active"] = True
+
+        tabs_info.append(tab_info)
+
+    # Get detailed state for the active tab
+    if active_tab_index is not None and active_tab_index < len(pages):
+        active_page = pages[active_tab_index]
+        extractor = PageDataExtractor(active_page)
+        try:
+            active_tab_state = await extractor.extract_current_page()
+
+            # For orden_create, also get added exams with prices
+            if active_tab_state.get("page_type") == "orden_create":
+                added_exams = await active_page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+                active_tab_state["examenes_agregados"] = added_exams
+
+                # Also get totals
+                totals = await active_page.evaluate(r"""
+                    () => {
+                        const result = { subtotal: null, descuento: null, total: null };
+                        const descuentoInput = document.querySelector('#valor-descuento');
+                        if (descuentoInput) result.descuento = descuentoInput.value;
+                        document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                            const text = el.innerText?.trim() || '';
+                            if (text.startsWith('$') && !result.total) {
+                                result.total = text;
+                            }
+                        });
+                        return result;
+                    }
+                """)
+                active_tab_state["totales"] = totals
+
+        except Exception as e:
+            logger.warning(f"[get_browser_tabs] Could not extract active tab state: {e}")
+            active_tab_state = {"error": str(e)}
+
+    logger.info(f"[get_browser_tabs] Found {len(tabs_info)} tabs, active: {active_tab_index}")
+
+    return {
+        "tabs": tabs_info,
+        "total": len(tabs_info),
+        "active_tab_index": active_tab_index,
+        "active_tab_state": active_tab_state
+    }
+
+
+async def _add_exam_to_current_tab_impl(exams: List[str]) -> dict:
+    """
+    Internal async implementation of add_exam_to_current_tab.
+    Adds exams to an already open nueva_orden or orden_edit tab.
+    """
+    logger.info(f"[add_exam_to_current_tab] Adding {len(exams)} exams to current tab...")
+
+    # Get current page
+    page = await _browser.ensure_page()
+    url = page.url
+
+    # Verify we're on a create or edit order page
+    if '/ordenes/create' not in url and '/edit' not in url:
+        return {
+            "error": f"Current tab is not an order page. URL: {url}",
+            "tip": "Navigate to /ordenes/create or /ordenes/ID/edit first"
+        }
+
+    added_codes = []
+    failed_exams = []
+
+    for exam_code in exams:
+        exam_code_upper = exam_code.upper().strip()
+
+        # Clear and search for the exam
+        search = page.locator('#buscar-examen-input')
+        await search.fill('')
+        await page.wait_for_timeout(200)
+        await search.fill(exam_code_upper)
+        await page.wait_for_timeout(1000)  # Wait for search results
+
+        # Extract available exams after search to find exact match
+        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        # Find exact match by code
+        matched_exam = None
+        for exam in available:
+            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                matched_exam = exam
+                break
+
+        if matched_exam:
+            # Click the specific button for this exam
+            button_id = matched_exam['button_id']
+            btn = page.locator(f'#{button_id}')
+            if await btn.count() > 0:
+                await btn.click()
+                added_codes.append(exam_code_upper)
+                logger.info(f"[add_exam_to_current_tab] Added exam: {matched_exam['codigo']} - {matched_exam['nombre']}")
+                await page.wait_for_timeout(500)
+            else:
+                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
+        else:
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
+            logger.warning(f"[add_exam_to_current_tab] No exact match for exam code: {exam_code_upper}")
+
+    # Get updated exam list and totals
+    await page.wait_for_timeout(500)
+    added_exams_with_prices = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+
+    totals = await page.evaluate(r"""
+        () => {
+            const result = { subtotal: null, descuento: null, total: null };
+            const descuentoInput = document.querySelector('#valor-descuento');
+            if (descuentoInput) result.descuento = descuentoInput.value;
+            document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                const text = el.innerText?.trim() || '';
+                if (text.startsWith('$') && !result.total) {
+                    result.total = text;
+                }
+            });
+            return result;
+        }
+    """)
+
+    result = {
+        "added": added_codes,
+        "failed": failed_exams,
+        "current_exams": added_exams_with_prices,
+        "totals": totals,
+        "status": "pending_save",
+        "next_step": "Revisa los examenes en el navegador. Haz click en 'Guardar' para confirmar."
+    }
+
+    if failed_exams:
+        result["warning"] = f"Some exams could not be added: {[e['codigo'] for e in failed_exams]}"
+
+    logger.info(f"[add_exam_to_current_tab] Added {len(added_codes)} exams, total: {totals.get('total', 'N/A')}")
+    return result
+
+
 # ============================================================
 # TOOL DEFINITIONS (Sync wrappers that LangGraph can call)
 # ============================================================
@@ -832,6 +1013,59 @@ async def get_available_exams(order_id: Optional[int] = None) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+@tool
+async def get_browser_tabs() -> str:
+    """
+    Get info about all open browser tabs and detailed state of the active tab.
+
+    Use this tool to:
+    - See what tabs are currently open (ordenes_list, resultados, nueva_orden, orden_edit)
+    - Get the current state of the active tab (exams already added, totals, etc.)
+    - Decide whether to continue working on an existing tab or open a new one
+
+    Returns:
+        JSON with:
+        - tabs: List of all tabs with URL and type
+        - active_tab_index: Index of the active (front) tab
+        - active_tab_state: Detailed state of active tab based on its type
+
+    Tab types:
+        - ordenes_list: Main orders list page
+        - nueva_orden: New order creation page
+        - orden_edit: Editing existing order
+        - resultados: Entering exam results
+        - login: Login page
+    """
+    result = await _get_browser_tabs_impl()
+    return json.dumps(result, ensure_ascii=False)
+
+
+@tool
+async def add_exam_to_current_tab(exams: List[str]) -> str:
+    """
+    Add exams to the currently open order tab (nueva_orden or orden_edit).
+
+    Use this tool when:
+    - A previous create_new_order had some exams fail and you want to add them
+    - You're on an order page and need to add more exams without starting over
+    - The active tab is already on /ordenes/create or /ordenes/ID/edit
+
+    IMPORTANT: This does NOT navigate away from the current tab. It adds exams
+    to whatever order form is currently open.
+
+    Args:
+        exams: List of exam codes to add (e.g., ["PCRSCNT", "CREA", "GLU"])
+
+    Returns:
+        JSON with added exams, failed exams, current totals, and next steps.
+
+    Example:
+        add_exam_to_current_tab(exams=["PCRSCNT", "BH"])
+    """
+    result = await _add_exam_to_current_tab_impl(exams)
+    return json.dumps(result, ensure_ascii=False)
+
+
 # All tools list for binding to model
 ALL_TOOLS = [
     search_orders,
@@ -842,5 +1076,7 @@ ALL_TOOLS = [
     create_new_order,
     highlight_fields,
     ask_user,
-    get_available_exams
+    get_available_exams,
+    get_browser_tabs,
+    add_exam_to_current_tab
 ]
