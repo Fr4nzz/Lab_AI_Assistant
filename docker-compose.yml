@@ -1,0 +1,50 @@
+services:
+  # LangGraph Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DATABASE_URL=sqlite:///./data/checkpoints.db
+      - HEADLESS=true
+      - BROWSER_CHANNEL=chromium
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/browser_data:/app/browser_data
+      - /tmp/.X11-unix:/tmp/.X11-unix  # For Playwright display
+
+  # LobeChat Frontend (using official image)
+  frontend:
+    image: lobehub/lobe-chat:latest
+    ports:
+      - "3210:3210"
+    environment:
+      # Lab Assistant backend (as OpenAI-compatible provider)
+      # Use host.docker.internal when backend runs locally, or backend:8000 when both in Docker
+      - ENABLED_OPENAI=1
+      - OPENAI_PROXY_URL=http://host.docker.internal:8000/v1
+      - OPENAI_API_KEY=not-needed
+      - OPENAI_MODEL_LIST=-all,+gpt-4o=gemini-3-flash
+
+      # Disable unused providers
+      - ENABLED_OLLAMA=0
+
+      # System agents configuration (topic naming, translation use free OpenRouter)
+      - SYSTEM_AGENT=default=openai/gpt-4o,topic=openrouter/nvidia/nemotron-3-nano-30b-a3b:free,translation=openrouter/nvidia/nemotron-3-nano-30b-a3b:free
+
+      # OpenRouter for auxiliary tasks (topic naming, translation) - free models
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ENABLED_OPENROUTER=1
+      - OPENROUTER_MODEL_LIST=-all,+nvidia/nemotron-3-nano-30b-a3b:free=Nemotron Nano (Free),+openai/gpt-oss-20b:free=GPT-OSS 20B (Free),+xiaomi/mimo-v2-flash:free=MiMo v2 Flash (Free)
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -294,6 +294,115 @@ EXTRACT_ORDEN_EDIT_JS = r"""
 }
 """
 
+# JavaScript para extraer lista de exámenes disponibles para agregar
+EXTRACT_AVAILABLE_EXAMS_JS = r"""
+() => {
+    const exams = [];
+
+    // Find the search input to locate the correct table
+    const searchInput = document.querySelector('#buscar-examen-input');
+    if (!searchInput) return exams;
+
+    // Find the table containing available exams (near the search input)
+    const container = searchInput.closest('.table-responsive') || searchInput.closest('.col-12');
+    if (!container) return exams;
+
+    const table = container.querySelector('table');
+    if (!table) return exams;
+
+    // Extract exam rows - each row has a div with title and a button id="examen-N"
+    table.querySelectorAll('tbody tr').forEach((row, index) => {
+        const td = row.querySelector('td');
+        const div = td?.querySelector('div[title]');
+        const button = row.querySelector('button[id^="examen-"]');
+
+        if (div && button) {
+            const fullName = div.getAttribute('title') || '';
+            const text = div.innerText?.trim() || '';
+
+            // Parse CODE - NAME format
+            let codigo = null;
+            let nombre = fullName;
+
+            if (text.includes(' - ')) {
+                const parts = text.split(' - ');
+                codigo = parts[0].trim();
+                nombre = parts.slice(1).join(' - ').trim();
+                // Clean up trailing icons/text
+                nombre = nombre.replace(/\s*Se remite.*$/i, '').trim();
+            }
+
+            // Check if exam is remitted (sent to external lab)
+            const remitido = row.querySelector('i.fa-shipping-fast') !== null;
+
+            exams.push({
+                codigo: codigo,
+                nombre: nombre || fullName,
+                button_id: button.id,
+                remitido: remitido
+            });
+        }
+    });
+
+    return exams;
+}
+"""
+
+# JavaScript para extraer exámenes ya agregados a la orden
+EXTRACT_ADDED_EXAMS_JS = r"""
+() => {
+    const exams = [];
+
+    // Find the container with selected exams
+    const container = document.querySelector('#examenes-seleccionados');
+    if (!container) return exams;
+
+    container.querySelectorAll('tbody tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 1) return;
+
+        const cellText = cells[0]?.innerText || '';
+        const parts = cellText.split('\n').map(p => p.trim()).filter(p => p);
+
+        // First part is "CODE - NAME"
+        let nombreRaw = parts[0] || '';
+        let codigo = null;
+        let nombre = nombreRaw;
+
+        if (nombreRaw.includes(' - ')) {
+            const splitName = nombreRaw.split(' - ');
+            codigo = splitName[0].trim();
+            nombre = splitName.slice(1).join(' - ').trim();
+        }
+
+        // Find estado (V = Validado, P = Pendiente)
+        let estado = null;
+        for (const part of parts.slice(1)) {
+            if (part === 'V') { estado = 'Validado'; break; }
+            if (part === 'P') { estado = 'Pendiente'; break; }
+        }
+
+        // Valor from second cell
+        const valor = cells[1]?.innerText?.trim() || null;
+
+        // Find remove button
+        const removeBtn = row.querySelector('button[title*="Quitar"], button.btn-danger');
+
+        if (nombre) {
+            exams.push({
+                codigo: codigo,
+                nombre: nombre,
+                valor: valor,
+                estado: estado,
+                can_remove: removeBtn !== null
+            });
+        }
+    });
+
+    return exams;
+}
+"""
+
 
 class PageDataExtractor:
     """Extractor de datos estructurados de cada tipo de página."""
@@ -435,6 +544,54 @@ class PageDataExtractor:
 
         data["page_type"] = "orden_create"
         return data
+
+    async def extract_available_exams(self) -> dict:
+        """
+        Extrae lista de exámenes disponibles para agregar a una orden.
+        Solo funciona en páginas de crear/editar orden.
+
+        Returns:
+            {
+                "page_type": "available_exams",
+                "examenes": [
+                    {"codigo": str, "nombre": str, "button_id": str, "remitido": bool}
+                ],
+                "total": int
+            }
+        """
+        await self.page.wait_for_timeout(500)
+
+        exams = await self.page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        return {
+            "page_type": "available_exams",
+            "examenes": exams,
+            "total": len(exams)
+        }
+
+    async def extract_added_exams(self) -> dict:
+        """
+        Extrae lista de exámenes ya agregados a la orden actual.
+        Solo funciona en páginas de crear/editar orden.
+
+        Returns:
+            {
+                "page_type": "added_exams",
+                "examenes": [
+                    {"codigo": str, "nombre": str, "valor": str, "estado": str, "can_remove": bool}
+                ],
+                "total": int
+            }
+        """
+        await self.page.wait_for_timeout(500)
+
+        exams = await self.page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+
+        return {
+            "page_type": "added_exams",
+            "examenes": exams,
+            "total": len(exams)
+        }
 
     async def extract_current_page(self) -> dict:
         """
