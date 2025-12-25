@@ -716,12 +716,14 @@ async def _get_browser_tabs_impl() -> dict:
     }
 
 
-async def _add_exam_to_current_tab_impl(exams: List[str]) -> dict:
+async def _modify_exams_in_current_tab_impl(add: Optional[List[str]] = None, remove: Optional[List[str]] = None) -> dict:
     """
-    Internal async implementation of add_exam_to_current_tab.
-    Adds exams to an already open nueva_orden or orden_edit tab.
+    Internal async implementation of modify_exams_in_current_tab.
+    Adds and/or removes exams from an already open nueva_orden or orden_edit tab.
     """
-    logger.info(f"[add_exam_to_current_tab] Adding {len(exams)} exams to current tab...")
+    add = add or []
+    remove = remove or []
+    logger.info(f"[modify_exams] Modifying current tab: add={len(add)}, remove={len(remove)}")
 
     # Get current page
     page = await _browser.ensure_page()
@@ -735,46 +737,95 @@ async def _add_exam_to_current_tab_impl(exams: List[str]) -> dict:
         }
 
     added_codes = []
-    failed_exams = []
+    removed_codes = []
+    failed_add = []
+    failed_remove = []
 
-    for exam_code in exams:
-        exam_code_upper = exam_code.upper().strip()
+    # First, remove exams (do this first so we don't remove something we just added)
+    if remove:
+        remove_upper = [code.upper().strip() for code in remove]
+        current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
-        # Clear and search for the exam
-        search = page.locator('#buscar-examen-input')
-        await search.fill('')
-        await page.wait_for_timeout(200)
-        await search.fill(exam_code_upper)
-        await page.wait_for_timeout(1000)  # Wait for search results
+        for exam_code in remove_upper:
+            # Find the exam in the current list
+            found = False
+            for exam in current_exams:
+                if exam.get('codigo', '').upper() == exam_code:
+                    found = True
+                    try:
+                        removed = await page.evaluate(f"""
+                            () => {{
+                                const container = document.querySelector('#examenes-seleccionados');
+                                if (!container) return {{ error: 'Container not found' }};
 
-        # Extract available exams after search to find exact match
-        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+                                const rows = container.querySelectorAll('tbody tr');
+                                for (const row of rows) {{
+                                    const cellText = row.querySelector('td')?.innerText || '';
+                                    if (cellText.toUpperCase().includes('{exam_code}')) {{
+                                        const removeBtn = row.querySelector('button[title*="Quitar"], button.btn-danger, button.btn-outline-danger');
+                                        if (removeBtn) {{
+                                            removeBtn.click();
+                                            return {{ removed: true, codigo: '{exam_code}' }};
+                                        }}
+                                        return {{ error: 'Remove button not found' }};
+                                    }}
+                                }}
+                                return {{ error: 'Exam not found in DOM' }};
+                            }}
+                        """)
 
-        # Find exact match by code
-        matched_exam = None
-        for exam in available:
-            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
-                matched_exam = exam
-                break
+                        if removed.get('removed'):
+                            removed_codes.append(exam_code)
+                            logger.info(f"[modify_exams] Removed: {exam_code}")
+                            await page.wait_for_timeout(300)
+                        else:
+                            failed_remove.append({'codigo': exam_code, 'reason': removed.get('error', 'unknown')})
+                    except Exception as e:
+                        failed_remove.append({'codigo': exam_code, 'reason': str(e)})
+                    break
 
-        if matched_exam:
-            # Click the specific button for this exam
-            button_id = matched_exam['button_id']
-            btn = page.locator(f'#{button_id}')
-            if await btn.count() > 0:
-                await btn.click()
-                added_codes.append(exam_code_upper)
-                logger.info(f"[add_exam_to_current_tab] Added exam: {matched_exam['codigo']} - {matched_exam['nombre']}")
-                await page.wait_for_timeout(500)
+            if not found:
+                failed_remove.append({'codigo': exam_code, 'reason': 'not in current order'})
+
+    # Then, add exams
+    if add:
+        for exam_code in add:
+            exam_code_upper = exam_code.upper().strip()
+
+            # Clear and search for the exam
+            search = page.locator('#buscar-examen-input')
+            await search.fill('')
+            await page.wait_for_timeout(200)
+            await search.fill(exam_code_upper)
+            await page.wait_for_timeout(1000)
+
+            # Extract available exams after search to find exact match
+            available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+            # Find exact match by code
+            matched_exam = None
+            for exam in available:
+                if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                    matched_exam = exam
+                    break
+
+            if matched_exam:
+                button_id = matched_exam['button_id']
+                btn = page.locator(f'#{button_id}')
+                if await btn.count() > 0:
+                    await btn.click()
+                    added_codes.append(exam_code_upper)
+                    logger.info(f"[modify_exams] Added: {matched_exam['codigo']} - {matched_exam['nombre']}")
+                    await page.wait_for_timeout(300)
+                else:
+                    failed_add.append({'codigo': exam_code_upper, 'reason': 'button not found'})
             else:
-                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
-        else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
-            logger.warning(f"[add_exam_to_current_tab] No exact match for exam code: {exam_code_upper}")
+                failed_add.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
+                logger.warning(f"[modify_exams] No match for: {exam_code_upper}")
 
     # Get updated exam list and totals
     await page.wait_for_timeout(500)
-    added_exams_with_prices = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+    current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
     totals = await page.evaluate(r"""
         () => {
@@ -793,17 +844,24 @@ async def _add_exam_to_current_tab_impl(exams: List[str]) -> dict:
 
     result = {
         "added": added_codes,
-        "failed": failed_exams,
-        "current_exams": added_exams_with_prices,
+        "removed": removed_codes,
+        "failed_add": failed_add,
+        "failed_remove": failed_remove,
+        "current_exams": current_exams,
         "totals": totals,
         "status": "pending_save",
         "next_step": "Revisa los examenes en el navegador. Haz click en 'Guardar' para confirmar."
     }
 
-    if failed_exams:
-        result["warning"] = f"Some exams could not be added: {[e['codigo'] for e in failed_exams]}"
+    if failed_add or failed_remove:
+        warnings = []
+        if failed_add:
+            warnings.append(f"Could not add: {[e['codigo'] for e in failed_add]}")
+        if failed_remove:
+            warnings.append(f"Could not remove: {[e['codigo'] for e in failed_remove]}")
+        result["warning"] = "; ".join(warnings)
 
-    logger.info(f"[add_exam_to_current_tab] Added {len(added_codes)} exams, total: {totals.get('total', 'N/A')}")
+    logger.info(f"[modify_exams] Added {len(added_codes)}, removed {len(removed_codes)}, total: {totals.get('total', 'N/A')}")
     return result
 
 
@@ -1041,28 +1099,32 @@ async def get_browser_tabs() -> str:
 
 
 @tool
-async def add_exam_to_current_tab(exams: List[str]) -> str:
+async def modify_exams_in_current_tab(add: Optional[List[str]] = None, remove: Optional[List[str]] = None) -> str:
     """
-    Add exams to the currently open order tab (nueva_orden or orden_edit).
+    Add and/or remove exams from the currently open order tab (nueva_orden or orden_edit).
 
     Use this tool when:
     - A previous create_new_order had some exams fail and you want to add them
-    - You're on an order page and need to add more exams without starting over
-    - The active tab is already on /ordenes/create or /ordenes/ID/edit
+    - You added wrong exams by mistake and need to remove them
+    - You're on an order page and need to modify exams without starting over
+    - User asks to add or remove specific exams from the current order
 
-    IMPORTANT: This does NOT navigate away from the current tab. It adds exams
-    to whatever order form is currently open.
+    IMPORTANT: This does NOT navigate away from the current tab. It modifies exams
+    in whatever order form is currently open.
 
     Args:
-        exams: List of exam codes to add (e.g., ["PCRSCNT", "CREA", "GLU"])
+        add: List of exam codes to add (e.g., ["PCRSCNT", "CREA", "GLU"])
+        remove: List of exam codes to remove (e.g., ["BH", "EMO"])
 
     Returns:
-        JSON with added exams, failed exams, current totals, and next steps.
+        JSON with added/removed exams, failures, current exam list, totals.
 
-    Example:
-        add_exam_to_current_tab(exams=["PCRSCNT", "BH"])
+    Examples:
+        modify_exams_in_current_tab(add=["PCRSCNT", "BH"])  # Add only
+        modify_exams_in_current_tab(remove=["EMO"])  # Remove only
+        modify_exams_in_current_tab(add=["CREA"], remove=["BH"])  # Both
     """
-    result = await _add_exam_to_current_tab_impl(exams)
+    result = await _modify_exams_in_current_tab_impl(add, remove)
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -1078,5 +1140,5 @@ ALL_TOOLS = [
     ask_user,
     get_available_exams,
     get_browser_tabs,
-    add_exam_to_current_tab
+    modify_exams_in_current_tab
 ]
