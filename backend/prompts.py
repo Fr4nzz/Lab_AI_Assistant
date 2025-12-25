@@ -24,10 +24,10 @@ Minimiza el numero de iteraciones usando operaciones en lote:
 ## COTIZACION / PRECIOS DE EXAMENES
 Cuando el usuario pregunte por precios, costos, o cotizacion de examenes:
 1. Consulta la lista de "Examenes Disponibles para Cotizacion" en el CONTEXTO ACTUAL
-2. Usa create_new_order(cedula="0000000000", exams=["CODIGO1", "CODIGO2", ...])
+2. Usa create_new_order(cedula="", exams=["CODIGO1", "CODIGO2", ...]) - cedula VACIA para cotizacion
 3. Pasa TODOS los codigos de examenes en la lista - NO uno por uno
 4. La herramienta devuelve el precio individual de cada examen y el total
-5. El usuario puede cancelar o guardar la orden segun necesite
+5. El usuario puede cerrar la pestaña (cotizacion) o guardar (orden real)
 
 ## REGLA CRITICA DE SEGURIDAD
 Las herramientas solo LLENAN los formularios, NO guardan.
