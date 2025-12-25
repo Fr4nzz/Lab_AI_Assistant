@@ -31,7 +31,7 @@ services:
       - ENABLED_OPENAI=1
       - OPENAI_PROXY_URL=http://host.docker.internal:8000/v1
       - OPENAI_API_KEY=not-needed
-      - OPENAI_MODEL_LIST=-all,+gpt-4o=Gemini Lab Assistant
+      - OPENAI_MODEL_LIST=-all,+gpt-4o=gemini-3-flash
 
       # OpenRouter for auxiliary tasks (topic naming, translation) - free models
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
