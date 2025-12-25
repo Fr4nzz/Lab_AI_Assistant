@@ -33,6 +33,9 @@ services:
       - OPENAI_API_KEY=not-needed
       - OPENAI_MODEL_LIST=-all,+gpt-4o=gemini-3-flash
 
+      # Disable unused providers
+      - ENABLED_OLLAMA=0
+
       # OpenRouter for auxiliary tasks (topic naming, translation) - free models
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - ENABLED_OPENROUTER=1
