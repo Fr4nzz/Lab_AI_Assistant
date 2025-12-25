@@ -18,6 +18,7 @@ dist/
 .vscode/
 .idea/
 .venv/
+.conda/
 
 # OS
 .DS_Store
@@ -25,3 +26,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# LobeChat frontend (cloned separately)
+frontend-lobechat/
+
+# Data directories
+backend/data/
