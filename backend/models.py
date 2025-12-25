@@ -165,8 +165,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         # Enable thinking for supported models
         if is_gemini_3:
             model_kwargs["include_thoughts"] = True
-            model_kwargs["thinking_level"] = "medium"
-            logger.info(f"[Model] Enabling thinking for Gemini 3 model")
+            model_kwargs["thinking_level"] = "high"  # Maximum reasoning capability
+            logger.info(f"[Model] Enabling thinking (HIGH) for Gemini 3 model")
 
         base_model = ChatGoogleGenerativeAI(**model_kwargs)
 
