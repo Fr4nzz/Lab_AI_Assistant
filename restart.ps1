@@ -1,4 +1,7 @@
-# Restart Docker containers for Lab AI Assistant
+# Restart Docker containers for Lab AI Assistant (docker-compose)
+# NOTE: This runs BOTH backend and frontend in Docker
+# For development with local backend (recommended), use: .\scripts\start-docker.ps1
+#
 # Usage: .\restart.ps1 [frontend|backend|all]
 
 param(
