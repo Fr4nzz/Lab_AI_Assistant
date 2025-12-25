@@ -160,27 +160,65 @@ def close_all_tabs():
 # ASYNC TOOL IMPLEMENTATIONS
 # ============================================================
 
-async def _search_orders_impl(search: str = "", limit: int = 20) -> dict:
-    """Internal async implementation of search_orders."""
-    logger.info(f"[search_orders] Searching for: '{search}', limit: {limit}")
-    page = await _browser.ensure_page()
+async def _search_orders_impl(
+    search: str = "",
+    limit: int = 20,
+    page_num: int = 1,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None
+) -> dict:
+    """Internal async implementation of search_orders - supports parallel execution."""
+    from urllib.parse import urlencode, quote
 
+    logger.info(f"[search_orders] Searching: '{search}', page={page_num}, desde={fecha_desde}, hasta={fecha_hasta}")
+
+    # Build URL with query parameters
+    params = {"page": page_num}
     if search:
-        url = f"https://laboratoriofranz.orion-labs.com/ordenes?cadenaBusqueda={search}&page=1"
-    else:
-        url = "https://laboratoriofranz.orion-labs.com/ordenes"
+        params["cadenaBusqueda"] = search
+    if fecha_desde:
+        params["fechaDesde"] = fecha_desde
+    if fecha_hasta:
+        params["fechaHasta"] = fecha_hasta
 
-    await page.goto(url, timeout=30000)
-    await page.wait_for_timeout(2000)
+    url = f"https://laboratoriofranz.orion-labs.com/ordenes?{urlencode(params)}"
 
-    ordenes = await page.evaluate(EXTRACT_ORDENES_JS)
-    logger.info(f"[search_orders] Found {len(ordenes)} orders")
+    # Use a NEW page for each search to support parallel execution
+    # This prevents ERR_ABORTED when multiple searches run simultaneously
+    temp_page = await _browser.context.new_page()
 
-    return {
-        "ordenes": ordenes[:limit],
-        "total": len(ordenes[:limit]),
-        "tip": "Use 'num' field for get_exam_fields(), use 'id' field for get_order_details()"
-    }
+    try:
+        await temp_page.goto(url, timeout=30000)
+
+        # Wait for content to load
+        try:
+            await temp_page.wait_for_load_state('networkidle', timeout=10000)
+        except Exception:
+            try:
+                await temp_page.wait_for_selector('table tbody tr', timeout=5000)
+            except Exception:
+                await temp_page.wait_for_timeout(1000)
+
+        ordenes = await temp_page.evaluate(EXTRACT_ORDENES_JS)
+        logger.info(f"[search_orders] Found {len(ordenes)} orders")
+
+        return {
+            "ordenes": ordenes[:limit],
+            "total": len(ordenes[:limit]),
+            "page": page_num,
+            "filters": {
+                "search": search or None,
+                "fecha_desde": fecha_desde,
+                "fecha_hasta": fecha_hasta
+            },
+            "tip": "Use 'num' field for get_exam_fields(), use 'id' field for get_order_details()"
+        }
+    finally:
+        # Close the temp page to avoid too many open tabs
+        # But keep at least one page in the browser
+        pages = _browser.context.pages
+        if len(pages) > 1:
+            await temp_page.close()
 
 
 async def _get_exam_fields_impl(ordenes: List[str]) -> dict:
@@ -538,22 +576,34 @@ async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
 # ============================================================
 
 @tool
-async def search_orders(search: str = "", limit: int = 20) -> str:
+async def search_orders(
+    search: str = "",
+    limit: int = 20,
+    page_num: int = 1,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None
+) -> str:
     """
     Search orders by patient name or ID number (cedula).
     Returns a list of matching orders with their IDs for further operations.
+    Supports pagination and date filters.
 
     Args:
         search: Text to search (patient name or cedula). Empty returns recent orders.
         limit: Maximum orders to return (default 20)
+        page_num: Page number for pagination (default 1)
+        fecha_desde: Start date filter in format YYYY-MM-DD (optional)
+        fecha_hasta: End date filter in format YYYY-MM-DD (optional)
 
     Returns:
         JSON with order list including: num, fecha, paciente, cedula, estado, id
 
     Example:
         search_orders(search="chandi franz", limit=10)
+        search_orders(page_num=2)  # Get second page
+        search_orders(fecha_desde="2025-01-01", fecha_hasta="2025-01-31")  # Filter by date range
     """
-    result = await _search_orders_impl(search, limit)
+    result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
     return json.dumps(result, ensure_ascii=False)
 
 
