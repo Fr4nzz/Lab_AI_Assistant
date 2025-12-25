@@ -1,5 +1,13 @@
 # Start Lab Assistant - Backend local + Frontend Docker (Windows PowerShell)
 # This is the RECOMMENDED way to run Lab Assistant for development
+#
+# Usage:
+#   .\start-docker.ps1                    # Quick start (reuse existing Docker container)
+#   .\start-docker.ps1 -RestartDocker 1   # Full restart (stop and recreate Docker container)
+
+param(
+    [int]$RestartDocker = 0
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -64,17 +72,38 @@ try {
     exit 1
 }
 
-# Stop any existing frontend container (ignore errors if not exists)
-Write-Host "Cleaning up existing containers..." -ForegroundColor Yellow
+# Handle Docker container based on RestartDocker flag
 $ErrorActionPreference = "SilentlyContinue"
-docker stop lobe-chat 2>&1 | Out-Null
-docker rm lobe-chat 2>&1 | Out-Null
-
-# Also stop docker-compose frontend if running
-Set-Location $ProjectDir
-docker-compose stop frontend 2>&1 | Out-Null
-docker-compose rm -f frontend 2>&1 | Out-Null
+$containerExists = docker ps -a --filter "name=lobe-chat" --format "{{.Names}}" 2>&1
+$containerRunning = docker ps --filter "name=lobe-chat" --format "{{.Names}}" 2>&1
 $ErrorActionPreference = "Stop"
+
+if ($RestartDocker -eq 1) {
+    # Full restart: stop and remove existing containers
+    Write-Host "Cleaning up existing containers..." -ForegroundColor Yellow
+    $ErrorActionPreference = "SilentlyContinue"
+    docker stop lobe-chat 2>&1 | Out-Null
+    docker rm lobe-chat 2>&1 | Out-Null
+
+    # Also stop docker-compose frontend if running
+    Set-Location $ProjectDir
+    docker-compose stop frontend 2>&1 | Out-Null
+    docker-compose rm -f frontend 2>&1 | Out-Null
+    $ErrorActionPreference = "Stop"
+    $needsDockerStart = $true
+} elseif ($containerRunning -eq "lobe-chat") {
+    # Container is already running, skip Docker start
+    Write-Host "Docker container already running, skipping..." -ForegroundColor Green
+    $needsDockerStart = $false
+} elseif ($containerExists -eq "lobe-chat") {
+    # Container exists but stopped, just start it
+    Write-Host "Starting existing Docker container..." -ForegroundColor Yellow
+    docker start lobe-chat | Out-Null
+    $needsDockerStart = $false
+} else {
+    # No container exists, need to create
+    $needsDockerStart = $true
+}
 
 # Kill any existing process on port 8000
 Write-Host "Checking for existing backend..." -ForegroundColor Yellow
@@ -85,14 +114,16 @@ if ($existingPid) {
     Start-Sleep -Seconds 2
 }
 
-# Check if port 3210 is in use
-$port3210 = Get-NetTCPConnection -LocalPort 3210 -ErrorAction SilentlyContinue
-if ($port3210) {
-    Write-Host "Port 3210 is in use. Cleaning up..." -ForegroundColor Yellow
-    $port3210.OwningProcess | ForEach-Object {
-        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+# Check if port 3210 is in use (only when restarting Docker)
+if ($RestartDocker -eq 1) {
+    $port3210 = Get-NetTCPConnection -LocalPort 3210 -ErrorAction SilentlyContinue
+    if ($port3210) {
+        Write-Host "Port 3210 is in use. Cleaning up..." -ForegroundColor Yellow
+        $port3210.OwningProcess | ForEach-Object {
+            Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 2
     }
-    Start-Sleep -Seconds 2
 }
 
 # Close any Edge instances using our profile (prevents lock issues)
@@ -121,9 +152,10 @@ if (Test-Path $envFile) {
 }
 
 # Start LobeChat via Docker with same config as docker-compose.yml
-Write-Host "Starting LobeChat frontend..." -ForegroundColor Green
+if ($needsDockerStart) {
+    Write-Host "Starting LobeChat frontend..." -ForegroundColor Green
 
-$dockerCmd = @"
+    $dockerCmd = @"
 docker run -d ``
     --name lobe-chat ``
     -p 3210:3210 ``
@@ -140,11 +172,12 @@ docker run -d ``
     lobehub/lobe-chat:latest
 "@
 
-Invoke-Expression $dockerCmd
+    Invoke-Expression $dockerCmd
 
-# Wait for LobeChat to be ready
-Write-Host "Waiting for frontend to start..." -ForegroundColor Yellow
-Start-Sleep -Seconds 3
+    # Wait for LobeChat to be ready
+    Write-Host "Waiting for frontend to start..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 3
+}
 
 $NetworkAdapters = Get-NetworkIPs
 
