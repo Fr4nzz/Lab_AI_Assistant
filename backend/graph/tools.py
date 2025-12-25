@@ -431,16 +431,20 @@ async def _add_exam_impl(order_id: int, exam_code: str) -> dict:
 
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     """Internal async implementation of create_new_order."""
-    logger.info(f"[create_order] Creating order for {cedula} with exams: {exams}")
+    # For cotización, skip cedula to avoid patient creation popup
+    is_cotizacion = not cedula or cedula == "0000000000" or cedula.strip() == ""
+    logger.info(f"[create_order] Creating order for {'cotización' if is_cotizacion else cedula} with exams: {exams}")
 
     page = await _browser.ensure_page()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
     await page.wait_for_timeout(1000)
 
-    cedula_input = page.locator('#identificacion')
-    await cedula_input.fill(cedula)
-    await page.keyboard.press("Enter")
-    await page.wait_for_timeout(2000)
+    # Only fill cedula if it's a real patient ID (not cotización)
+    if not is_cotizacion:
+        cedula_input = page.locator('#identificacion')
+        await cedula_input.fill(cedula)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(2000)
 
     added_codes = []  # Track codes we successfully clicked
     failed_exams = []
@@ -523,14 +527,23 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         }
     """)
 
+    # Build result message based on mode
+    if is_cotizacion:
+        message = f"Cotización: {len(added_exams)} exámenes. Total: {totals.get('total', 'N/A')}"
+        next_step = "Esta es solo una cotización. Cierra la pestaña sin guardar, o ingresa cédula del paciente para crear la orden."
+    else:
+        message = f"Orden creada con {len(added_exams)} examenes. Total: {totals.get('total', 'N/A')}"
+        next_step = "Revisa los examenes en el navegador. Haz click en 'Guardar' para confirmar o cierra la pestaña para cancelar."
+
     result = {
-        "cedula": cedula,
+        "cedula": cedula if not is_cotizacion else None,
+        "is_cotizacion": is_cotizacion,
         "exams_added": added_exams,  # Now includes individual prices
         "exams_failed": failed_exams,
         "totals": totals,
         "status": "pending_review",
-        "message": f"Orden creada con {len(added_exams)} examenes. Total: {totals.get('total', 'N/A')}",
-        "next_step": "Revisa los examenes en el navegador. Haz click en 'Guardar' para confirmar o cierra la pestaña para cancelar."
+        "message": message,
+        "next_step": next_step
     }
 
     if failed_exams:
@@ -741,18 +754,21 @@ async def create_new_order(cedula: str, exams: List[str]) -> str:
     """
     Create a new order form with multiple exams. Use for cotización (price quotes).
 
-    For cotización: use cedula="0000000000" as placeholder and pass ALL exam codes at once.
-    The tool returns the total cost and leaves the browser open for review.
+    For cotización: use cedula="" (empty) and pass ALL exam codes at once.
+    The tool returns individual prices and total, leaves browser open for review.
 
     Args:
-        cedula: Patient ID number (cedula). Use "0000000000" for cotización.
+        cedula: Patient ID number (cedula). Use "" (empty string) for cotización only.
         exams: List of ALL exam codes to add at once (e.g., ["BH", "GLU", "AMI", "LIPA", "WIDAL"])
 
     Returns:
-        JSON with exams added, totals (including price), and status. Browser stays open for review.
+        JSON with exams added (with individual prices), totals, and status.
 
     Example for cotización:
-        create_new_order(cedula="0000000000", exams=["BH", "AMI", "LIPA", "WIDAL", "PCR"])
+        create_new_order(cedula="", exams=["BH", "AMI", "LIPA", "WIDAL", "PCR"])
+
+    Example for real order:
+        create_new_order(cedula="1234567890", exams=["BH", "EMO"])
     """
     result = await _create_order_impl(cedula, exams)
     return json.dumps(result, ensure_ascii=False)

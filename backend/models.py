@@ -113,6 +113,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     temperature: float = 0.7
     min_request_interval: float = 4.0  # 15 RPM = 4s interval
     _current_model: Optional[ChatGoogleGenerativeAI] = None
+    _bound_tools: Optional[List[Any]] = None  # Store tools for re-binding after key switch
+    _tool_kwargs: Optional[Dict] = None  # Store bind_tools kwargs
 
     class Config:
         arbitrary_types_allowed = True
@@ -120,6 +122,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     def __init__(self, api_keys: List[str], model_name: str = "gemini-2.0-flash", **kwargs):
         super().__init__(api_keys=api_keys, model_name=model_name, **kwargs)
         self.max_retries = len(api_keys) * 2
+        self._bound_tools = None
+        self._tool_kwargs = None
 
         # Load exhausted keys from file and skip to first available key
         _init_exhausted_keys(model_name)
@@ -142,7 +146,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             _shared_key_index = original_index  # Reset to original
 
     def _configure_model(self):
-        """Creates a new model with the current API key."""
+        """Creates a new model with the current API key. Re-binds tools if previously bound."""
         global _shared_key_index
         key = self.api_keys[_shared_key_index]
 
@@ -164,7 +168,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             model_kwargs["thinking_level"] = "medium"
             logger.info(f"[Model] Enabling thinking for Gemini 3 model")
 
-        self._current_model = ChatGoogleGenerativeAI(**model_kwargs)
+        base_model = ChatGoogleGenerativeAI(**model_kwargs)
+
+        # Re-bind tools if they were previously bound
+        if self._bound_tools:
+            self._current_model = base_model.bind_tools(self._bound_tools, **(self._tool_kwargs or {}))
+            logger.info(f"[Model] Re-bound {len(self._bound_tools)} tools after key switch")
+        else:
+            self._current_model = base_model
+
         logger.info(f"[Model] Configured with Key #{_shared_key_index + 1}")
 
     def _switch_key(self, mark_exhausted: bool = False):
@@ -322,7 +334,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         raise Exception(f"Failed after {self.max_retries} attempts: {last_error}")
 
     def bind_tools(self, tools: List[Any], **kwargs):
-        """Bind tools to the underlying model."""
+        """Bind tools to the underlying model. Stores tools for re-binding after key switch."""
         bound = self._current_model.bind_tools(tools, **kwargs)
 
         # Create new instance (shares module-level state automatically)
@@ -332,6 +344,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             temperature=self.temperature,
         )
         wrapper._current_model = bound  # Override with tool-bound model
+        wrapper._bound_tools = tools  # Store for re-binding after key switch
+        wrapper._tool_kwargs = kwargs
 
         logger.info(f"[Model] Bound {len(tools)} tools")
         return wrapper
