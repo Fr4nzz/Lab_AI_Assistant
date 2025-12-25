@@ -427,6 +427,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     if request.stream:
         async def generate():
             full_response = []
+            response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             try:
                 # Check if this is a new thread (no existing messages)
                 existing_state = await graph.aget_state(config)
@@ -470,7 +471,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                             if content:
                                 full_response.append(content)
                                 data = {
-                                    "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                                    "id": response_id,
                                     "object": "chat.completion.chunk",
                                     "model": request.model,
                                     "choices": [{
@@ -483,6 +484,19 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
                 if full_response:
                     logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
+
+                # Send final chunk with finish_reason to signal completion
+                final_chunk = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "model": request.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                }
+                yield f"data: {json.dumps(final_chunk)}\n\n"
                 yield "data: [DONE]\n\n"
 
             except Exception as e:
