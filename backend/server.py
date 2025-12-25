@@ -54,7 +54,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Local imports
 from graph.agent import create_lab_agent, compile_agent
-from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl
+from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
@@ -123,8 +123,12 @@ async def get_orders_context() -> str:
 
 async def get_browser_tabs_context() -> str:
     """
-    Get browser tabs context - list of all open tabs with IDs and patient names.
-    This is sent to the AI at every new user message.
+    Get browser tabs context with state tracking.
+
+    - Shows all tabs with IDs, patient names, and enumeration for duplicates
+    - For NEW tabs: shows full state (exams, fields, etc.)
+    - For KNOWN tabs: shows only what CHANGED since last message
+    - Marks which tab is active
     """
     try:
         tabs_info = await _get_browser_tabs_impl()
@@ -134,34 +138,78 @@ async def get_browser_tabs_context() -> str:
 
         lines = ["# Pestañas del Navegador"]
 
-        # List all tabs with IDs and patient names
+        type_display = {
+            "ordenes_list": "Lista de Órdenes",
+            "nueva_orden": "Nueva Orden",
+            "orden_edit": "Editar Orden",
+            "resultados": "Resultados",
+            "login": "Login",
+            "unknown": "Otra"
+        }
+
         for tab in tabs_info.get("tabs", []):
             tab_type = tab.get("type", "unknown")
             is_active = tab.get("active", False)
+            is_new = tab.get("is_new", False)
             tab_id = tab.get("id")
             paciente = tab.get("paciente")
+            instance = tab.get("instance")  # For duplicate enumeration
+            state = tab.get("state")  # Full state for new tabs
+            changes = tab.get("changes")  # Only changes for known tabs
 
+            # Build tab header
             marker = "→ " if is_active else "  "
-            type_display = {
-                "ordenes_list": "Lista de Órdenes",
-                "nueva_orden": "Nueva Orden",
-                "orden_edit": "Editar Orden",
-                "resultados": "Resultados",
-                "login": "Login",
-                "unknown": "Otra"
-            }.get(tab_type, tab_type)
+            tab_line = f"{marker}{type_display.get(tab_type, tab_type)}"
 
-            # Build tab line with ID and patient if available
-            tab_line = f"{marker}{type_display}"
+            # Add ID
             if tab_id:
                 if tab_type == "resultados":
                     tab_line += f" (order_num={tab_id})"
                 elif tab_type == "orden_edit":
                     tab_line += f" (order_id={tab_id})"
+
+            # Add instance number for duplicates
+            if instance:
+                tab_line += f" #{instance}"
+
+            # Add patient name
             if paciente:
-                tab_line += f" - {paciente[:30]}"
+                tab_line += f" - {paciente[:25]}"
+
+            # Add NEW marker
+            if is_new:
+                tab_line += " [NUEVA]"
 
             lines.append(tab_line)
+
+            # For new tabs, show full state
+            if is_new and state:
+                if tab_type == "resultados":
+                    lines.append(f"    Exámenes: {state.get('examenes_count', 0)}")
+                    # Show field values (limited)
+                    field_values = state.get("field_values", {})
+                    filled = [(k, v) for k, v in field_values.items() if v]
+                    if filled:
+                        lines.append(f"    Campos con valor: {len(filled)}")
+                elif tab_type in ["orden_edit", "nueva_orden"]:
+                    exams = state.get("exams", [])
+                    if exams:
+                        lines.append(f"    Exámenes: {', '.join(exams[:8])}")
+                    if state.get("total"):
+                        lines.append(f"    Total: {state.get('total')}")
+
+            # For known tabs, show only changes
+            elif changes:
+                lines.append("    **Cambios detectados:**")
+                if "field_values" in changes:
+                    # Show which fields changed
+                    for field_key, new_value in list(changes["field_values"].items())[:5]:
+                        if new_value:
+                            lines.append(f"    - {field_key}: → {new_value}")
+                if "exams" in changes:
+                    lines.append(f"    - Exámenes: {', '.join(changes['exams'][:5])}")
+                if "total" in changes:
+                    lines.append(f"    - Total: {changes['total']}")
 
         return "\n".join(lines)
 
@@ -695,6 +743,10 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 # Check if this is first message in conversation (from frontend history)
                 is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
 
+                # Reset tab state tracking on new conversation
+                if is_first_message:
+                    reset_tab_state()
+
                 # Get current context (checks login state, fetches orders if needed)
                 current_context = await get_orders_context()
 
@@ -943,6 +995,10 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         try:
             # Check if this is first message in conversation (from frontend history)
             is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
+
+            # Reset tab state tracking on new conversation
+            if is_first_message:
+                reset_tab_state()
 
             # Get current context (checks login state, fetches orders if needed)
             current_context = await get_orders_context()
