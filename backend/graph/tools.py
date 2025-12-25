@@ -484,17 +484,48 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
             logger.warning(f"[create_order] No exact match for exam code: {exam_code_upper}")
 
+    # Extract totals from the order form
+    totals = await page.evaluate(r"""
+        () => {
+            const result = { subtotal: null, descuento: null, total: null };
+
+            // Get descuento from input
+            const descuentoInput = document.querySelector('#valor-descuento');
+            if (descuentoInput) result.descuento = descuentoInput.value;
+
+            // Get total from bold price element (usually shows total like $XX.XX)
+            document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                const text = el.innerText?.trim() || '';
+                if (text.startsWith('$') && !result.total) {
+                    result.total = text;
+                }
+            });
+
+            // Also try to get from examenes-seleccionados totals row
+            const totalRow = document.querySelector('#examenes-seleccionados tfoot, .total-row');
+            if (totalRow) {
+                const totalText = totalRow.innerText?.match(/\$[\d.]+/);
+                if (totalText) result.total = totalText[0];
+            }
+
+            return result;
+        }
+    """)
+
     result = {
         "cedula": cedula,
         "exams_added": added_exams,
         "exams_failed": failed_exams,
-        "status": "pending_save",
-        "next_step": "User must click 'Guardar' to create the order."
+        "totals": totals,
+        "status": "pending_review",
+        "message": f"Orden creada con {len(added_exams)} examenes. Total: {totals.get('total', 'N/A')}",
+        "next_step": "Revisa los examenes en el navegador. Haz click en 'Guardar' para confirmar o cierra la pestaña para cancelar."
     }
 
     if failed_exams:
         result["warning"] = f"Some exams could not be added: {[e['codigo'] for e in failed_exams]}"
 
+    logger.info(f"[create_order] Created order with total: {totals.get('total', 'N/A')}")
     return result
 
 
@@ -697,20 +728,23 @@ async def add_exam_to_order(order_id: int, exam_code: str) -> str:
 @tool
 async def create_new_order(cedula: str, exams: List[str]) -> str:
     """
-    Create a new order form for a patient. Form must be saved manually by user.
+    Create a new order form with multiple exams. Use for cotización (price quotes).
+
+    For cotización: use cedula="0000000000" as placeholder and pass ALL exam codes at once.
+    The tool returns the total cost and leaves the browser open for review.
 
     Args:
-        cedula: Patient ID number (cedula)
-        exams: List of exam codes to add (e.g., ["EMO", "BH"])
+        cedula: Patient ID number (cedula). Use "0000000000" for cotización.
+        exams: List of ALL exam codes to add at once (e.g., ["BH", "GLU", "AMI", "LIPA", "WIDAL"])
 
     Returns:
-        Confirmation message. User must click Guardar to save.
+        JSON with exams added, totals (including price), and status. Browser stays open for review.
+
+    Example for cotización:
+        create_new_order(cedula="0000000000", exams=["BH", "AMI", "LIPA", "WIDAL", "PCR"])
     """
     result = await _create_order_impl(cedula, exams)
-    return json.dumps({
-        **result,
-        "next_step": "User must click 'Guardar' to create the order."
-    }, ensure_ascii=False)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool
