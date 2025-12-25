@@ -184,38 +184,63 @@ async def _search_orders_impl(search: str = "", limit: int = 20) -> dict:
 
 
 async def _get_exam_fields_impl(ordenes: List[str]) -> dict:
-    """Internal async implementation of get_exam_fields."""
+    """Internal async implementation of get_exam_fields - PARALLELIZED."""
     global _active_tabs
-    logger.info(f"[get_exam_fields] Getting fields for orders: {ordenes}")
+    import asyncio
+    logger.info(f"[get_exam_fields] Getting fields for {len(ordenes)} orders in parallel...")
 
-    results = []
-    for orden in ordenes:
-        # Reuse existing tab or create new one
-        if orden in _active_tabs:
-            page = _active_tabs[orden]
-            try:
-                await page.reload()
-            except Exception:
+    async def process_order(orden: str) -> dict:
+        """Process a single order - runs in parallel with others."""
+        try:
+            # Reuse existing tab or create new one
+            if orden in _active_tabs:
+                page = _active_tabs[orden]
+                try:
+                    await page.reload()
+                except Exception:
+                    page = await _browser.context.new_page()
+                    _active_tabs[orden] = page
+            else:
                 page = await _browser.context.new_page()
                 _active_tabs[orden] = page
-        else:
-            page = await _browser.context.new_page()
-            _active_tabs[orden] = page
 
-        url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
-        await page.goto(url, timeout=30000)
-        await page.wait_for_timeout(2000)
+            url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={orden}"
+            await page.goto(url, timeout=30000)
 
-        # Inject highlight styles
-        await _inject_highlight_styles(page)
+            # Wait for page to be ready using Playwright's load state instead of fixed timeout
+            try:
+                # 'networkidle' waits until no network connections for 500ms
+                await page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception:
+                # Fallback: wait for content to appear
+                try:
+                    await page.wait_for_selector('.parametro, .card, table tbody tr', timeout=5000)
+                except Exception:
+                    # Last resort: minimal wait
+                    await page.wait_for_timeout(500)
 
-        data = await page.evaluate(EXTRACT_REPORTES_JS)
-        results.append({
-            "orden": orden,
-            "tab_ready": True,
-            **data
-        })
-        logger.info(f"[get_exam_fields] Order {orden}: {len(data.get('examenes', []))} exams")
+            # Inject highlight styles
+            await _inject_highlight_styles(page)
+
+            data = await page.evaluate(EXTRACT_REPORTES_JS)
+            exam_count = len(data.get('examenes', []))
+            logger.info(f"[get_exam_fields] Order {orden}: {exam_count} exams")
+
+            return {
+                "orden": orden,
+                "tab_ready": True,
+                **data
+            }
+        except Exception as e:
+            logger.error(f"[get_exam_fields] Error processing order {orden}: {e}")
+            return {
+                "orden": orden,
+                "tab_ready": False,
+                "error": str(e)
+            }
+
+    # Process all orders in parallel
+    results = await asyncio.gather(*[process_order(orden) for orden in ordenes])
 
     return {
         "ordenes": results,
@@ -226,19 +251,36 @@ async def _get_exam_fields_impl(ordenes: List[str]) -> dict:
 
 
 async def _get_order_details_impl(order_ids: List[int]) -> dict:
-    """Internal async implementation of get_order_details."""
-    logger.info(f"[get_order_details] Getting details for order IDs: {order_ids}")
+    """Internal async implementation of get_order_details - PARALLELIZED."""
+    import asyncio
+    logger.info(f"[get_order_details] Getting details for {len(order_ids)} orders in parallel...")
 
-    results = []
-    for order_id in order_ids:
-        page = await _browser.ensure_page()
-        url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
-        await page.goto(url, timeout=30000)
-        await page.wait_for_timeout(1500)
+    async def process_order(order_id: int) -> dict:
+        """Process a single order - runs in parallel with others."""
+        try:
+            page = await _browser.context.new_page()
+            url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
+            await page.goto(url, timeout=30000)
 
-        data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
-        data["order_id"] = order_id
-        results.append(data)
+            # Wait for page to be ready
+            try:
+                await page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception:
+                try:
+                    await page.wait_for_selector('form, .card, input', timeout=5000)
+                except Exception:
+                    await page.wait_for_timeout(500)
+
+            data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+            data["order_id"] = order_id
+            await page.close()  # Close temp page
+            return data
+        except Exception as e:
+            logger.error(f"[get_order_details] Error processing order {order_id}: {e}")
+            return {"order_id": order_id, "error": str(e)}
+
+    # Process all orders in parallel
+    results = await asyncio.gather(*[process_order(order_id) for order_id in order_ids])
 
     return {
         "orders": results,
