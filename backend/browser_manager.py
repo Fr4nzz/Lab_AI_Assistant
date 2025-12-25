@@ -35,28 +35,45 @@ class BrowserManager:
     async def start(self, headless: bool = False, browser: str = "msedge"):
         """
         Start the browser with persistent context.
-        
+
         Args:
             headless: Run browser without GUI
             browser: Browser to use - "msedge", "chrome", or "chromium"
         """
         print(f"[BrowserManager] Usando browser_data en: {self.user_data_dir}")
         self.playwright = await async_playwright().start()
+
+        # Base args for all modes
+        browser_args = [
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-session-crashed-bubble",
+            "--disable-restore-session-state",
+            "--disable-restore-background-contents",
+            "--hide-crash-restore-bubble",
+            "--noerrdialogs",
+        ]
+
+        # Additional args for headless/Docker mode (no X11/GPU)
+        if headless:
+            browser_args.extend([
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ])
+
+        # For chromium (Docker), don't specify channel
+        channel = None if browser == "chromium" else browser
+
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.user_data_dir,
             headless=headless,
-            channel=browser,  # "msedge" uses installed Edge, "chrome" uses installed Chrome
+            channel=channel,  # None for bundled chromium, "msedge"/"chrome" for installed browsers
             viewport={"width": 1280, "height": 900},
             accept_downloads=True,
-            args=[
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-session-crashed-bubble",
-                "--disable-restore-session-state",
-                "--disable-restore-background-contents",
-                "--hide-crash-restore-bubble",
-                "--noerrdialogs",
-            ],
+            args=browser_args,
             ignore_default_args=["--enable-automation"],  # Less intrusive automation
         )
         # Close any restored tabs and start fresh
