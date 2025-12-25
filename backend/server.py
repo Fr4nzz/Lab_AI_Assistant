@@ -411,7 +411,24 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     # Debug: log raw request
     logger.debug(f"[Request] Messages count: {len(request.messages)}")
     for i, msg in enumerate(request.messages):
-        logger.debug(f"[Request] [{i}] role={msg.get('role')}, content={str(msg.get('content', ''))[:100]}")
+        content = msg.get('content', '')
+        # Handle multimodal content (list with text/images)
+        if isinstance(content, list):
+            content_summary = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get('type') == 'text':
+                        content_summary.append(f"text:{part.get('text', '')[:50]}")
+                    elif part.get('type') == 'image_url':
+                        content_summary.append("[IMAGE]")
+                    else:
+                        content_summary.append(f"[{part.get('type', 'unknown')}]")
+                else:
+                    content_summary.append(str(part)[:30])
+            content_str = ', '.join(content_summary)
+        else:
+            content_str = str(content)[:100]
+        logger.debug(f"[Request] [{i}] role={msg.get('role')}, content={content_str}")
 
     # Detect and reject LobeChat's auxiliary requests (topic naming, translation, etc.)
     # These have role=developer/system with summarization/translation prompts
@@ -468,7 +485,21 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         return {"error": "No user message found"}
 
     logger.info("=" * 60)
-    logger.info(f"USER MESSAGE: {last_user_message[:200]}{'...' if len(last_user_message) > 200 else ''}")
+    # Handle multimodal user message for logging
+    if isinstance(last_user_message, list):
+        msg_parts = []
+        for part in last_user_message:
+            if isinstance(part, dict):
+                if part.get('type') == 'text':
+                    msg_parts.append(part.get('text', '')[:100])
+                elif part.get('type') == 'image_url':
+                    msg_parts.append('[IMAGE]')
+                else:
+                    msg_parts.append(f"[{part.get('type', 'unknown')}]")
+        user_msg_display = ' + '.join(msg_parts)
+    else:
+        user_msg_display = str(last_user_message)[:200]
+    logger.info(f"USER MESSAGE: {user_msg_display}{'...' if len(str(last_user_message)) > 200 else ''}")
     logger.info(f"Thread ID: {thread_id}, Stream: {request.stream}")
 
     if request.stream:
