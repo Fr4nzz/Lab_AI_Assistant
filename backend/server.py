@@ -598,18 +598,60 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 ):
                     event_type = event.get("event", "")
 
-                    # Log tool calls
+                    # Stream tool calls to show "thinking" in LobeChat
                     if event_type == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         tool_input = event.get("data", {}).get("input", {})
                         logger.info(f"TOOL CALL: {tool_name}")
                         logger.debug(f"  Input: {json.dumps(tool_input, ensure_ascii=False)[:500]}")
 
+                        # Send tool call as a "thinking" step to frontend
+                        tool_display = f"🔧 **{tool_name}**"
+                        if tool_input:
+                            # Show key parameters
+                            params = []
+                            for k, v in tool_input.items():
+                                if isinstance(v, str) and len(v) < 50:
+                                    params.append(f"{k}={v}")
+                                elif isinstance(v, list) and len(v) < 5:
+                                    params.append(f"{k}={v}")
+                            if params:
+                                tool_display += f" ({', '.join(params[:3])})"
+                        tool_display += "\n"
+
+                        data = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": request.model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": tool_display},
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+
                     elif event_type == "on_tool_end":
                         tool_name = event.get("name", "unknown")
                         tool_output = event.get("data", {}).get("output", "")
                         logger.info(f"TOOL RESULT: {tool_name}")
                         logger.debug(f"  Output: {str(tool_output)[:500]}")
+
+                        # Send brief result indicator
+                        result_display = f"✓ {tool_name} completado\n\n"
+                        data = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": request.model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": result_display},
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
 
                     elif event_type == "on_chat_model_stream":
                         chunk = event["data"].get("chunk")
@@ -621,6 +663,30 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                 text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
                                 content = ''.join(text_parts)
                             if content:
+                                full_response.append(content)
+                                data = {
+                                    "id": response_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created_time,
+                                    "model": request.model,
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {"content": content},
+                                        "finish_reason": None
+                                    }]
+                                }
+                                yield f"data: {json.dumps(data)}\n\n"
+
+                    # Handle non-streaming model responses (after key rotation)
+                    elif event_type == "on_chat_model_end":
+                        output = event.get("data", {}).get("output")
+                        if output and hasattr(output, 'content') and output.content:
+                            content = output.content
+                            if isinstance(content, list):
+                                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                content = ''.join(text_parts)
+                            # Only send if we haven't already streamed this content
+                            if content and content not in ''.join(full_response):
                                 full_response.append(content)
                                 data = {
                                     "id": response_id,
