@@ -30,10 +30,18 @@ services:
     ports:
       - "3210:3210"
     environment:
+      # Lab Assistant backend (our agent)
       - OPENAI_PROXY_URL=http://backend:8000/v1
       - OPENAI_API_KEY=dummy
-      - OPENAI_MODEL_LIST=+lab-assistant=Lab Assistant<100000:vision:fc>
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Custom model list for OpenAI provider (our Lab Assistant)
+      # Format: -model (remove), +model=Name<context:capabilities> (add)
+      - OPENAI_MODEL_LIST=-gpt-3.5-turbo,-gpt-4,-gpt-4-turbo,-gpt-4o,-gpt-4o-mini,+lab-assistant=Lab Assistant<100000:vision:fc>
+
+      # OpenRouter for auxiliary tasks (topic naming, translation)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ENABLED_OPENROUTER=1
+      # Free models from OpenRouter for topic naming
+      - OPENROUTER_MODEL_LIST=meta-llama/llama-3.2-3b-instruct:free,google/gemma-2-9b-it:free,mistralai/mistral-7b-instruct:free
     depends_on:
       - backend
 
