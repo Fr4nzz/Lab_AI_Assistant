@@ -34,6 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce noise from asyncio proactor logs (Windows-specific spam)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+
 # Set up Windows event loop policy if on Windows
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
