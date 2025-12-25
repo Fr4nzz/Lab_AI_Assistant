@@ -15,12 +15,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - DATABASE_URL=sqlite:///./data/checkpoints.db
       - HEADLESS=${HEADLESS:-false}
+      - DISPLAY=${DISPLAY:-:0}
     volumes:
       - ./backend/data:/app/data
       - ./backend/browser_data:/app/browser_data
       - /tmp/.X11-unix:/tmp/.X11-unix  # For Playwright display
-    environment:
-      - DISPLAY=${DISPLAY:-:0}
 
   # LobeChat Frontend
   frontend:
@@ -36,7 +35,6 @@ services:
       # Custom model list for OpenAI provider (our Lab Assistant)
       # Format: -model (remove), +model=Name<context:capabilities> (add)
       - OPENAI_MODEL_LIST=-gpt-3.5-turbo,-gpt-4,-gpt-4-turbo,-gpt-4o,-gpt-4o-mini,+lab-assistant=Lab Assistant<100000:vision:fc>
-
       # OpenRouter for auxiliary tasks (topic naming, translation)
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - ENABLED_OPENROUTER=1
