@@ -442,7 +442,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     await page.keyboard.press("Enter")
     await page.wait_for_timeout(2000)
 
-    added_exams = []
+    added_codes = []  # Track codes we successfully clicked
     failed_exams = []
 
     for exam_code in exams:
@@ -471,10 +471,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
             btn = page.locator(f'#{button_id}')
             if await btn.count() > 0:
                 await btn.click()
-                added_exams.append({
-                    'codigo': matched_exam['codigo'],
-                    'nombre': matched_exam['nombre']
-                })
+                added_codes.append(exam_code_upper)
                 logger.info(f"[create_order] Added exam: {matched_exam['codigo']} - {matched_exam['nombre']}")
                 await page.wait_for_timeout(500)
             else:
@@ -483,6 +480,20 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match found'})
             logger.warning(f"[create_order] No exact match for exam code: {exam_code_upper}")
+
+    # Wait a bit for the table to update, then extract added exams with individual prices
+    await page.wait_for_timeout(500)
+    added_exams_with_prices = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+
+    # Build list of added exams with prices
+    added_exams = []
+    for exam in added_exams_with_prices:
+        added_exams.append({
+            'codigo': exam.get('codigo'),
+            'nombre': exam.get('nombre'),
+            'precio': exam.get('valor')  # Individual price for this exam
+        })
+        logger.info(f"[create_order] Exam price: {exam.get('codigo')} = {exam.get('valor')}")
 
     # Extract totals from the order form
     totals = await page.evaluate(r"""
@@ -514,7 +525,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     result = {
         "cedula": cedula,
-        "exams_added": added_exams,
+        "exams_added": added_exams,  # Now includes individual prices
         "exams_failed": failed_exams,
         "totals": totals,
         "status": "pending_review",
