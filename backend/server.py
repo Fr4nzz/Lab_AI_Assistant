@@ -123,8 +123,10 @@ async def get_orders_context() -> str:
 # ============================================================
 
 async def extract_initial_context() -> str:
-    """Extract initial orders list from the page for AI context."""
+    """Extract initial orders list and available exams from the page for AI context."""
     global browser
+    lines = []
+
     try:
         # Make sure we're on the orders page
         if "/ordenes" not in browser.page.url:
@@ -134,7 +136,7 @@ async def extract_initial_context() -> str:
         await browser.page.wait_for_timeout(2000)  # Wait for page to load
         ordenes = await browser.page.evaluate(EXTRACT_ORDENES_JS)
         if ordenes:
-            lines = ["# Órdenes Recientes"]
+            lines.append("# Órdenes Recientes")
             lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado | ID |")
             lines.append("|---|-------|-------|----------|--------|--------|-----|")
             for i, o in enumerate(ordenes[:15]):
@@ -142,10 +144,63 @@ async def extract_initial_context() -> str:
                 lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
             lines.append("")
             lines.append("*Usa 'num' para get_exam_fields(), 'id' para get_order_details()*")
-            return "\n".join(lines)
     except Exception as e:
-        logger.warning(f"Could not extract initial context: {e}")
-    return ""
+        logger.warning(f"Could not extract orders context: {e}")
+
+    # Also extract available exams from create order page for cotización
+    try:
+        await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create", timeout=30000)
+        await browser.page.wait_for_timeout(1500)
+
+        # Extract available exams using JavaScript
+        exams = await browser.page.evaluate(r"""
+            () => {
+                const exams = [];
+                const searchInput = document.querySelector('#buscar-examen-input');
+                if (!searchInput) return exams;
+
+                const container = searchInput.closest('.table-responsive') || searchInput.closest('.col-12');
+                if (!container) return exams;
+
+                const table = container.querySelector('table');
+                if (!table) return exams;
+
+                table.querySelectorAll('tbody tr').forEach((row, index) => {
+                    const td = row.querySelector('td');
+                    const div = td?.querySelector('div[title]');
+                    if (div) {
+                        const text = div.innerText?.trim() || '';
+                        if (text.includes(' - ')) {
+                            const parts = text.split(' - ');
+                            exams.push({
+                                codigo: parts[0].trim(),
+                                nombre: parts.slice(1).join(' - ').replace(/\s*Se remite.*$/i, '').trim()
+                            });
+                        }
+                    }
+                });
+                return exams;
+            }
+        """)
+
+        if exams:
+            lines.append("")
+            lines.append("# Exámenes Disponibles para Cotización")
+            lines.append("| Código | Nombre |")
+            lines.append("|--------|--------|")
+            for exam in exams[:50]:  # Limit to 50 most common
+                lines.append(f"| {exam.get('codigo', '')} | {exam.get('nombre', '')[:50]} |")
+            lines.append("")
+            lines.append("*Para cotización: create_new_order(cedula=\"0000000000\", exams=[\"CODIGO1\", \"CODIGO2\", ...])*")
+            logger.info(f"[Context] Extracted {len(exams)} available exams for cotización")
+
+        # Navigate back to orders page
+        await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+
+    except Exception as e:
+        logger.warning(f"Could not extract available exams: {e}")
+
+    return "\n".join(lines) if lines else ""
 
 
 @asynccontextmanager
