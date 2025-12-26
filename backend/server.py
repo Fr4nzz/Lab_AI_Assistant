@@ -615,7 +615,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     logger.debug(f"[Request] Messages count: {len(request.messages)}")
     for i, msg in enumerate(request.messages):
         content = msg.get('content', '')
-        # Handle multimodal content (list with text/images)
+        # Handle multimodal content (list with text/images/audio)
         if isinstance(content, list):
             content_summary = []
             for part in content:
@@ -624,6 +624,9 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         content_summary.append(f"text:{part.get('text', '')[:50]}")
                     elif part.get('type') == 'image_url':
                         content_summary.append("[IMAGE]")
+                    elif part.get('type') == 'media':
+                        mime = part.get('mime_type', 'unknown')
+                        content_summary.append(f"[AUDIO:{mime}]" if 'audio' in mime else f"[VIDEO:{mime}]")
                     else:
                         content_summary.append(f"[{part.get('type', 'unknown')}]")
                 else:
@@ -683,7 +686,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
         role = msg.get("role", "")
         content = msg.get("content", "")
 
-        # Handle multimodal content (images) - convert to LangChain format
+        # Handle multimodal content (images, audio, video) - convert to LangChain format
         if isinstance(content, list):
             # Convert OpenAI multimodal format to LangChain format
             lc_content = []
@@ -695,6 +698,13 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         image_url = part.get("image_url", {})
                         url = image_url.get("url", "") if isinstance(image_url, dict) else image_url
                         lc_content.append({"type": "image_url", "image_url": {"url": url}})
+                    elif part.get("type") == "media":
+                        # Audio/video for Gemini (native format)
+                        lc_content.append({
+                            "type": "media",
+                            "data": part.get("data", ""),
+                            "mime_type": part.get("mime_type", "audio/webm")
+                        })
             content = lc_content if lc_content else ""
 
         if role == "user":
@@ -724,6 +734,9 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                     msg_parts.append(part.get('text', '')[:100])
                 elif part.get('type') == 'image_url':
                     msg_parts.append('[IMAGE]')
+                elif part.get('type') == 'media':
+                    mime = part.get('mime_type', 'unknown')
+                    msg_parts.append(f'[AUDIO:{mime}]' if 'audio' in mime else f'[VIDEO:{mime}]')
                 else:
                     msg_parts.append(f"[{part.get('type', 'unknown')}]")
         user_msg_display = ' + '.join(msg_parts)

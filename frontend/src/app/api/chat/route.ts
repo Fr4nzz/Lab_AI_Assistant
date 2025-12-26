@@ -36,25 +36,41 @@ function convertMessages(messages: Message[]) {
         for (const part of msg.parts) {
           if (part.type === 'text' && part.text) {
             content.push({ type: 'text', text: part.text });
-          } else if (part.type === 'file' || part.type === 'image') {
-            // Image - use image_url format for OpenAI compatibility
+          } else if (part.type === 'file' || part.type === 'image' || part.type === 'audio') {
+            const mimeType = part.mimeType || (part as { mediaType?: string }).mediaType || '';
             const url = (part as { url?: string }).url || '';
-            if (url) {
-              content.push({ type: 'image_url', image_url: { url } });
-            } else if (part.data && part.mimeType) {
-              // Inline data
-              content.push({
-                type: 'image_url',
-                image_url: { url: `data:${part.mimeType};base64,${part.data}` }
-              });
+            const data = part.data || '';
+
+            // Check if it's audio/video - use media format for Gemini native support
+            if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) {
+              if (data) {
+                content.push({
+                  type: 'media',
+                  data: data,
+                  mime_type: mimeType
+                });
+              } else if (url && url.startsWith('data:')) {
+                // Extract base64 from data URL
+                const base64Match = url.match(/^data:[^;]+;base64,(.+)$/);
+                if (base64Match) {
+                  content.push({
+                    type: 'media',
+                    data: base64Match[1],
+                    mime_type: mimeType
+                  });
+                }
+              }
+            } else {
+              // Image or other file - use image_url format
+              if (url) {
+                content.push({ type: 'image_url', image_url: { url } });
+              } else if (data && mimeType) {
+                content.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${mimeType};base64,${data}` }
+                });
+              }
             }
-          } else if (part.type === 'audio' && part.data && part.mimeType) {
-            // Audio - use media format for Gemini
-            content.push({
-              type: 'media',
-              data: part.data,
-              mime_type: part.mimeType
-            });
           }
         }
 
