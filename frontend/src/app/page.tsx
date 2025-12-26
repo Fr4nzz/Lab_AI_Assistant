@@ -3,11 +3,15 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Chat } from '@/components/chat';
 import { ChatSidebar, ChatItem } from '@/components/chat-sidebar';
+import { ToolToggles, ALL_TOOL_IDS } from '@/components/tool-toggles';
+import { BrowserTabsPanel } from '@/components/browser-tabs-panel';
 
 export default function Home() {
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [enabledTools, setEnabledTools] = useState<string[]>(ALL_TOOL_IDS);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   // Load chats from database on mount
   useEffect(() => {
@@ -89,10 +93,18 @@ export default function Home() {
     }
   }, [selectedChatId]);
 
+  const handleToolToggle = useCallback((toolId: string, enabled: boolean) => {
+    setEnabledTools(prev =>
+      enabled
+        ? [...prev, toolId]
+        : prev.filter(t => t !== toolId)
+    );
+  }, []);
+
   return (
     <main className="h-screen flex">
-      {/* Sidebar */}
-      <aside className="w-64 border-r">
+      {/* Left Sidebar - Chat List */}
+      <aside className="w-64 border-r flex-shrink-0">
         <ChatSidebar
           chats={chats}
           selectedId={selectedChatId}
@@ -103,7 +115,7 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-muted-foreground">Cargando...</div>
@@ -112,6 +124,7 @@ export default function Home() {
           <Chat
             chatId={selectedChatId}
             onTitleGenerated={handleTitleGenerated}
+            enabledTools={enabledTools}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -125,6 +138,34 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Right Panel - Tools & Browser Tabs */}
+      <aside className={`border-l flex-shrink-0 flex flex-col transition-all duration-200 ${
+        rightPanelCollapsed ? 'w-12' : 'w-64'
+      }`}>
+        {/* Toggle button */}
+        <button
+          onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+          className="p-2 border-b hover:bg-muted text-xs text-muted-foreground"
+          title={rightPanelCollapsed ? 'Expandir panel' : 'Colapsar panel'}
+        >
+          {rightPanelCollapsed ? '◀' : '▶ Colapsar'}
+        </button>
+
+        {/* Tool Toggles */}
+        <div className="border-b">
+          <ToolToggles
+            enabledTools={enabledTools}
+            onToggle={handleToolToggle}
+            collapsed={rightPanelCollapsed}
+          />
+        </div>
+
+        {/* Browser Tabs */}
+        <div className="flex-1 overflow-hidden">
+          <BrowserTabsPanel collapsed={rightPanelCollapsed} />
+        </div>
+      </aside>
     </main>
   );
 }
