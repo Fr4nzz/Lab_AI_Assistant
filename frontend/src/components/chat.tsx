@@ -674,7 +674,7 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
 
           {status === 'streaming' && (
             <div className="text-muted-foreground animate-pulse">
-              Escribiendo...
+              Trabajando...
             </div>
           )}
 
