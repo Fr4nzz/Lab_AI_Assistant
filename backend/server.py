@@ -373,8 +373,6 @@ async def extract_initial_context() -> str:
             for i, o in enumerate(all_ordenes[:40]):
                 paciente = (o.get('paciente', '') or '')[:30]
                 lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
-            lines.append("")
-            lines.append("*Usa 'num' para get_order_results(), 'id' para get_order_info() o edit_order_exams()*")
             logger.info(f"[Context] Extracted {len(all_ordenes)} orders from 2 pages")
     except Exception as e:
         logger.warning(f"Could not extract orders context: {e}")
@@ -423,7 +421,7 @@ async def extract_initial_context() -> str:
             for exam in exams[:50]:  # Limit to 50 most common
                 lines.append(f"| {exam.get('codigo', '')} | {exam.get('nombre', '')[:50]} |")
             lines.append("")
-            lines.append("*Para cotización: create_new_order(cedula=\"0000000000\", exams=[\"CODIGO1\", \"CODIGO2\", ...])*")
+            lines.append("*Para cotización: create_new_order(cedula=\"\", exams=[...])*")
             logger.info(f"[Context] Extracted {len(exams)} available exams for cotización")
 
         # Navigate back to orders page

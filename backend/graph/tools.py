@@ -876,55 +876,21 @@ async def search_orders(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> str:
-    """
-    Search orders by patient name or cedula.
-
-    Args:
-        search: Text to search (patient name or cedula). Empty returns recent orders.
-        limit: Maximum orders to return (default 20)
-        page_num: Page number for pagination
-        fecha_desde: Start date filter (YYYY-MM-DD)
-        fecha_hasta: End date filter (YYYY-MM-DD)
-
-    Returns:
-        JSON with order list. Use 'num' for get_order_results(), 'id' for get_order_info()/edit_order_exams()
-    """
+    """Search orders by patient/cedula. Returns 'num' and 'id' for each order."""
     result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 async def get_order_results(order_nums: List[str]) -> str:
-    """
-    Get exam result fields for orders (opens /reportes2 tabs).
-    Use this before edit_results() to see what fields can be edited.
-
-    BATCH: Pass ALL order numbers at once for efficiency.
-
-    Args:
-        order_nums: List of order NUMBERS (e.g., ["2512253", "2512254"])
-
-    Returns:
-        JSON with exam fields for each order. Tabs stay open for edit_results().
-    """
+    """Get result fields for orders. BATCH: pass ALL order_nums at once."""
     result = await _get_order_results_impl(order_nums)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 async def get_order_info(order_ids: List[int]) -> str:
-    """
-    Get order details including exams list (opens /ordenes/edit tabs).
-    Use this to see what exams are in an order before editing.
-
-    BATCH: Pass ALL order IDs at once for efficiency.
-
-    Args:
-        order_ids: List of order IDs (e.g., [14659, 14660])
-
-    Returns:
-        JSON with order details (patient, exams, totals). Tabs stay open for edit_order_exams().
-    """
+    """Get order details and exams list. BATCH: pass ALL order_ids at once."""
     result = await _get_order_info_impl(order_ids)
     return json.dumps(result, ensure_ascii=False)
 
@@ -938,72 +904,28 @@ class EditResultsInput(BaseModel):
 
 @tool(args_schema=EditResultsInput)
 async def edit_results(data: List[Dict[str, str]]) -> str:
-    """
-    Edit exam result fields. Finds/creates tabs by order number automatically.
-    Fields are auto-highlighted. User must click 'Guardar' to save.
-
-    BATCH: Pass ALL edits for ALL orders at once.
-
-    Args:
-        data: List of edits. Each needs: orden, e (exam), f (field), v (value)
-
-    Example:
-        edit_results(data=[
-            {"orden": "2512253", "e": "BIOMETRIA HEMATICA", "f": "Hemoglobina", "v": "15.5"},
-            {"orden": "2512253", "e": "BIOMETRIA HEMATICA", "f": "Hematocrito", "v": "46"}
-        ])
-    """
+    """Edit result fields. BATCH all: data=[{orden, e (exam), f (field), v (value)}]"""
     result = await _edit_results_impl(data)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 async def edit_order_exams(order_ids: List[int], add: Optional[List[str]] = None, remove: Optional[List[str]] = None) -> str:
-    """
-    Add and/or remove exams from orders. Finds/creates tabs by order ID automatically.
-    User must click 'Guardar' to save changes.
-
-    BATCH: Pass ALL order IDs at once. Same add/remove applies to all.
-
-    Args:
-        order_ids: List of order IDs to modify (e.g., [14659])
-        add: Exam codes to add (e.g., ["BH", "EMO"])
-        remove: Exam codes to remove (e.g., ["CREA"])
-
-    Examples:
-        edit_order_exams(order_ids=[14659], add=["BH", "EMO"])
-        edit_order_exams(order_ids=[14659], remove=["CREA"])
-        edit_order_exams(order_ids=[14659], add=["BH"], remove=["CREA"])
-    """
+    """Add/remove exams from orders. BATCH: pass ALL order_ids."""
     result = await _edit_order_exams_impl(order_ids, add, remove)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 async def create_new_order(cedula: str, exams: List[str]) -> str:
-    """
-    Create new order with exams. Use cedula="" for cotización (price quote).
-
-    Args:
-        cedula: Patient cedula. Use "" for cotización only.
-        exams: ALL exam codes to add (e.g., ["BH", "EMO", "CREA"])
-
-    Returns:
-        JSON with exams added, prices, totals. User must click 'Guardar'.
-    """
+    """Create order. cedula="" for cotización. exams=["BH","EMO"]"""
     result = await _create_order_impl(cedula, exams)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 def ask_user(action: str, message: str) -> str:
-    """
-    Display a message to the user requesting action or information.
-
-    Args:
-        action: Type - "save", "info", "confirm", "clarify"
-        message: Message to display
-    """
+    """Display message to user. action: save/info/confirm/clarify"""
     return json.dumps({
         "waiting_for": action,
         "message": message,
@@ -1013,15 +935,7 @@ def ask_user(action: str, message: str) -> str:
 
 @tool
 async def get_available_exams(order_id: Optional[int] = None) -> str:
-    """
-    Get list of available exam codes.
-
-    Args:
-        order_id: Optional order ID. If provided, also returns currently added exams.
-
-    Returns:
-        JSON with available_exams list (codigo, nombre) and added_exams if order_id provided.
-    """
+    """Get available exam codes. If order_id given, also returns added exams."""
     result = await _get_available_exams_impl(order_id)
     return json.dumps(result, ensure_ascii=False)
 
