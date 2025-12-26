@@ -39,7 +39,7 @@ if not exist "%SCRIPT_DIR%frontend\node_modules\.bin\next.cmd" (
     cd /d "%SCRIPT_DIR%frontend"
     :: Remove old node_modules if it exists but is broken
     if exist node_modules rmdir /s /q node_modules
-    npm install
+    npm install --legacy-peer-deps
     cd /d "%SCRIPT_DIR%"
 )
 
