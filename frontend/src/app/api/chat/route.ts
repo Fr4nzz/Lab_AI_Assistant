@@ -1,6 +1,30 @@
 import { type NextRequest } from 'next/server';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { addMessage, saveFile, createChat, getChat, updateChat, ChatAttachment, getFileUrl } from '@/lib/db';
+import { addMessage, saveFile, createChat, ChatAttachment, saveDebugRequest, updateDebugRequest } from '@/lib/db';
+
+// Summarize media content for debug (avoid storing huge base64 strings)
+function summarizeForDebug(obj: unknown): unknown {
+  if (typeof obj !== 'object' || obj === null) return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(summarizeForDebug);
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'data' && typeof value === 'string' && value.length > 200) {
+      result[key] = `[BASE64 DATA: ${value.length} chars]`;
+    } else if (key === 'url' && typeof value === 'string' && value.startsWith('data:') && value.length > 200) {
+      const mimeMatch = value.match(/^data:([^;]+)/);
+      result[key] = `[DATA URL: ${mimeMatch?.[1] || 'unknown'}, ${value.length} chars]`;
+    } else if (typeof value === 'object') {
+      result[key] = summarizeForDebug(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 interface MessagePart {
   type: string;
@@ -183,22 +207,34 @@ export async function POST(req: NextRequest) {
   // Convert messages for backend
   const openaiMessages = convertMessages(messages);
 
-  console.log('[API/chat] Converted messages:', JSON.stringify(openaiMessages.slice(-1), null, 2).slice(0, 500));
+  // Build the backend request
+  const backendRequest = {
+    model: model || 'lab-assistant',
+    messages: openaiMessages,
+    stream: true,
+    tools: enabledTools,
+  };
+
+  // Save debug info (summarized to avoid huge base64 data)
+  const debugId = await saveDebugRequest(
+    chatId,
+    summarizeForDebug(messages),
+    summarizeForDebug(backendRequest)
+  );
+
+  console.log('[API/chat] Messages count:', messages.length);
+  console.log('[API/chat] Backend request (summarized):', JSON.stringify(summarizeForDebug(openaiMessages.slice(-1)), null, 2));
 
   const backendResponse = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: model || 'lab-assistant',
-      messages: openaiMessages,
-      stream: true,
-      tools: enabledTools,
-    }),
+    body: JSON.stringify(backendRequest),
   });
 
   console.log('[API/chat] Backend response status:', backendResponse.status);
 
   if (!backendResponse.ok || !backendResponse.body) {
+    await updateDebugRequest(chatId, debugId, { error: `Backend error: ${backendResponse.status}` });
     return new Response(JSON.stringify({ error: 'Backend error' }), {
       status: backendResponse.status,
       headers: { 'Content-Type': 'application/json' },
@@ -238,10 +274,12 @@ export async function POST(req: NextRequest) {
       // Store assistant response in database
       if (fullResponse) {
         await addMessage(chatId, 'assistant', fullResponse);
+        await updateDebugRequest(chatId, debugId, { backendResponse: fullResponse });
       }
     },
     onError: (error) => {
       console.error('[API/chat] Stream error:', error);
+      updateDebugRequest(chatId, debugId, { error: String(error) });
       return 'An error occurred';
     },
   });
