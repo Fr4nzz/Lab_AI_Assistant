@@ -80,7 +80,10 @@ def get_tools_schema() -> List[dict]:
         # Get input schema if available
         if hasattr(tool, 'args_schema') and tool.args_schema:
             try:
-                schema["parameters"] = tool.args_schema.model_json_schema()
+                params = tool.args_schema.model_json_schema()
+                # Remove duplicate description from parameters (Pydantic includes it)
+                params.pop('description', None)
+                schema["parameters"] = params
             except Exception:
                 pass
         schemas.append(schema)
