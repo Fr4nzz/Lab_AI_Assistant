@@ -15,7 +15,10 @@ import time
 import asyncio
 import logging
 import re
-from typing import Optional, List, Any
+import json
+from datetime import datetime, date
+from pathlib import Path
+from typing import Optional, List, Any, Dict, Set
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
@@ -25,10 +28,78 @@ from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
+# Rate limit tracking file
+RATE_LIMIT_FILE = Path(__file__).parent / "data" / "rate_limits.json"
+
 
 # Class-level shared state (outside class to avoid Pydantic ModelPrivateAttr issues)
 _shared_key_index: int = 0
 _shared_last_request_time: float = 0
+_daily_exhausted_keys: Set[int] = set()  # Indices of keys that hit daily limit
+
+
+def _load_rate_limits() -> Dict:
+    """Load rate limit data from file."""
+    if RATE_LIMIT_FILE.exists():
+        try:
+            with open(RATE_LIMIT_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"[Model] Could not load rate limits: {e}")
+    return {"date": None, "exhausted_keys": []}
+
+
+def _save_rate_limits(data: Dict):
+    """Save rate limit data to file."""
+    RATE_LIMIT_FILE.parent.mkdir(exist_ok=True)
+    try:
+        with open(RATE_LIMIT_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"[Model] Could not save rate limits: {e}")
+
+
+def _mark_key_exhausted(key_index: int, model_name: str):
+    """Mark a key as exhausted for today's daily limit."""
+    global _daily_exhausted_keys
+    _daily_exhausted_keys.add(key_index)
+
+    data = _load_rate_limits()
+    today = date.today().isoformat()
+
+    # Reset if new day
+    if data.get("date") != today:
+        data = {"date": today, "exhausted_keys": []}
+
+    # Add key if not already there
+    key_entry = {"index": key_index, "model": model_name}
+    if key_entry not in data["exhausted_keys"]:
+        data["exhausted_keys"].append(key_entry)
+        logger.info(f"[Model] Marked Key #{key_index + 1} as daily-exhausted for {model_name}")
+
+    _save_rate_limits(data)
+
+
+def _init_exhausted_keys(model_name: str):
+    """Load exhausted keys from file on startup."""
+    global _daily_exhausted_keys
+    data = _load_rate_limits()
+    today = date.today().isoformat()
+
+    if data.get("date") == today:
+        for entry in data.get("exhausted_keys", []):
+            if entry.get("model") == model_name:
+                _daily_exhausted_keys.add(entry["index"])
+                logger.info(f"[Model] Key #{entry['index'] + 1} is daily-exhausted (from file)")
+    else:
+        # New day, clear exhausted keys
+        _daily_exhausted_keys.clear()
+        _save_rate_limits({"date": today, "exhausted_keys": []})
+
+
+def _is_daily_rate_limit(error_str: str) -> bool:
+    """Check if error is a daily rate limit (not per-minute)."""
+    return "PerDay" in error_str or "per_day" in error_str.lower()
 
 
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
@@ -42,6 +113,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     temperature: float = 0.7
     min_request_interval: float = 4.0  # 15 RPM = 4s interval
     _current_model: Optional[ChatGoogleGenerativeAI] = None
+    _bound_tools: Optional[List[Any]] = None  # Store tools for re-binding after key switch
+    _tool_kwargs: Optional[Dict] = None  # Store bind_tools kwargs
 
     class Config:
         arbitrary_types_allowed = True
@@ -49,10 +122,31 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     def __init__(self, api_keys: List[str], model_name: str = "gemini-2.0-flash", **kwargs):
         super().__init__(api_keys=api_keys, model_name=model_name, **kwargs)
         self.max_retries = len(api_keys) * 2
+        self._bound_tools = None
+        self._tool_kwargs = None
+
+        # Load exhausted keys from file and skip to first available key
+        _init_exhausted_keys(model_name)
+        self._skip_to_available_key()
         self._configure_model()
 
+    def _skip_to_available_key(self):
+        """Skip to the first key that's not daily-exhausted."""
+        global _shared_key_index, _daily_exhausted_keys
+        original_index = _shared_key_index
+        tried = 0
+
+        while _shared_key_index in _daily_exhausted_keys and tried < len(self.api_keys):
+            logger.info(f"[Model] Skipping Key #{_shared_key_index + 1} (daily exhausted)")
+            _shared_key_index = (_shared_key_index + 1) % len(self.api_keys)
+            tried += 1
+
+        if tried == len(self.api_keys):
+            logger.warning(f"[Model] All {len(self.api_keys)} keys are daily-exhausted!")
+            _shared_key_index = original_index  # Reset to original
+
     def _configure_model(self):
-        """Creates a new model with the current API key."""
+        """Creates a new model with the current API key. Re-binds tools if previously bound."""
         global _shared_key_index
         key = self.api_keys[_shared_key_index]
 
@@ -65,21 +159,42 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "temperature": self.temperature,
             "convert_system_message_to_human": True,
             "max_retries": 0,  # Disable internal retry
+            "timeout": 60,  # Fail faster on slow/stuck requests
         }
 
         # Enable thinking for supported models
         if is_gemini_3:
             model_kwargs["include_thoughts"] = True
-            model_kwargs["thinking_level"] = "medium"
-            logger.info(f"[Model] Enabling thinking for Gemini 3 model")
+            model_kwargs["thinking_level"] = "high"  # Maximum reasoning capability
+            logger.info(f"[Model] Enabling thinking (HIGH) for Gemini 3 model")
 
-        self._current_model = ChatGoogleGenerativeAI(**model_kwargs)
+        base_model = ChatGoogleGenerativeAI(**model_kwargs)
+
+        # Re-bind tools if they were previously bound
+        if self._bound_tools:
+            self._current_model = base_model.bind_tools(self._bound_tools, **(self._tool_kwargs or {}))
+            logger.info(f"[Model] Re-bound {len(self._bound_tools)} tools after key switch")
+        else:
+            self._current_model = base_model
+
         logger.info(f"[Model] Configured with Key #{_shared_key_index + 1}")
 
-    def _switch_key(self):
-        """Rotates to the next API key."""
-        global _shared_key_index
+    def _switch_key(self, mark_exhausted: bool = False):
+        """Rotates to the next API key, optionally marking current as daily-exhausted."""
+        global _shared_key_index, _daily_exhausted_keys
+
+        if mark_exhausted:
+            _mark_key_exhausted(_shared_key_index, self.model_name)
+
         _shared_key_index = (_shared_key_index + 1) % len(self.api_keys)
+
+        # Skip exhausted keys
+        tried = 0
+        while _shared_key_index in _daily_exhausted_keys and tried < len(self.api_keys):
+            logger.info(f"[Model] Skipping Key #{_shared_key_index + 1} (daily exhausted)")
+            _shared_key_index = (_shared_key_index + 1) % len(self.api_keys)
+            tried += 1
+
         logger.info(f"[Model] Switching to Key #{_shared_key_index + 1}")
         self._configure_model()
 
@@ -144,12 +259,19 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
             except Exception as e:
                 last_error = e
+                error_str = str(e)
                 if self._is_rate_limit_error(e):
-                    wait = min(self._parse_retry_delay(str(e)), 10)
-                    logger.warning(f"[Model] Rate limit on Key #{_shared_key_index + 1}, "
-                                   f"waiting {wait:.0f}s (attempt {attempt + 1}/{self.max_retries})")
-                    self._switch_key()
-                    time.sleep(wait)
+                    is_daily = _is_daily_rate_limit(error_str)
+
+                    if is_daily:
+                        logger.warning(f"[Model] DAILY rate limit on Key #{_shared_key_index + 1}, marking exhausted")
+                        self._switch_key(mark_exhausted=True)
+                        # No wait for daily - just switch immediately
+                    else:
+                        # Per-minute limit - switch and wait briefly
+                        logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")
+                        self._switch_key(mark_exhausted=False)
+                        time.sleep(1)  # Brief pause before retry with new key
                 else:
                     raise
 
@@ -193,19 +315,26 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
             except Exception as e:
                 last_error = e
+                error_str = str(e)
                 if self._is_rate_limit_error(e):
-                    wait = min(self._parse_retry_delay(str(e)), 10)
-                    logger.warning(f"[Model] Rate limit on Key #{_shared_key_index + 1}, "
-                                   f"waiting {wait:.0f}s (attempt {attempt + 1}/{self.max_retries})")
-                    self._switch_key()
-                    await asyncio.sleep(wait)
+                    is_daily = _is_daily_rate_limit(error_str)
+
+                    if is_daily:
+                        logger.warning(f"[Model] DAILY rate limit on Key #{_shared_key_index + 1}, marking exhausted")
+                        self._switch_key(mark_exhausted=True)
+                        # No wait for daily - just switch immediately
+                    else:
+                        # Per-minute limit - switch and wait briefly
+                        logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")
+                        self._switch_key(mark_exhausted=False)
+                        await asyncio.sleep(1)  # Brief pause before retry with new key
                 else:
                     raise
 
         raise Exception(f"Failed after {self.max_retries} attempts: {last_error}")
 
     def bind_tools(self, tools: List[Any], **kwargs):
-        """Bind tools to the underlying model."""
+        """Bind tools to the underlying model. Stores tools for re-binding after key switch."""
         bound = self._current_model.bind_tools(tools, **kwargs)
 
         # Create new instance (shares module-level state automatically)
@@ -215,6 +344,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             temperature=self.temperature,
         )
         wrapper._current_model = bound  # Override with tool-bound model
+        wrapper._bound_tools = tools  # Store for re-binding after key switch
+        wrapper._tool_kwargs = kwargs
 
         logger.info(f"[Model] Bound {len(tools)} tools")
         return wrapper
