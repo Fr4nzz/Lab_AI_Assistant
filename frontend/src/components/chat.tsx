@@ -331,6 +331,23 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
     const messageContent = input.trim();
     const filesToSend = selectedFiles.map(f => f.file);
 
+    // Determine default text based on file types (only if no user text)
+    let textToSend = messageContent;
+    if (!messageContent && filesToSend.length > 0) {
+      const hasAudio = filesToSend.some(f => f.type.startsWith('audio/'));
+      const hasVideo = filesToSend.some(f => f.type.startsWith('video/'));
+      const hasImage = filesToSend.some(f => f.type.startsWith('image/'));
+
+      if (hasAudio || hasVideo) {
+        // For audio/video, don't add default text - let Gemini listen/watch
+        textToSend = '';
+      } else if (hasImage) {
+        textToSend = 'Analiza esta imagen';
+      } else {
+        textToSend = 'Analiza este archivo';
+      }
+    }
+
     // Clear inputs
     setInput('');
     setSelectedFiles([]);
@@ -342,7 +359,7 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
         filesToSend.forEach(file => dataTransfer.items.add(file));
 
         await sendMessage({
-          text: messageContent || 'Analiza estos archivos',
+          text: textToSend,
           files: dataTransfer.files,
         });
       } else {
