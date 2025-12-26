@@ -5,6 +5,7 @@ import { Chat } from '@/components/chat';
 import { ChatSidebar, ChatItem } from '@/components/chat-sidebar';
 import { ToolToggles, ALL_TOOL_IDS } from '@/components/tool-toggles';
 import { BrowserTabsPanel } from '@/components/browser-tabs-panel';
+import { TabEditor } from '@/components/tab-editor';
 
 export default function Home() {
   const [chats, setChats] = useState<ChatItem[]>([]);
@@ -12,6 +13,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [enabledTools, setEnabledTools] = useState<string[]>(ALL_TOOL_IDS);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [showTabEditor, setShowTabEditor] = useState(false);
 
   // Load chats from database on mount
   useEffect(() => {
@@ -163,9 +165,17 @@ export default function Home() {
 
         {/* Browser Tabs */}
         <div className="flex-1 overflow-hidden">
-          <BrowserTabsPanel collapsed={rightPanelCollapsed} />
+          <BrowserTabsPanel
+            collapsed={rightPanelCollapsed}
+            onOpenEditor={() => setShowTabEditor(true)}
+          />
         </div>
       </aside>
+
+      {/* Tab Editor Modal */}
+      {showTabEditor && (
+        <TabEditor onClose={() => setShowTabEditor(false)} />
+      )}
     </main>
   );
 }

@@ -731,6 +731,76 @@ async def close_tabs():
 
 
 # ============================================================
+# MANUAL TOOL EXECUTION ENDPOINT
+# ============================================================
+
+class ManualToolRequest(BaseModel):
+    tool: str
+    args: dict
+
+@app.post("/api/tools/execute")
+async def execute_tool(request: ManualToolRequest):
+    """
+    Execute a tool manually (for UI-based editing).
+    Supports: edit_results, edit_order_exams, create_new_order
+    """
+    from graph.tools import (
+        edit_results,
+        edit_order_exams,
+        create_new_order,
+    )
+
+    tool_name = request.tool
+    args = request.args
+
+    logger.info(f"[Manual Tool] Executing {tool_name} with args: {args}")
+
+    try:
+        if tool_name == "edit_results":
+            # edit_results expects data=[{orden, e, f, v}]
+            data = args.get("data", [])
+            result = await edit_results.ainvoke({"data": data})
+            return {"success": True, "message": f"Editados {len(data)} campos", "result": result}
+
+        elif tool_name == "edit_order_exams":
+            # edit_order_exams expects order_id, add=[], remove=[]
+            order_id = args.get("order_id")
+            add_exams = args.get("add", [])
+            remove_exams = args.get("remove", [])
+            result = await edit_order_exams.ainvoke({
+                "order_id": order_id,
+                "add": add_exams,
+                "remove": remove_exams
+            })
+            changes = []
+            if add_exams:
+                changes.append(f"agregados: {', '.join(add_exams)}")
+            if remove_exams:
+                changes.append(f"removidos: {', '.join(remove_exams)}")
+            return {"success": True, "message": f"Exámenes {' | '.join(changes)}", "result": result}
+
+        elif tool_name == "create_new_order":
+            cedula = args.get("cedula", "")
+            exams = args.get("exams", [])
+            result = await create_new_order.ainvoke({"cedula": cedula, "exams": exams})
+            return {"success": True, "message": f"Orden creada con {len(exams)} exámenes", "result": result}
+
+        else:
+            return {"success": False, "error": f"Tool '{tool_name}' not supported for manual execution"}
+
+    except Exception as e:
+        logger.error(f"[Manual Tool] Error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/exams")
+async def get_exams():
+    """Get list of available exams from CSV."""
+    exams = load_exams_from_csv()
+    return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in exams]}
+
+
+# ============================================================
 # OPENAI-COMPATIBLE ENDPOINT (Optional - for LobeChat integration)
 # ============================================================
 
