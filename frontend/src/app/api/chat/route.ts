@@ -1,4 +1,5 @@
 import { type NextRequest } from 'next/server';
+import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 
 // Convert AI SDK v6 message format to OpenAI format
 function convertMessages(messages: Array<{
@@ -21,6 +22,40 @@ function convertMessages(messages: Array<{
   });
 }
 
+// Parse OpenAI SSE stream
+async function* parseOpenAIStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith('data: ')) {
+        const data = trimmedLine.slice(6).trim();
+        if (data === '[DONE]') {
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.content) {
+            yield delta.content;
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools } = body;
@@ -28,9 +63,8 @@ export async function POST(req: NextRequest) {
   console.log('[API/chat] Received request with', messages?.length, 'messages');
 
   const openaiMessages = convertMessages(messages);
-  console.log('[API/chat] Converted messages:', JSON.stringify(openaiMessages).slice(0, 200));
 
-  const response = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
+  const backendResponse = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -41,89 +75,35 @@ export async function POST(req: NextRequest) {
     }),
   });
 
-  console.log('[API/chat] Backend response status:', response.status);
+  console.log('[API/chat] Backend response status:', backendResponse.status);
 
-  if (!response.ok || !response.body) {
-    console.error('[API/chat] Backend error:', response.status);
+  if (!backendResponse.ok || !backendResponse.body) {
     return new Response(JSON.stringify({ error: 'Backend error' }), {
-      status: response.status,
+      status: backendResponse.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  // Create a TransformStream to convert OpenAI SSE to AI SDK format
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let chunkCount = 0;
+  const reader = backendResponse.body.getReader();
 
-  const transformStream = new TransformStream({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
-
-      // Process complete lines
-      const lines = buffer.split('\n');
-      // Keep the last incomplete line in buffer
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (trimmedLine.startsWith('data: ')) {
-          const data = trimmedLine.slice(6).trim();
-
-          if (data === '[DONE]') {
-            console.log('[API/chat] Received [DONE], sending finish');
-            controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
-            continue;
-          }
-
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta;
-
-            if (delta?.content) {
-              chunkCount++;
-              if (chunkCount <= 3 || chunkCount % 10 === 0) {
-                console.log(`[API/chat] Chunk ${chunkCount}:`, delta.content.slice(0, 50));
-              }
-              // AI SDK format: type 0 is text-delta
-              const aiSdkChunk = `0:${JSON.stringify(delta.content)}\n`;
-              controller.enqueue(encoder.encode(aiSdkChunk));
-            }
-
-            // Check for finish_reason
-            if (parsed.choices?.[0]?.finish_reason === 'stop') {
-              console.log('[API/chat] Received finish_reason: stop');
-              controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
-            }
-          } catch (e) {
-            // Skip invalid JSON but log it
-            if (data.length > 0 && data !== '') {
-              console.log('[API/chat] Failed to parse:', data.slice(0, 100));
-            }
-          }
+  // Use AI SDK's createUIMessageStream for proper format
+  const stream = createUIMessageStream({
+    execute: async (writer) => {
+      let chunkCount = 0;
+      for await (const text of parseOpenAIStream(reader)) {
+        chunkCount++;
+        if (chunkCount <= 3) {
+          console.log(`[API/chat] Chunk ${chunkCount}:`, text.slice(0, 50));
         }
+        writer.write({ type: 'text-delta', textDelta: text });
       }
+      console.log('[API/chat] Stream complete, total chunks:', chunkCount);
     },
-    flush(controller) {
-      console.log('[API/chat] Stream flush, total chunks:', chunkCount);
-      // Process any remaining data in buffer
-      if (buffer.trim().startsWith('data: ')) {
-        const data = buffer.trim().slice(6).trim();
-        if (data === '[DONE]') {
-          controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
-        }
-      }
-    }
-  });
-
-  // Pipe the response through the transform
-  const transformedStream = response.body.pipeThrough(transformStream);
-
-  return new Response(transformedStream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Vercel-AI-Data-Stream': 'v1',
+    onError: (error) => {
+      console.error('[API/chat] Stream error:', error);
+      return 'An error occurred';
     },
   });
+
+  return createUIMessageStreamResponse({ stream });
 }
