@@ -1,146 +1,241 @@
-# Migration Plan: Lobechat → Vercel AI Chatbot
+# Migration Plan: Lobechat → Custom Next.js + AI SDK
 
 ## Overview
 
-Migrate from Lobechat Docker container to Vercel AI Chatbot for full frontend customization while keeping the existing Python FastAPI + LangGraph backend. Self-hosted on Windows PC.
+Build a custom Next.js frontend using Vercel AI SDK to replace Lobechat. Self-hosted on Windows PC with full control over the UI.
 
-## Architecture Decision
-
-**Chosen Approach: Option A - Frontend Replacement**
-
-Keep the Python backend (FastAPI + LangGraph + Playwright) and replace only the Lobechat UI with Vercel AI Chatbot.
-
-```
-┌─────────────────────────────────────────────┐
-│  Vercel AI Chatbot (Next.js 14)             │
-│  ┌─────────────────────────────────────┐    │
-│  │  Custom Lab Components               │    │
-│  │  - BrowserTabsPanel (view + edit)    │    │
-│  │  - Tool Settings (enable/disable)    │    │
-│  │  - Voice Recording Button            │    │
-│  │  - Model Selector                    │    │
-│  └─────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────┐    │
-│  │  Chat Interface (shadcn/ui)          │    │
-│  │  - Message streaming                 │    │
-│  │  - File attachments                  │    │
-│  │  - Audio attachments                 │    │
-│  └─────────────────────────────────────┘    │
-└──────────────────┬──────────────────────────┘
-                   │ HTTP/SSE
-                   ↓
-┌─────────────────────────────────────────────┐
-│  FastAPI Backend (existing)                 │
-│  - /v1/chat/completions (main chat)         │
-│  - /api/chat/audio (native audio support)   │
-│  - /api/browser/tabs                        │
-│  - /api/tools/execute (manual tool calls)   │
-│  - LangGraph + 8 tools                      │
-│  - Playwright browser automation            │
-└─────────────────────────────────────────────┘
-```
-
-**No Docker required!** Run Next.js directly on Windows with `npm run dev`.
+**Approach: Build Fresh (Option B)** - Create a new Next.js app with AI SDK instead of modifying the Vercel AI Chatbot template.
 
 ---
 
-## Migration Phases
+## AI SDK Research Summary
+
+### Available Providers
+
+| Provider | Package | Best For |
+|----------|---------|----------|
+| **Google Generative AI** | `@ai-sdk/google` | Direct Gemini API, native audio, images |
+| **OpenRouter** | `@openrouter/ai-sdk-provider` | Hundreds of models, free tier, fallbacks |
+| **OpenAI Compatible** | `@ai-sdk/openai-compatible` | Custom backends (like your Python server) |
+| **OpenAI** | `@ai-sdk/openai` | GPT models, Whisper transcription |
+| **Anthropic** | `@ai-sdk/anthropic` | Claude models |
+
+### Recommended Provider Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend (Next.js)                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
+│  │  @ai-sdk/google  │  │ @openrouter/     │  │ Python Backend │ │
+│  │                  │  │ ai-sdk-provider  │  │ (via fetch)    │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └───────┬────────┘ │
+│           │                     │                    │          │
+│           ▼                     ▼                    ▼          │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
+│  │ Topic Generation │  │ Fallback Models  │  │ Main Chat +    │ │
+│  │ (gemini-flash)   │  │ (future paid)    │  │ Tools + Audio  │ │
+│  └──────────────────┘  └──────────────────┘  └────────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this approach:**
+1. **Python Backend for main chat** - Handles key rotation, 8 lab tools, Playwright browser
+2. **@ai-sdk/google for topic naming** - Simple, direct, no key rotation needed
+3. **@openrouter/ai-sdk-provider for future** - When you want paid models with single API key
 
 ---
 
-### Phase 1: Project Setup
+## AI SDK Features We Will Use
 
-#### 1.1 Clone Vercel AI Chatbot (Recommended)
+### Core Features
 
-```bash
-# Clone the template (recommended - can pull updates later)
-git clone https://github.com/vercel/ai-chatbot.git frontend-new
-cd frontend-new
+| Feature | Support | Notes |
+|---------|---------|-------|
+| **useChat hook** | ✅ Full | Messages, streaming, status, callbacks |
+| **Streaming** | ✅ Full | Real-time token streaming via SSE |
+| **Tool Calling** | ✅ Full | Define tools, model calls them, show in UI |
+| **File Attachments** | ✅ Experimental | Images, PDFs, text files via `experimental_attachments` |
+| **Image Input** | ✅ Full | Send images to multimodal models |
+| **Audio Transcription** | ✅ Full | `transcribe()` function for speech-to-text |
+| **Native Audio Input** | ⚠️ Limited | Only Google & OpenAI audio models support file parts |
 
-# Change remote to your own repo
-git remote rename origin upstream
-git remote add origin https://github.com/yourusername/your-repo.git
+### useChat Hook Returns
 
-# Install dependencies
-npm install
+```typescript
+const {
+  messages,        // Array of chat messages
+  input,           // Current input value (controlled)
+  setInput,        // Set input value
+  handleInputChange, // Input change handler
+  handleSubmit,    // Form submit handler (supports attachments)
+  status,          // 'ready' | 'submitted' | 'streaming' | 'error'
+  isLoading,       // Boolean loading state
+  stop,            // Stop current stream
+  reload,          // Retry last message
+  error,           // Error object if failed
+  setMessages,     // Manually set messages
+} = useChat({
+  api: '/api/chat',           // Custom endpoint
+  headers: {},                // Custom headers
+  body: {},                   // Extra body data
+  onFinish: (message) => {},  // Called when response complete
+  onError: (error) => {},     // Called on error
+});
 ```
 
-**Why clone instead of create-next-app:**
-- Can `git pull upstream main` to get Vercel's updates
-- Keeps full git history for reference
-- Just change the remote to push to your own repo
+### File Attachments (Experimental)
 
-#### 1.2 Remove Vercel-specific Dependencies (Required for Self-Hosting)
+```typescript
+// Method 1: FileList from input
+<input type="file" onChange={(e) => {
+  handleSubmit(e, {
+    experimental_attachments: e.target.files,
+  });
+}} />
 
-```bash
-# Remove Vercel-only packages
-npm uninstall @vercel/blob @vercel/analytics @neondatabase/serverless
-
-# Install local alternatives
-npm install better-sqlite3  # For local SQLite database
+// Method 2: Pre-built URLs
+handleSubmit(e, {
+  experimental_attachments: [
+    { url: 'data:image/png;base64,...', contentType: 'image/png' },
+    { url: 'https://example.com/file.pdf', contentType: 'application/pdf' },
+  ],
+});
 ```
 
-**Keep these packages** (they work without Vercel):
-- `ai` - Vercel AI SDK core (works anywhere)
-- `@ai-sdk/openai` - OpenAI-compatible provider
-- `@ai-sdk/google` - Google GenAI provider (for native audio)
+### Audio Support Options
 
-#### 1.3 Configure Environment Variables
+| Approach | How It Works | Provider |
+|----------|--------------|----------|
+| **Transcription** | `transcribe()` → text → chat | OpenAI Whisper, Groq, Deepgram |
+| **Native Audio File** | Send audio as file part | Google Gemini, OpenAI gpt-4o-audio |
+| **Your Backend** | Send audio to Python → Gemini native | Your FastAPI server |
+
+**Recommendation:** Use your Python backend for native audio since it already uses `langchain-google-genai` which supports native audio.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Next.js Frontend (Port 3000)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Pages:                                                          │
+│  ├── / (chat interface)                                         │
+│  ├── /settings (model & tool settings)                          │
+│  └── /api/...                                                   │
+│                                                                  │
+│  API Routes:                                                     │
+│  ├── /api/chat          → Proxy to Python backend               │
+│  ├── /api/chat/audio    → Native audio to Python backend        │
+│  ├── /api/chat/title    → Generate title with @ai-sdk/google    │
+│  ├── /api/browser/tabs  → Get browser tabs from Python          │
+│  └── /api/tools/execute → Manual tool execution                 │
+│                                                                  │
+│  Components:                                                     │
+│  ├── Chat (useChat hook)                                        │
+│  ├── MessageList                                                │
+│  ├── ChatInput (text, files, audio recording)                   │
+│  ├── BrowserTabsPanel (view/edit tabs)                          │
+│  ├── ModelSelector                                              │
+│  ├── ToolSettings                                               │
+│  └── VoiceRecorder                                              │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              │ HTTP/SSE
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  Python Backend (Port 8000)                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Existing Endpoints:                                             │
+│  ├── POST /v1/chat/completions (OpenAI-compatible, streaming)   │
+│  ├── GET  /api/browser/tabs                                     │
+│  └── GET  /api/browser/screenshot                               │
+│                                                                  │
+│  New Endpoints Needed:                                           │
+│  ├── POST /api/chat/audio (native audio to Gemini)              │
+│  ├── POST /api/tools/execute (run single tool)                  │
+│  └── GET  /api/tools/list (available tools)                     │
+│                                                                  │
+│  Existing Features:                                              │
+│  ├── LangGraph agent with 8 lab tools                           │
+│  ├── API key rotation for rate limits                           │
+│  ├── Playwright browser automation                              │
+│  └── langchain-google-genai (native audio support)              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Installation Steps
+
+### Phase 1: Create Next.js Project
+
+```bash
+# Create new Next.js app with TypeScript and Tailwind
+npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir
+
+cd frontend
+
+# Install AI SDK packages
+pnpm add ai @ai-sdk/google @ai-sdk/react
+
+# Install OpenRouter provider (for future use)
+pnpm add @openrouter/ai-sdk-provider
+
+# Install shadcn/ui for components
+pnpm dlx shadcn@latest init
+
+# Add UI components we need
+pnpm dlx shadcn@latest add button input textarea card scroll-area select switch sheet badge separator avatar
+```
+
+### Phase 2: Environment Variables
 
 Create `.env.local`:
 
 ```env
-# Backend connection
+# Python backend URL
 BACKEND_URL=http://localhost:8000
 
-# Database (local SQLite)
-DATABASE_URL=file:./chat.db
+# Google AI for topic generation (get from https://aistudio.google.com/apikey)
+GOOGLE_GENERATIVE_AI_API_KEY=your-key-here
 
-# OpenRouter for topic generation (free model)
-OPENROUTER_API_KEY=sk-or-...
+# OpenRouter for future use (get from https://openrouter.ai/keys)
+OPENROUTER_API_KEY=sk-or-v1-...
 
-# Auth (disabled initially)
+# Optional: Auth (disabled initially)
 AUTH_DISABLED=true
 ```
 
-#### 1.4 Run Development Server
+### Phase 3: Create API Routes
 
-```bash
-# No Docker needed! Just run directly on Windows
-npm run dev
-
-# Opens at http://localhost:3000
-```
-
----
-
-### Phase 2: Backend Integration
-
-#### 2.1 Create Chat API Route (Proxy to Python Backend)
-
-Create `app/api/chat/route.ts`:
+#### `/api/chat/route.ts` - Main Chat (Proxy to Python)
 
 ```typescript
-export async function POST(request: Request) {
-  const body = await request.json();
+import { type NextRequest } from 'next/server';
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
   const { messages, model, enabledTools } = body;
 
-  // Forward to Python backend with tool settings
+  // Forward to Python backend
   const response = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: model || 'lab-assistant',
       messages,
       stream: true,
-      // Pass enabled tools to backend
+      // Pass enabled tools filter
       tools: enabledTools,
     }),
   });
 
-  // Stream the response back
+  // Stream response back to client
   return new Response(response.body, {
     headers: {
       'Content-Type': 'text/event-stream',
@@ -151,62 +246,58 @@ export async function POST(request: Request) {
 }
 ```
 
-#### 2.2 Create Audio Chat Endpoint (Native Audio Support)
-
-Since OpenAI-compatible API doesn't support native audio, create a separate endpoint that uses Google GenAI directly.
-
-Create `app/api/chat/audio/route.ts`:
+#### `/api/chat/title/route.ts` - Generate Chat Title
 
 ```typescript
-export async function POST(request: Request) {
-  const formData = await request.formData();
-  const audio = formData.get('audio') as Blob;
-  const messages = JSON.parse(formData.get('messages') as string);
-  const enabledTools = JSON.parse(formData.get('enabledTools') as string);
+import { generateText } from 'ai';
+import { google } from '@ai-sdk/google';
 
-  // Forward to Python backend's native audio endpoint
-  const backendFormData = new FormData();
-  backendFormData.append('audio', audio);
-  backendFormData.append('messages', JSON.stringify(messages));
-  backendFormData.append('enabled_tools', JSON.stringify(enabledTools));
+export async function POST(req: Request) {
+  const { message } = await req.json();
 
+  const { text } = await generateText({
+    model: google('gemini-2.0-flash'),
+    prompt: `Generate a very short title (3-5 words, in Spanish) for a conversation that starts with: "${message}"`,
+    maxTokens: 20,
+  });
+
+  return Response.json({ title: text.trim() });
+}
+```
+
+#### `/api/chat/audio/route.ts` - Native Audio
+
+```typescript
+export async function POST(req: Request) {
+  const formData = await req.formData();
+
+  // Forward to Python backend which handles native Gemini audio
   const response = await fetch(`${process.env.BACKEND_URL}/api/chat/audio`, {
     method: 'POST',
-    body: backendFormData,
+    body: formData,
   });
 
   return new Response(response.body, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-    },
+    headers: { 'Content-Type': 'text/event-stream' },
   });
 }
 ```
 
-**Backend changes needed:** Add `/api/chat/audio` endpoint to `server.py` that sends audio natively to Gemini (your backend already supports multimodal via `langchain-google-genai`).
-
-#### 2.3 Create Browser Tabs Endpoint
-
-Create `app/api/browser/tabs/route.ts`:
+#### `/api/browser/tabs/route.ts` - Browser Tabs
 
 ```typescript
 export async function GET() {
-  const res = await fetch(`${process.env.BACKEND_URL}/api/browser/tabs`);
-  return Response.json(await res.json());
+  const response = await fetch(`${process.env.BACKEND_URL}/api/browser/tabs`);
+  return Response.json(await response.json());
 }
 ```
 
-#### 2.4 Create Manual Tool Execution Endpoint
-
-For when users manually edit fields in the UI and want to apply changes.
-
-Create `app/api/tools/execute/route.ts`:
+#### `/api/tools/execute/route.ts` - Manual Tool Execution
 
 ```typescript
-export async function POST(request: Request) {
-  const { tool, args } = await request.json();
+export async function POST(req: Request) {
+  const { tool, args } = await req.json();
 
-  // Forward to Python backend tool executor
   const response = await fetch(`${process.env.BACKEND_URL}/api/tools/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -217,358 +308,254 @@ export async function POST(request: Request) {
 }
 ```
 
-**Backend changes needed:** Add `/api/tools/execute` endpoint that executes a single tool directly.
+### Phase 4: Create Chat Component
 
-#### 2.5 Topic Generation with OpenRouter Free Model
-
-Create `lib/generate-title.ts`:
+#### `src/components/chat.tsx`
 
 ```typescript
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
+'use client';
 
-const openrouter = createOpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
+import { useChat } from '@ai-sdk/react';
+import { useState, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Card } from '@/components/ui/card';
 
-export async function generateChatTitle(firstMessage: string): Promise<string> {
-  const { text } = await generateText({
-    model: openrouter('google/gemini-2.0-flash-exp:free'),
-    prompt: `Generate a very short title (3-5 words, in Spanish) for a conversation that starts with: "${firstMessage}"`,
-    maxTokens: 20,
+export function Chat() {
+  const [enabledTools, setEnabledTools] = useState<string[]>([
+    'search_orders', 'get_order_results', 'get_order_info',
+    'edit_results', 'edit_order_exams', 'create_new_order',
+    'get_available_exams', 'ask_user'
+  ]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { messages, input, handleInputChange, handleSubmit, status, error } = useChat({
+    api: '/api/chat',
+    body: { enabledTools },
+    onFinish: async (message) => {
+      // Generate title for new chats
+      if (messages.length === 0) {
+        const res = await fetch('/api/chat/title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: input }),
+        });
+        const { title } = await res.json();
+        console.log('Chat title:', title);
+      }
+    },
   });
 
-  return text.trim();
-}
-```
+  const handleFileSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const files = fileInputRef.current?.files;
 
----
+    handleSubmit(e, {
+      experimental_attachments: files || undefined,
+    });
 
-### Phase 3: Model Configuration
+    // Clear file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
-#### 3.1 Custom Model List
-
-Create `lib/models.ts`:
-
-```typescript
-export interface ModelConfig {
-  id: string;
-  name: string;
-  provider: 'custom' | 'openrouter';
-  description?: string;
-}
-
-export const availableModels: ModelConfig[] = [
-  {
-    id: 'lab-assistant',
-    name: 'Lab Assistant (Gemini)',
-    provider: 'custom',
-    description: 'Default model with API key rotation',
-  },
-  {
-    id: 'google/gemini-2.0-flash-exp:free',
-    name: 'Gemini 2.0 Flash (Free)',
-    provider: 'openrouter',
-    description: 'OpenRouter free tier',
-  },
-  // Future: Add paid OpenRouter models
-  // {
-  //   id: 'google/gemini-pro',
-  //   name: 'Gemini Pro (Paid)',
-  //   provider: 'openrouter',
-  // },
-];
-
-export const defaultModel = 'lab-assistant';
-```
-
-#### 3.2 Model Selector Component
-
-Create `components/model-selector.tsx`:
-
-```typescript
-'use client';
-
-import { availableModels, ModelConfig } from '@/lib/models';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
-interface ModelSelectorProps {
-  value: string;
-  onChange: (model: string) => void;
-}
-
-export function ModelSelector({ value, onChange }: ModelSelectorProps) {
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-[200px]">
-        <SelectValue placeholder="Select model" />
-      </SelectTrigger>
-      <SelectContent>
-        {availableModels.map((model) => (
-          <SelectItem key={model.id} value={model.id}>
-            {model.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-```
-
----
-
-### Phase 4: Tool Settings
-
-#### 4.1 Tool Configuration
-
-Create `lib/tools.ts`:
-
-```typescript
-export interface ToolConfig {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-}
-
-export const defaultTools: ToolConfig[] = [
-  { id: 'search_orders', name: 'Buscar Órdenes', description: 'Search orders by patient', enabled: true },
-  { id: 'get_order_results', name: 'Ver Resultados', description: 'Open order results', enabled: true },
-  { id: 'get_order_info', name: 'Info de Orden', description: 'Get order details', enabled: true },
-  { id: 'edit_results', name: 'Editar Resultados', description: 'Fill result fields', enabled: true },
-  { id: 'edit_order_exams', name: 'Editar Exámenes', description: 'Add/remove exams', enabled: true },
-  { id: 'create_new_order', name: 'Nueva Orden', description: 'Create new order', enabled: true },
-  { id: 'get_available_exams', name: 'Lista de Exámenes', description: 'Get exam list', enabled: true },
-  { id: 'ask_user', name: 'Preguntar Usuario', description: 'Ask for clarification', enabled: true },
-];
-```
-
-#### 4.2 Tool Settings Component
-
-Create `components/tool-settings.tsx`:
-
-```typescript
-'use client';
-
-import { ToolConfig } from '@/lib/tools';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import { Settings } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-
-interface ToolSettingsProps {
-  tools: ToolConfig[];
-  onToggle: (toolId: string, enabled: boolean) => void;
-}
-
-export function ToolSettings({ tools, onToggle }: ToolSettingsProps) {
-  return (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <Settings className="h-4 w-4" />
-        </Button>
-      </SheetTrigger>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Herramientas del AI</SheetTitle>
-        </SheetHeader>
-        <div className="mt-4 space-y-4">
-          {tools.map((tool) => (
-            <div key={tool.id} className="flex items-center justify-between">
-              <div>
-                <Label htmlFor={tool.id}>{tool.name}</Label>
-                <p className="text-sm text-muted-foreground">{tool.description}</p>
-              </div>
-              <Switch
-                id={tool.id}
-                checked={tool.enabled}
-                onCheckedChange={(checked) => onToggle(tool.id, checked)}
-              />
+    <div className="flex flex-col h-full">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((message) => (
+          <Card key={message.id} className={`p-4 ${
+            message.role === 'user' ? 'bg-blue-50 ml-12' : 'bg-gray-50 mr-12'
+          }`}>
+            <div className="font-semibold mb-1">
+              {message.role === 'user' ? 'Tú' : 'Asistente'}
             </div>
-          ))}
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          </Card>
+        ))}
+
+        {status === 'streaming' && (
+          <div className="text-gray-500">Escribiendo...</div>
+        )}
+
+        {error && (
+          <div className="text-red-500">Error: {error.message}</div>
+        )}
+      </div>
+
+      {/* Input */}
+      <form onSubmit={handleFileSubmit} className="p-4 border-t">
+        <div className="flex gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            multiple
+            accept="image/*,.pdf"
+            className="hidden"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📎
+          </Button>
+          <Textarea
+            value={input}
+            onChange={handleInputChange}
+            placeholder="Escribe un mensaje..."
+            className="flex-1"
+            rows={1}
+          />
+          <Button type="submit" disabled={status === 'streaming'}>
+            Enviar
+          </Button>
         </div>
-      </SheetContent>
-    </Sheet>
+      </form>
+    </div>
   );
 }
 ```
 
----
+### Phase 5: Create Main Page
 
-### Phase 5: Custom UI Components (After Integration Works)
-
-These components will be planned in detail after basic chat integration is working.
-
-#### 5.1 BrowserTabsPanel with Manual Editing
-
-**Purpose:** View opened browser tabs, see field values, manually edit and send changes.
-
-**Features:**
-- List all open browser tabs (orders, results pages)
-- Click a tab to see its fields and current values
-- Highlight AI-modified fields (different color)
-- Edit fields manually in a form
-- "Enviar Cambios" button → calls `/api/tools/execute` with `edit_results`
-- Add/remove exams from orders → calls `edit_order_exams`
+#### `src/app/page.tsx`
 
 ```typescript
-// Rough structure - to be designed after Phase 2 works
-interface BrowserTabsPanelProps {
-  // Will fetch from /api/browser/tabs
+import { Chat } from '@/components/chat';
+
+export default function Home() {
+  return (
+    <main className="h-screen flex">
+      {/* Sidebar - Chat History */}
+      <aside className="w-64 border-r bg-gray-50 p-4">
+        <h2 className="font-bold mb-4">Chats</h2>
+        {/* Chat list will go here */}
+      </aside>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        <Chat />
+      </div>
+
+      {/* Right Panel - Browser Tabs (optional) */}
+      {/* <aside className="w-80 border-l">
+        <BrowserTabsPanel />
+      </aside> */}
+    </main>
+  );
 }
-
-// Tab types:
-// - reportes2: Show exam fields with values, allow editing
-// - ordenes/edit: Show order info, allow adding/removing exams
-// - ordenes/create: Show new order form, allow editing exams
 ```
-
-#### 5.2 Voice Recording Button
-
-**Purpose:** Record audio and send to AI as native audio (not transcription).
-
-**Features:**
-- Microphone button in chat input area
-- Records audio using Web Audio API
-- Sends to `/api/chat/audio` endpoint
-- Backend sends audio natively to Gemini
-
-```typescript
-// Uses MediaRecorder API
-// Sends audio blob to backend
-// Backend uses langchain-google-genai for native audio processing
-```
-
----
-
-### Phase 6: Chat History
-
-#### 6.1 Use Vercel AI Chatbot's Built-in Database
-
-Use the built-in Drizzle ORM schema, but with local SQLite instead of Neon Postgres.
-
-```typescript
-// drizzle.config.ts - modify for SQLite
-export default {
-  schema: './lib/db/schema.ts',
-  driver: 'better-sqlite3',
-  dbCredentials: {
-    url: './chat.db',
-  },
-};
-```
-
-#### 6.2 Start Fresh (No Migration)
-
-No need to migrate existing Lobechat data. Start with empty database.
-
----
-
-### Phase 7: Authentication
-
-#### 7.1 Disable Initially
-
-Modify `middleware.ts` to allow all routes:
-
-```typescript
-import { NextResponse } from 'next/server';
-
-export function middleware() {
-  // Auth disabled for local development
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: [], // Don't match any routes
-};
-```
-
-#### 7.2 Add Auth Later (Optional)
-
-Enable Auth.js when needed for multi-user support.
 
 ---
 
 ## Backend Changes Required
 
-### New Endpoints to Add to `server.py`:
+### New Endpoints to Add to `server.py`
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/chat/audio` | POST | Accept native audio, send to Gemini directly |
-| `/api/tools/execute` | POST | Execute a single tool by name with args |
-| `/api/tools/list` | GET | Return list of available tools (for settings) |
+| `/api/chat/audio` | POST | Accept audio file, send natively to Gemini |
+| `/api/tools/execute` | POST | Execute single tool by name |
+| `/api/tools/list` | GET | Return list of available tools |
 
-### Modify Existing:
+### Modify `/v1/chat/completions`
 
-| Endpoint | Change |
-|----------|--------|
-| `/v1/chat/completions` | Accept `tools` param to filter enabled tools |
+Accept optional `tools` array to filter which tools the AI can use.
+
+---
+
+## Custom UI Components (Phase 2)
+
+After basic chat works, add these components:
+
+### 1. Model Selector
+
+```typescript
+// src/lib/models.ts
+export const models = [
+  { id: 'lab-assistant', name: 'Lab Assistant (Gemini)', provider: 'custom' },
+  // Future: OpenRouter models
+];
+
+// src/components/model-selector.tsx
+// Dropdown to select model, passed to useChat body
+```
+
+### 2. Tool Settings
+
+```typescript
+// src/lib/tools.ts
+export const tools = [
+  { id: 'search_orders', name: 'Buscar Órdenes', enabled: true },
+  { id: 'get_order_results', name: 'Ver Resultados', enabled: true },
+  // ... etc
+];
+
+// src/components/tool-settings.tsx
+// Sheet/modal with switches to enable/disable each tool
+```
+
+### 3. Voice Recorder
+
+```typescript
+// src/components/voice-recorder.tsx
+// Uses MediaRecorder API
+// Records audio → sends to /api/chat/audio
+```
+
+### 4. Browser Tabs Panel
+
+```typescript
+// src/components/browser-tabs-panel.tsx
+// Fetches from /api/browser/tabs
+// Shows open tabs with patient info
+// Click to expand and see/edit fields
+// "Enviar Cambios" button → /api/tools/execute
+```
 
 ---
 
 ## Migration Checklist
 
 ### Phase 1: Setup
-- [ ] Clone Vercel AI Chatbot repository
-- [ ] Remove Vercel-specific dependencies (`@vercel/blob`, `@vercel/analytics`, `@neondatabase/serverless`)
-- [ ] Install `better-sqlite3` for local database
-- [ ] Configure `.env.local` with backend URL
-- [ ] Run `npm run dev` - verify Next.js starts
+- [ ] Create Next.js project with `create-next-app`
+- [ ] Install AI SDK packages (`ai`, `@ai-sdk/google`, `@ai-sdk/react`)
+- [ ] Install OpenRouter provider (`@openrouter/ai-sdk-provider`)
+- [ ] Initialize shadcn/ui
+- [ ] Add required UI components
+- [ ] Create `.env.local` with `BACKEND_URL` and `GOOGLE_GENERATIVE_AI_API_KEY`
 
-### Phase 2: Backend Integration
+### Phase 2: API Routes
 - [ ] Create `/api/chat/route.ts` - proxy to Python backend
-- [ ] Test chat streaming works with existing backend
-- [ ] Create `/api/browser/tabs/route.ts`
-- [ ] Create `/api/tools/execute/route.ts`
-- [ ] Add topic generation with OpenRouter free model
-- [ ] **Backend:** Add `/api/chat/audio` endpoint for native audio
-- [ ] **Backend:** Add `/api/tools/execute` endpoint
-- [ ] **Backend:** Modify chat endpoint to accept `tools` filter
+- [ ] Create `/api/chat/title/route.ts` - generate titles with @ai-sdk/google
+- [ ] Create `/api/browser/tabs/route.ts` - proxy browser tabs
+- [ ] Create `/api/tools/execute/route.ts` - manual tool execution
+- [ ] Test streaming works with Python backend
 
-### Phase 3: Model Configuration
-- [ ] Create model list configuration
-- [ ] Add model selector component to UI
-- [ ] Test switching between models
+### Phase 3: Chat UI
+- [ ] Create basic Chat component with useChat
+- [ ] Add message display
+- [ ] Add input with file attachment support
+- [ ] Add loading/error states
+- [ ] Test full chat flow
 
-### Phase 4: Tool Settings
-- [ ] Create tool configuration
-- [ ] Add tool settings panel to UI
-- [ ] Pass enabled tools to backend
-- [ ] Test tool filtering works
+### Phase 4: Backend Updates
+- [ ] Add `/api/chat/audio` endpoint for native audio
+- [ ] Add `/api/tools/execute` endpoint
+- [ ] Add `/api/tools/list` endpoint
+- [ ] Modify `/v1/chat/completions` to accept `tools` filter
 
-### Phase 5: Custom UI (After Integration Works)
-- [ ] Design BrowserTabsPanel component
-- [ ] Implement field viewing for open tabs
-- [ ] Implement manual field editing
-- [ ] Add "Enviar Cambios" functionality
-- [ ] Design voice recording button
-- [ ] Implement audio recording
-- [ ] Test native audio with Gemini
+### Phase 5: Custom Features
+- [ ] Add Model Selector component
+- [ ] Add Tool Settings component
+- [ ] Add Voice Recorder component
+- [ ] Add Browser Tabs Panel component
 
-### Phase 6: Database
-- [ ] Configure Drizzle with SQLite
-- [ ] Run migrations
-- [ ] Test chat history saving/loading
-
-### Phase 7: Polish
-- [ ] Disable auth in middleware
-- [ ] Style UI (Tailwind)
+### Phase 6: Polish
+- [ ] Chat history (localStorage or database)
+- [ ] Responsive design
 - [ ] Error handling
 - [ ] Loading states
 
@@ -576,7 +563,7 @@ Enable Auth.js when needed for multi-user support.
 
 ## Running the App
 
-### Development (No Docker!)
+### Development
 
 Terminal 1 - Python Backend:
 ```bash
@@ -587,37 +574,55 @@ python server.py
 
 Terminal 2 - Next.js Frontend:
 ```bash
-cd frontend-new
-npm run dev
+cd frontend
+pnpm dev
 # Runs on http://localhost:3000
 ```
 
-### Production (Optional Docker)
-
-Only if you want containerized deployment later:
-```bash
-docker-compose up
-```
-
-But for development on your Windows PC, **just run both servers directly**.
-
 ---
 
-## Risk Assessment
+## Package Summary
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| SSE streaming compatibility | High | Test early in Phase 2 |
-| Native audio API differences | Medium | Keep OpenAI-compat for text, separate endpoint for audio |
-| Database migration | Low | Start fresh, no migration needed |
-| Learning curve (Next.js) | Low | Well-documented |
+### Required Packages
+
+```json
+{
+  "dependencies": {
+    "ai": "^4.x",
+    "@ai-sdk/google": "^1.x",
+    "@ai-sdk/react": "^1.x",
+    "@openrouter/ai-sdk-provider": "^1.x",
+    "next": "^15.x",
+    "react": "^19.x",
+    "react-dom": "^19.x"
+  }
+}
+```
+
+### shadcn/ui Components
+
+```bash
+pnpm dlx shadcn@latest add button input textarea card scroll-area select switch sheet badge separator avatar dropdown-menu
+```
 
 ---
 
 ## Resources
 
-- [Vercel AI Chatbot Repo](https://github.com/vercel/ai-chatbot)
-- [Vercel AI SDK Docs](https://sdk.vercel.ai/docs)
+- [AI SDK Documentation](https://ai-sdk.dev/docs/introduction)
+- [AI SDK Providers](https://ai-sdk.dev/providers)
+- [Google Generative AI Provider](https://ai-sdk.dev/providers/ai-sdk-providers/google-generative-ai)
+- [OpenRouter Provider](https://ai-sdk.dev/providers/community-providers/openrouter)
+- [useChat Reference](https://sdk.vercel.ai/docs/api-reference/use-chat)
 - [shadcn/ui Components](https://ui.shadcn.com)
 - [Next.js App Router](https://nextjs.org/docs/app)
-- [Drizzle ORM with SQLite](https://orm.drizzle.team/docs/get-started-sqlite)
+
+---
+
+## Sources
+
+- [@openrouter/ai-sdk-provider - npm](https://www.npmjs.com/package/@openrouter/ai-sdk-provider)
+- [OpenRouter Provider GitHub](https://github.com/OpenRouterTeam/ai-sdk-provider)
+- [AI SDK Chatbot Example](https://ai-sdk.dev/elements/examples/chatbot)
+- [Google Audio Understanding](https://ai.google.dev/gemini-api/docs/audio)
+- [AI SDK Preview Attachments](https://github.com/vercel-labs/ai-sdk-preview-attachments)
