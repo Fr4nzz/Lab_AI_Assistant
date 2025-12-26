@@ -27,24 +27,24 @@ Build a custom Next.js frontend using Vercel AI SDK to replace Lobechat. Self-ho
 │                        Frontend (Next.js)                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
-│  │  @ai-sdk/google  │  │ @openrouter/     │  │ Python Backend │ │
-│  │                  │  │ ai-sdk-provider  │  │ (via fetch)    │ │
-│  └────────┬─────────┘  └────────┬─────────┘  └───────┬────────┘ │
-│           │                     │                    │          │
-│           ▼                     ▼                    ▼          │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │
-│  │ Topic Generation │  │ Fallback Models  │  │ Main Chat +    │ │
-│  │ (gemini-flash)   │  │ (future paid)    │  │ Tools + Audio  │ │
-│  └──────────────────┘  └──────────────────┘  └────────────────┘ │
+│  ┌──────────────────────────────┐  ┌──────────────────────────┐ │
+│  │  @openrouter/ai-sdk-provider │  │     Python Backend       │ │
+│  │                              │  │     (via fetch)          │ │
+│  └──────────────┬───────────────┘  └────────────┬─────────────┘ │
+│                 │                               │               │
+│                 ▼                               ▼               │
+│  ┌──────────────────────────────┐  ┌──────────────────────────┐ │
+│  │ Topic Generation (FREE)      │  │ Main Chat + Tools        │ │
+│  │ nvidia/nemotron-3-nano:free  │  │ + Audio + Browser        │ │
+│  └──────────────────────────────┘  └──────────────────────────┘ │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Why this approach:**
 1. **Python Backend for main chat** - Handles key rotation, 8 lab tools, Playwright browser
-2. **@ai-sdk/google for topic naming** - Simple, direct, no key rotation needed
-3. **@openrouter/ai-sdk-provider for future** - When you want paid models with single API key
+2. **@openrouter/ai-sdk-provider for topic naming** - Uses FREE model `nvidia/nemotron-3-nano-30b-a3b:free` (same as Lobechat)
+3. **Future: OpenRouter paid models** - Easy to add paid Gemini models when needed
 
 ---
 
@@ -181,9 +181,9 @@ npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src
 cd frontend
 
 # Install AI SDK packages
-pnpm add ai @ai-sdk/google @ai-sdk/react
+pnpm add ai @ai-sdk/react
 
-# Install OpenRouter provider (for future use)
+# Install OpenRouter provider (for topic naming + future models)
 pnpm add @openrouter/ai-sdk-provider
 
 # Install shadcn/ui for components
@@ -201,15 +201,16 @@ Create `.env.local`:
 # Python backend URL
 BACKEND_URL=http://localhost:8000
 
-# Google AI for topic generation (get from https://aistudio.google.com/apikey)
-GOOGLE_GENERATIVE_AI_API_KEY=your-key-here
-
-# OpenRouter for future use (get from https://openrouter.ai/keys)
+# OpenRouter API Key (for topic naming with FREE model)
+# Get from: https://openrouter.ai/keys
+# Free models available: nvidia/nemotron-3-nano-30b-a3b:free, google/gemma-2-9b-it:free
 OPENROUTER_API_KEY=sk-or-v1-...
 
 # Optional: Auth (disabled initially)
 AUTH_DISABLED=true
 ```
+
+**Note:** We use the same `OPENROUTER_API_KEY` that Lobechat was using. The topic naming model is `nvidia/nemotron-3-nano-30b-a3b:free` (completely free).
 
 ### Phase 3: Create API Routes
 
@@ -246,17 +247,22 @@ export async function POST(req: NextRequest) {
 }
 ```
 
-#### `/api/chat/title/route.ts` - Generate Chat Title
+#### `/api/chat/title/route.ts` - Generate Chat Title (OpenRouter FREE)
 
 ```typescript
 import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
 
 export async function POST(req: Request) {
   const { message } = await req.json();
 
   const { text } = await generateText({
-    model: google('gemini-2.0-flash'),
+    // Same FREE model as Lobechat was using
+    model: openrouter('nvidia/nemotron-3-nano-30b-a3b:free'),
     prompt: `Generate a very short title (3-5 words, in Spanish) for a conversation that starts with: "${message}"`,
     maxTokens: 20,
   });
@@ -521,15 +527,15 @@ export const tools = [
 
 ### Phase 1: Setup
 - [ ] Create Next.js project with `create-next-app`
-- [ ] Install AI SDK packages (`ai`, `@ai-sdk/google`, `@ai-sdk/react`)
+- [ ] Install AI SDK packages (`ai`, `@ai-sdk/react`)
 - [ ] Install OpenRouter provider (`@openrouter/ai-sdk-provider`)
 - [ ] Initialize shadcn/ui
 - [ ] Add required UI components
-- [ ] Create `.env.local` with `BACKEND_URL` and `GOOGLE_GENERATIVE_AI_API_KEY`
+- [ ] Create `.env.local` with `BACKEND_URL` and `OPENROUTER_API_KEY`
 
 ### Phase 2: API Routes
 - [ ] Create `/api/chat/route.ts` - proxy to Python backend
-- [ ] Create `/api/chat/title/route.ts` - generate titles with @ai-sdk/google
+- [ ] Create `/api/chat/title/route.ts` - generate titles with OpenRouter (FREE model)
 - [ ] Create `/api/browser/tabs/route.ts` - proxy browser tabs
 - [ ] Create `/api/tools/execute/route.ts` - manual tool execution
 - [ ] Test streaming works with Python backend
@@ -589,7 +595,6 @@ pnpm dev
 {
   "dependencies": {
     "ai": "^4.x",
-    "@ai-sdk/google": "^1.x",
     "@ai-sdk/react": "^1.x",
     "@openrouter/ai-sdk-provider": "^1.x",
     "next": "^15.x",
