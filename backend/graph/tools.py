@@ -284,6 +284,21 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
     return page
 
 
+async def _find_order_tab_by_index(tab_index: int) -> Any:
+    """Find an order tab (nueva_orden or orden_edit) by its index in the browser."""
+    pages = _browser.context.pages
+    if tab_index < 0 or tab_index >= len(pages):
+        raise ValueError(f"Tab index {tab_index} out of range (0-{len(pages)-1})")
+
+    page = pages[tab_index]
+    url = page.url
+
+    if '/ordenes/create' in url or ('/ordenes/' in url and '/edit' in url):
+        return page
+    else:
+        raise ValueError(f"Tab {tab_index} is not an order tab (URL: {url})")
+
+
 async def _find_or_create_order_tab(order_id: int) -> Any:
     """Find existing order edit tab by order ID or create new one."""
     global _order_tabs
@@ -647,128 +662,163 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
     }
 
 
-async def _edit_order_exams_impl(order_ids: List[int], add: Optional[List[str]] = None, remove: Optional[List[str]] = None) -> dict:
-    """Add and/or remove exams from orders by order_id."""
-    import asyncio
+async def _edit_order_exams_impl(
+    order_id: Optional[int] = None,
+    tab_index: Optional[int] = None,
+    add: Optional[List[str]] = None,
+    remove: Optional[List[str]] = None,
+    cedula: Optional[str] = None
+) -> dict:
+    """
+    Edit an order: add/remove exams and/or set cedula.
+    Use order_id for existing orders, or tab_index for new orders (ordenes/create tabs).
+    """
     add = add or []
     remove = remove or []
-    logger.info(f"[edit_order_exams] Editing {len(order_ids)} orders: add={len(add)}, remove={len(remove)}")
 
-    async def process_order(order_id: int) -> dict:
+    # Determine which page to use
+    if tab_index is not None:
+        logger.info(f"[edit_order_exams] Editing tab {tab_index}: add={len(add)}, remove={len(remove)}, cedula={cedula}")
         try:
-            page = await _find_or_create_order_tab(order_id)
-            await page.bring_to_front()
+            page = await _find_order_tab_by_index(tab_index)
+        except ValueError as e:
+            return {"error": str(e)}
+        identifier = f"tab_{tab_index}"
+        is_new_order = '/ordenes/create' in page.url
+    elif order_id is not None:
+        logger.info(f"[edit_order_exams] Editing order {order_id}: add={len(add)}, remove={len(remove)}, cedula={cedula}")
+        page = await _find_or_create_order_tab(order_id)
+        identifier = f"order_{order_id}"
+        is_new_order = False
+    else:
+        return {"error": "Either order_id or tab_index must be provided"}
 
-            added_codes = []
-            removed_codes = []
-            failed_add = []
-            failed_remove = []
+    await page.bring_to_front()
 
-            # First, remove exams
-            if remove:
-                remove_upper = [code.upper().strip() for code in remove]
-                current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-
-                for exam_code in remove_upper:
-                    found = False
-                    for exam in current_exams:
-                        if exam.get('codigo', '').upper() == exam_code:
-                            found = True
-                            try:
-                                removed = await page.evaluate(f"""
-                                    () => {{
-                                        const container = document.querySelector('#examenes-seleccionados');
-                                        if (!container) return {{ error: 'Container not found' }};
-                                        const rows = container.querySelectorAll('tbody tr');
-                                        for (const row of rows) {{
-                                            const cellText = row.querySelector('td')?.innerText || '';
-                                            if (cellText.toUpperCase().includes('{exam_code}')) {{
-                                                const removeBtn = row.querySelector('button[title*="Quitar"], button.btn-danger, button.btn-outline-danger');
-                                                if (removeBtn) {{
-                                                    removeBtn.click();
-                                                    return {{ removed: true }};
-                                                }}
-                                                return {{ error: 'Remove button not found' }};
-                                            }}
-                                        }}
-                                        return {{ error: 'Exam not found' }};
-                                    }}
-                                """)
-                                if removed.get('removed'):
-                                    removed_codes.append(exam_code)
-                                    await page.wait_for_timeout(300)
-                                else:
-                                    failed_remove.append({'codigo': exam_code, 'reason': removed.get('error')})
-                            except Exception as e:
-                                failed_remove.append({'codigo': exam_code, 'reason': str(e)})
-                            break
-                    if not found:
-                        failed_remove.append({'codigo': exam_code, 'reason': 'not in order'})
-
-            # Then, add exams
-            if add:
-                for exam_code in add:
-                    exam_code_upper = exam_code.upper().strip()
-                    search = page.locator('#buscar-examen-input')
-                    await search.fill('')
-                    await page.wait_for_timeout(200)
-                    await search.fill(exam_code_upper)
-                    await page.wait_for_timeout(1000)
-
-                    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-                    matched_exam = None
-                    for exam in available:
-                        if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
-                            matched_exam = exam
-                            break
-
-                    if matched_exam:
-                        button_id = matched_exam['button_id']
-                        btn = page.locator(f'#{button_id}')
-                        if await btn.count() > 0:
-                            await btn.click()
-                            added_codes.append(exam_code_upper)
-                            await page.wait_for_timeout(300)
-                        else:
-                            failed_add.append({'codigo': exam_code_upper, 'reason': 'button not found'})
-                    else:
-                        failed_add.append({'codigo': exam_code_upper, 'reason': 'no exact match'})
-
-            # Get updated state
-            await page.wait_for_timeout(500)
-            current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-            totals = await page.evaluate(r"""
-                () => {
-                    const result = { total: null };
-                    document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
-                        const text = el.innerText?.trim() || '';
-                        if (text.startsWith('$') && !result.total) result.total = text;
-                    });
-                    return result;
-                }
-            """)
-
-            return {
-                "order_id": order_id,
-                "added": added_codes,
-                "removed": removed_codes,
-                "failed_add": failed_add,
-                "failed_remove": failed_remove,
-                "current_exams": current_exams,
-                "totals": totals
-            }
-        except Exception as e:
-            logger.error(f"[edit_order_exams] Error for order {order_id}: {e}")
-            return {"order_id": order_id, "error": str(e)}
-
-    results = await asyncio.gather(*[process_order(oid) for oid in order_ids])
-
-    return {
-        "orders": results,
-        "total": len(results),
-        "status": "pending_save",
-        "next_step": "Revisa los cambios y haz click en 'Guardar' en cada pestaña."
+    result = {
+        "identifier": identifier,
+        "tab_index": tab_index,
+        "order_id": order_id,
+        "is_new_order": is_new_order,
+        "added": [],
+        "removed": [],
+        "failed_add": [],
+        "failed_remove": [],
+        "cedula_updated": False
     }
+
+    try:
+        # Update cedula if provided
+        if cedula is not None:
+            cedula_input = page.locator('#identificacion')
+            if await cedula_input.count() > 0:
+                await cedula_input.fill(cedula)
+                await page.wait_for_timeout(500)
+                # Trigger search/validation if there's a button
+                search_btn = page.locator('button:has-text("Buscar"), button[title*="Buscar"]')
+                if await search_btn.count() > 0:
+                    await search_btn.first.click()
+                    await page.wait_for_timeout(1000)
+                result["cedula_updated"] = True
+                result["cedula"] = cedula
+                logger.info(f"[edit_order_exams] Updated cedula to: {cedula}")
+            else:
+                result["cedula_error"] = "Cedula input not found"
+
+        # Remove exams
+        if remove:
+            remove_upper = [code.upper().strip() for code in remove]
+            current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+
+            for exam_code in remove_upper:
+                found = False
+                for exam in current_exams:
+                    if exam.get('codigo', '').upper() == exam_code:
+                        found = True
+                        try:
+                            removed = await page.evaluate(f"""
+                                () => {{
+                                    const container = document.querySelector('#examenes-seleccionados');
+                                    if (!container) return {{ error: 'Container not found' }};
+                                    const rows = container.querySelectorAll('tbody tr');
+                                    for (const row of rows) {{
+                                        const cellText = row.querySelector('td')?.innerText || '';
+                                        if (cellText.toUpperCase().includes('{exam_code}')) {{
+                                            const removeBtn = row.querySelector('button[title*="Quitar"], button.btn-danger, button.btn-outline-danger');
+                                            if (removeBtn) {{
+                                                removeBtn.click();
+                                                return {{ removed: true }};
+                                            }}
+                                            return {{ error: 'Remove button not found' }};
+                                        }}
+                                    }}
+                                    return {{ error: 'Exam not found' }};
+                                }}
+                            """)
+                            if removed.get('removed'):
+                                result["removed"].append(exam_code)
+                                await page.wait_for_timeout(300)
+                            else:
+                                result["failed_remove"].append({'codigo': exam_code, 'reason': removed.get('error')})
+                        except Exception as e:
+                            result["failed_remove"].append({'codigo': exam_code, 'reason': str(e)})
+                        break
+                if not found:
+                    result["failed_remove"].append({'codigo': exam_code, 'reason': 'not in order'})
+
+        # Add exams
+        if add:
+            for exam_code in add:
+                exam_code_upper = exam_code.upper().strip()
+                search = page.locator('#buscar-examen-input')
+                await search.fill('')
+                await page.wait_for_timeout(200)
+                await search.fill(exam_code_upper)
+                await page.wait_for_timeout(1000)
+
+                available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+                matched_exam = None
+                for exam in available:
+                    if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                        matched_exam = exam
+                        break
+
+                if matched_exam:
+                    button_id = matched_exam['button_id']
+                    btn = page.locator(f'#{button_id}')
+                    if await btn.count() > 0:
+                        await btn.click()
+                        result["added"].append(exam_code_upper)
+                        await page.wait_for_timeout(300)
+                    else:
+                        result["failed_add"].append({'codigo': exam_code_upper, 'reason': 'button not found'})
+                else:
+                    result["failed_add"].append({'codigo': exam_code_upper, 'reason': 'no exact match'})
+
+        # Get updated state
+        await page.wait_for_timeout(500)
+        current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+        totals = await page.evaluate(r"""
+            () => {
+                const result = { total: null };
+                document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                    const text = el.innerText?.trim() || '';
+                    if (text.startsWith('$') && !result.total) result.total = text;
+                });
+                return result;
+            }
+        """)
+
+        result["current_exams"] = current_exams
+        result["totals"] = totals
+        result["status"] = "pending_save"
+        result["next_step"] = "Revisa los cambios y haz click en 'Guardar'."
+
+    except Exception as e:
+        logger.error(f"[edit_order_exams] Error: {e}")
+        result["error"] = str(e)
+
+    return result
 
 
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
@@ -910,9 +960,15 @@ async def edit_results(data: List[Dict[str, str]]) -> str:
 
 
 @tool
-async def edit_order_exams(order_ids: List[int], add: Optional[List[str]] = None, remove: Optional[List[str]] = None) -> str:
-    """Add/remove exams from orders. BATCH: pass ALL order_ids."""
-    result = await _edit_order_exams_impl(order_ids, add, remove)
+async def edit_order_exams(
+    order_id: Optional[int] = None,
+    tab_index: Optional[int] = None,
+    add: Optional[List[str]] = None,
+    remove: Optional[List[str]] = None,
+    cedula: Optional[str] = None
+) -> str:
+    """Edit order: add/remove exams, set cedula. Use order_id for saved orders, tab_index for new orders (from CONTEXT tabs)."""
+    result = await _edit_order_exams_impl(order_id, tab_index, add, remove, cedula)
     return json.dumps(result, ensure_ascii=False)
 
 

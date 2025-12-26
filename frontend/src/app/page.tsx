@@ -15,10 +15,11 @@ export default function Home() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [showTabEditor, setShowTabEditor] = useState(false);
 
-  // Load chats from database on mount, auto-create if none exist
+  // Load chats from database on mount, always start with a new chat
   useEffect(() => {
-    async function loadChats() {
+    async function loadChatsAndCreateNew() {
       try {
+        // Load existing chats for the sidebar
         const response = await fetch('/api/db/chats');
         if (response.ok) {
           const data = await response.json();
@@ -27,26 +28,27 @@ export default function Home() {
             title: chat.title,
             createdAt: new Date(chat.createdAt),
           }));
-          setChats(loadedChats);
 
-          // Auto-select the most recent chat, or create new one if none exist
-          if (loadedChats.length > 0) {
-            setSelectedChatId(loadedChats[0].id);
+          // Always create a new chat on app start
+          const createResponse = await fetch('/api/db/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: 'Nuevo Chat' }),
+          });
+          if (createResponse.ok) {
+            const newChat = await createResponse.json();
+            const newChatItem = {
+              id: newChat.id,
+              title: newChat.title,
+              createdAt: new Date(newChat.createdAt),
+            };
+            setChats([newChatItem, ...loadedChats]);
+            setSelectedChatId(newChat.id);
           } else {
-            // Create a new chat automatically
-            const createResponse = await fetch('/api/db/chats', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ title: 'Nuevo Chat' }),
-            });
-            if (createResponse.ok) {
-              const newChat = await createResponse.json();
-              setChats([{
-                id: newChat.id,
-                title: newChat.title,
-                createdAt: new Date(newChat.createdAt),
-              }]);
-              setSelectedChatId(newChat.id);
+            // Fallback: just load existing chats
+            setChats(loadedChats);
+            if (loadedChats.length > 0) {
+              setSelectedChatId(loadedChats[0].id);
             }
           }
         }
@@ -56,7 +58,7 @@ export default function Home() {
         setIsLoading(false);
       }
     }
-    loadChats();
+    loadChatsAndCreateNew();
   }, []);
 
   const createNewChat = useCallback(async () => {

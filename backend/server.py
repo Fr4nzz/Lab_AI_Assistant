@@ -321,7 +321,7 @@ async def get_browser_tabs_context() -> str:
             "unknown": "Otra"
         }
 
-        for tab in tabs_info.get("tabs", []):
+        for idx, tab in enumerate(tabs_info.get("tabs", [])):
             tab_type = tab.get("type", "unknown")
             is_active = tab.get("active", False)
             is_new = tab.get("is_new", False)
@@ -331,11 +331,11 @@ async def get_browser_tabs_context() -> str:
             state = tab.get("state")  # Full state for new tabs
             changes = tab.get("changes")  # Only changes for known tabs
 
-            # Build tab header
+            # Build tab header - always include tab_index
             marker = "→ " if is_active else "  "
-            tab_line = f"{marker}{type_display.get(tab_type, tab_type)}"
+            tab_line = f"{marker}[tab_index={idx}] {type_display.get(tab_type, tab_type)}"
 
-            # Add ID
+            # Add ID for saved orders
             if tab_id:
                 if tab_type == "resultados":
                     tab_line += f" (order_num={tab_id})"
@@ -350,9 +350,9 @@ async def get_browser_tabs_context() -> str:
             if paciente:
                 tab_line += f" - {paciente[:25]}"
 
-            # Add NEW marker
+            # Add NEW marker for unsaved orders
             if is_new:
-                tab_line += " [NUEVA]"
+                tab_line += " [NUEVA - sin guardar]"
 
             lines.append(tab_line)
 
@@ -763,21 +763,27 @@ async def execute_tool(request: ManualToolRequest):
             return {"success": True, "message": f"Editados {len(data)} campos", "result": result}
 
         elif tool_name == "edit_order_exams":
-            # edit_order_exams expects order_id, add=[], remove=[]
+            # edit_order_exams now supports order_id, tab_index, cedula, add, remove
             order_id = args.get("order_id")
+            tab_index = args.get("tab_index")
+            cedula = args.get("cedula")
             add_exams = args.get("add", [])
             remove_exams = args.get("remove", [])
             result = await edit_order_exams.ainvoke({
                 "order_id": order_id,
+                "tab_index": tab_index,
+                "cedula": cedula,
                 "add": add_exams,
                 "remove": remove_exams
             })
             changes = []
+            if cedula:
+                changes.append(f"cédula: {cedula}")
             if add_exams:
                 changes.append(f"agregados: {', '.join(add_exams)}")
             if remove_exams:
                 changes.append(f"removidos: {', '.join(remove_exams)}")
-            return {"success": True, "message": f"Exámenes {' | '.join(changes)}", "result": result}
+            return {"success": True, "message": f"Cambios: {' | '.join(changes) if changes else 'ninguno'}", "result": result}
 
         elif tool_name == "create_new_order":
             cedula = args.get("cedula", "")
