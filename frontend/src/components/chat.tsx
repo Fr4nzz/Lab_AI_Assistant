@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 interface ChatProps {
   chatId?: string;
   onTitleGenerated?: (title: string) => void;
+  enabledTools?: string[];
 }
 
 interface FilePreview {
@@ -147,12 +148,14 @@ function DebugModal({
   );
 }
 
-export function Chat({ chatId, onTitleGenerated }: ChatProps) {
-  const [enabledTools] = useState<string[]>([
-    'search_orders', 'get_order_results', 'get_order_info',
-    'edit_results', 'edit_order_exams', 'create_new_order',
-    'get_available_exams', 'ask_user'
-  ]);
+// Default tools (all enabled)
+const DEFAULT_TOOLS = [
+  'search_orders', 'get_order_results', 'get_order_info',
+  'edit_results', 'edit_order_exams', 'create_new_order',
+  'get_available_exams', 'ask_user'
+];
+
+export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);

@@ -712,6 +712,17 @@ async def get_tabs():
     }
 
 
+@app.get("/api/browser/tabs/detailed")
+async def get_tabs_detailed():
+    """Get detailed info about all browser tabs including state."""
+    try:
+        tabs_info = await _get_browser_tabs_impl()
+        return tabs_info
+    except Exception as e:
+        logger.error(f"Failed to get detailed tabs: {e}")
+        return {"error": str(e), "tabs": []}
+
+
 @app.post("/api/browser/close-tabs")
 async def close_tabs():
     """Close all open browser tabs (cleanup)."""
