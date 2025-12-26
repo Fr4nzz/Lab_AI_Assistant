@@ -21,61 +21,6 @@ function convertMessages(messages: Array<{
   });
 }
 
-// Parse OpenAI SSE stream and convert to AI SDK format
-async function* convertOpenAIStreamToAISDK(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
-
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta;
-
-          if (delta?.content) {
-            // AI SDK format: type 0 is text-delta
-            yield `0:${JSON.stringify(delta.content)}\n`;
-          }
-
-          // Handle tool calls if present
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              if (tc.function?.name) {
-                yield `9:${JSON.stringify({
-                  toolCallId: tc.id || `call_${Date.now()}`,
-                  toolName: tc.function.name,
-                })}\n`;
-              }
-              if (tc.function?.arguments) {
-                yield `a:${JSON.stringify({
-                  toolCallId: tc.id || `call_${Date.now()}`,
-                  argsTextDelta: tc.function.arguments,
-                })}\n`;
-              }
-            }
-          }
-        } catch {
-          // Skip invalid JSON
-        }
-      }
-    }
-  }
-
-  // Send finish message
-  yield `d:{"finishReason":"stop"}\n`;
-}
-
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools } = body;
@@ -100,24 +45,64 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Convert OpenAI SSE to AI SDK format
-  const reader = response.body.getReader();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      try {
-        for await (const chunk of convertOpenAIStreamToAISDK(reader)) {
-          controller.enqueue(encoder.encode(chunk));
+  // Create a TransformStream to convert OpenAI SSE to AI SDK format
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const transformStream = new TransformStream({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+
+      // Process complete lines
+      const lines = buffer.split('\n');
+      // Keep the last incomplete line in buffer
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.startsWith('data: ')) {
+          const data = trimmedLine.slice(6).trim();
+
+          if (data === '[DONE]') {
+            controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta;
+
+            if (delta?.content) {
+              // AI SDK format: type 0 is text-delta
+              controller.enqueue(encoder.encode(`0:${JSON.stringify(delta.content)}\n`));
+            }
+
+            // Check for finish_reason
+            if (parsed.choices?.[0]?.finish_reason === 'stop') {
+              controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
+            }
+          } catch {
+            // Skip invalid JSON
+          }
         }
-      } catch (error) {
-        console.error('Stream error:', error);
-      } finally {
-        controller.close();
       }
     },
+    flush(controller) {
+      // Process any remaining data in buffer
+      if (buffer.trim().startsWith('data: ')) {
+        const data = buffer.trim().slice(6).trim();
+        if (data === '[DONE]') {
+          controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
+        }
+      }
+    }
   });
 
-  return new Response(stream, {
+  // Pipe the response through the transform
+  const transformedStream = response.body.pipeThrough(transformStream);
+
+  return new Response(transformedStream, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Vercel-AI-Data-Stream': 'v1',
