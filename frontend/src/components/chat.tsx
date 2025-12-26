@@ -33,7 +33,11 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
   const { messages, sendMessage, status, error } = useChat({
     transport,
     id: chatId,
+    onError: (err) => {
+      console.error('[Chat] onError:', err);
+    },
     onFinish: async () => {
+      console.log('[Chat] onFinish called, messages:', messages.length);
       // Generate title for new chats (only once)
       if (messages.length === 1 && !titleGenerated && onTitleGenerated) {
         setTitleGenerated(true);
@@ -56,6 +60,15 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
       }
     },
   });
+
+  // Debug: log messages and status changes
+  useEffect(() => {
+    console.log('[Chat] Messages changed:', messages.length, 'Status:', status);
+    messages.forEach((m, i) => {
+      const content = m.parts?.map(p => p.type === 'text' ? (p as {type: 'text', text: string}).text?.slice(0, 50) : p.type).join(', ');
+      console.log(`[Chat] Message ${i}: role=${m.role}, parts=${m.parts?.length}, content=${content}`);
+    });
+  }, [messages, status]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -83,15 +96,21 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
     }
 
     // Send message
-    if (files && files.length > 0) {
-      await sendMessage({
-        text: messageContent,
-        files: files,
-      });
-    } else {
-      await sendMessage({
-        text: messageContent,
-      });
+    console.log('[Chat] Sending message:', messageContent.slice(0, 50));
+    try {
+      if (files && files.length > 0) {
+        await sendMessage({
+          text: messageContent,
+          files: files,
+        });
+      } else {
+        await sendMessage({
+          text: messageContent,
+        });
+      }
+      console.log('[Chat] sendMessage completed');
+    } catch (err) {
+      console.error('[Chat] sendMessage error:', err);
     }
   };
 

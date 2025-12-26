@@ -25,7 +25,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools } = body;
 
+  console.log('[API/chat] Received request with', messages?.length, 'messages');
+
   const openaiMessages = convertMessages(messages);
+  console.log('[API/chat] Converted messages:', JSON.stringify(openaiMessages).slice(0, 200));
 
   const response = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -38,7 +41,10 @@ export async function POST(req: NextRequest) {
     }),
   });
 
+  console.log('[API/chat] Backend response status:', response.status);
+
   if (!response.ok || !response.body) {
+    console.error('[API/chat] Backend error:', response.status);
     return new Response(JSON.stringify({ error: 'Backend error' }), {
       status: response.status,
       headers: { 'Content-Type': 'application/json' },
@@ -49,6 +55,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let buffer = '';
+  let chunkCount = 0;
 
   const transformStream = new TransformStream({
     transform(chunk, controller) {
@@ -65,6 +72,7 @@ export async function POST(req: NextRequest) {
           const data = trimmedLine.slice(6).trim();
 
           if (data === '[DONE]') {
+            console.log('[API/chat] Received [DONE], sending finish');
             controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
             continue;
           }
@@ -74,21 +82,31 @@ export async function POST(req: NextRequest) {
             const delta = parsed.choices?.[0]?.delta;
 
             if (delta?.content) {
+              chunkCount++;
+              if (chunkCount <= 3 || chunkCount % 10 === 0) {
+                console.log(`[API/chat] Chunk ${chunkCount}:`, delta.content.slice(0, 50));
+              }
               // AI SDK format: type 0 is text-delta
-              controller.enqueue(encoder.encode(`0:${JSON.stringify(delta.content)}\n`));
+              const aiSdkChunk = `0:${JSON.stringify(delta.content)}\n`;
+              controller.enqueue(encoder.encode(aiSdkChunk));
             }
 
             // Check for finish_reason
             if (parsed.choices?.[0]?.finish_reason === 'stop') {
+              console.log('[API/chat] Received finish_reason: stop');
               controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`));
             }
-          } catch {
-            // Skip invalid JSON
+          } catch (e) {
+            // Skip invalid JSON but log it
+            if (data.length > 0 && data !== '') {
+              console.log('[API/chat] Failed to parse:', data.slice(0, 100));
+            }
           }
         }
       }
     },
     flush(controller) {
+      console.log('[API/chat] Stream flush, total chunks:', chunkCount);
       // Process any remaining data in buffer
       if (buffer.trim().startsWith('data: ')) {
         const data = buffer.trim().slice(6).trim();
