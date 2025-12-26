@@ -21,6 +21,7 @@ import base64
 import uuid
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -33,6 +34,9 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# Debug request storage directory
+DEBUG_DIR = Path(__file__).parent / "data" / "requests"
 
 # Reduce noise from asyncio proactor logs (Windows-specific spam)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
@@ -54,10 +58,124 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Local imports
 from graph.agent import create_lab_agent, compile_agent
-from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state
+from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state, ALL_TOOLS
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
+from prompts import SYSTEM_PROMPT
+
+
+# ============================================================
+# DEBUG REQUEST LOGGING
+# ============================================================
+
+def get_tools_schema() -> List[dict]:
+    """Get schema definitions for all tools (for debug logging)."""
+    schemas = []
+    for tool in ALL_TOOLS:
+        schema = {
+            "name": tool.name,
+            "description": tool.description,
+        }
+        # Get input schema if available
+        if hasattr(tool, 'args_schema') and tool.args_schema:
+            try:
+                schema["parameters"] = tool.args_schema.model_json_schema()
+            except Exception:
+                pass
+        schemas.append(schema)
+    return schemas
+
+
+def summarize_media_content(obj):
+    """Replace large base64 content with summaries for logging."""
+    if isinstance(obj, str):
+        if len(obj) > 200 and ('base64' in obj[:50].lower() or obj.startswith('data:')):
+            return f"[BASE64: {len(obj)} chars]"
+        return obj
+    if isinstance(obj, list):
+        return [summarize_media_content(item) for item in obj]
+    if isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            if key in ('data', 'url') and isinstance(value, str) and len(value) > 200:
+                if value.startswith('data:'):
+                    mime_match = re.match(r'^data:([^;]+)', value)
+                    result[key] = f"[DATA URL: {mime_match.group(1) if mime_match else 'unknown'}, {len(value)} chars]"
+                else:
+                    result[key] = f"[BASE64: {len(value)} chars]"
+            else:
+                result[key] = summarize_media_content(value)
+        return result
+    return obj
+
+
+def save_debug_request(
+    thread_id: str,
+    raw_messages: List[dict],
+    converted_messages: List,
+    context: Optional[str] = None
+) -> str:
+    """
+    Save full request details to a JSON file for debugging.
+
+    This logs the COMPLETE request including:
+    - System prompt
+    - Tools definitions
+    - Current page context (orders, tabs)
+    - All conversation messages
+
+    Returns the debug ID.
+    """
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generate timestamped ID: YYYYMMDD_HHMMSS_randomchars
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    debug_id = f"req_{timestamp}_{uuid.uuid4().hex[:8]}"
+
+    # Summarize messages to avoid huge base64 data
+    summarized_raw = summarize_media_content(raw_messages)
+
+    # Convert LangChain messages to serializable format
+    serialized_messages = []
+    for msg in converted_messages:
+        msg_data = {
+            "type": type(msg).__name__,
+            "content": summarize_media_content(msg.content) if hasattr(msg, 'content') else str(msg),
+        }
+        if hasattr(msg, 'additional_kwargs') and msg.additional_kwargs:
+            msg_data["additional_kwargs"] = msg.additional_kwargs
+        serialized_messages.append(msg_data)
+
+    debug_data = {
+        "id": debug_id,
+        "thread_id": thread_id,
+        "timestamp": datetime.now().isoformat(),
+        "system_prompt": SYSTEM_PROMPT,
+        "tools": get_tools_schema(),
+        "current_page_context": context,
+        "raw_frontend_messages": summarized_raw,
+        "converted_langchain_messages": serialized_messages,
+    }
+
+    filepath = DEBUG_DIR / f"{debug_id}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(debug_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"[Debug] Saved request to {filepath.name}")
+    return debug_id
+
+
+def update_debug_request(debug_id: str, response: str, error: Optional[str] = None):
+    """Update debug request with response."""
+    filepath = DEBUG_DIR / f"{debug_id}.json"
+    if filepath.exists():
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["response"] = response[:5000] if response else None
+        data["error"] = error
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ============================================================
@@ -800,6 +918,15 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 if context_parts:
                     initial_state["current_page_context"] = "\n\n".join(context_parts)
 
+                # Save debug request with full info (system prompt, tools, context, messages)
+                full_context = initial_state.get("current_page_context", "")
+                debug_id = save_debug_request(
+                    thread_id=thread_id,
+                    raw_messages=request.messages,
+                    converted_messages=conversation_messages,
+                    context=full_context
+                )
+
                 async for event in graph.astream_events(
                     initial_state,
                     config,
@@ -957,6 +1084,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
                 if full_response:
                     logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
+                    # Update debug request with response
+                    update_debug_request(debug_id, ''.join(full_response))
 
                 # Calculate and display usage summary
                 total_tokens = total_input_tokens + total_output_tokens
@@ -1003,6 +1132,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
             except Exception as e:
                 logger.error(f"Stream error: {str(e)}", exc_info=True)
+                # Update debug request with error
+                update_debug_request(debug_id, '', error=str(e))
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         return StreamingResponse(
@@ -1053,6 +1184,15 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             if context_parts:
                 initial_state["current_page_context"] = "\n\n".join(context_parts)
 
+            # Save debug request with full info (system prompt, tools, context, messages)
+            full_context = initial_state.get("current_page_context", "")
+            debug_id = save_debug_request(
+                thread_id=thread_id,
+                raw_messages=request.messages,
+                converted_messages=conversation_messages,
+                context=full_context
+            )
+
             logger.info("Invoking LangGraph agent...")
             result = await graph.ainvoke(initial_state, config)
 
@@ -1073,6 +1213,9 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             logger.info(f"AI RESPONSE: {response_text[:300]}{'...' if len(response_text) > 300 else ''}")
             logger.info("=" * 60)
 
+            # Update debug request with response
+            update_debug_request(debug_id, response_text)
+
             return {
                 "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
                 "object": "chat.completion",
@@ -1088,6 +1231,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             }
         except Exception as e:
             logger.error(f"Error invoking agent: {str(e)}", exc_info=True)
+            # Update debug request with error
+            update_debug_request(debug_id, '', error=str(e))
             return {
                 "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
                 "object": "chat.completion",
