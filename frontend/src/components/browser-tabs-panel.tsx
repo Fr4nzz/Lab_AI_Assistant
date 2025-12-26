@@ -29,6 +29,7 @@ interface TabInfo {
 interface BrowserTabsPanelProps {
   collapsed?: boolean;
   onRefresh?: () => void;
+  onOpenEditor?: () => void;
 }
 
 const TAB_TYPE_LABELS: Record<string, string> = {
@@ -49,7 +50,7 @@ const TAB_TYPE_COLORS: Record<string, string> = {
   unknown: 'bg-gray-500/10 border-gray-500/30',
 };
 
-export function BrowserTabsPanel({ collapsed = false, onRefresh }: BrowserTabsPanelProps) {
+export function BrowserTabsPanel({ collapsed = false, onRefresh, onOpenEditor }: BrowserTabsPanelProps) {
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,9 +99,16 @@ export function BrowserTabsPanel({ collapsed = false, onRefresh }: BrowserTabsPa
     <div className="p-3 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">Pestañas del Navegador</h3>
-        <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={loading}>
-          🔄
-        </Button>
+        <div className="flex gap-1">
+          {onOpenEditor && tabs.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={onOpenEditor} title="Editar pestañas">
+              ✏️
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={loading}>
+            🔄
+          </Button>
+        </div>
       </div>
 
       {error && (

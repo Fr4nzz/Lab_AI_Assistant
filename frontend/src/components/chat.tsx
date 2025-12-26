@@ -60,6 +60,115 @@ function ImageLightbox({
   );
 }
 
+// Camera capture modal
+function CameraCapture({
+  onCapture,
+  onClose,
+}: {
+  onCapture: (file: File) => void;
+  onClose: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }, // Prefer back camera on mobile
+          audio: false,
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error('Camera access denied:', err);
+        setError('No se pudo acceder a la cámara');
+      }
+    }
+    startCamera();
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onCapture(file);
+        onClose();
+      }
+    }, 'image/jpeg', 0.9);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-w-2xl w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="absolute top-2 right-2 z-10 text-white text-2xl hover:text-gray-300"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+
+        {error ? (
+          <div className="bg-destructive/20 text-destructive p-4 rounded text-center">
+            {error}
+          </div>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full rounded-lg"
+            />
+            <div className="flex justify-center mt-4">
+              <Button
+                onClick={capturePhoto}
+                size="lg"
+                className="rounded-full w-16 h-16"
+              >
+                📸
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Audio player component
 function AudioPlayer({ src, filename }: { src: string; filename?: string }) {
   return (
@@ -162,9 +271,10 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
   const [recordingTime, setRecordingTime] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -226,6 +336,48 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
         clearInterval(recordingIntervalRef.current);
       }
     };
+  }, []);
+
+  // Handle clipboard paste for images
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageItems = Array.from(items).filter(item => item.type.startsWith('image/'));
+      if (imageItems.length === 0) return;
+
+      e.preventDefault();
+
+      imageItems.forEach(item => {
+        const file = item.getAsFile();
+        if (file) {
+          const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const preview = URL.createObjectURL(file);
+          setSelectedFiles(prev => [...prev, {
+            id,
+            file,
+            preview,
+            type: 'image'
+          }]);
+        }
+      });
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
+
+  // Handle camera capture
+  const handleCameraCapture = useCallback((file: File) => {
+    const id = `${Date.now()}-camera`;
+    const preview = URL.createObjectURL(file);
+    setSelectedFiles(prev => [...prev, {
+      id,
+      file,
+      preview,
+      type: 'image'
+    }]);
   }, []);
 
   // Handle file selection
@@ -381,9 +533,14 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleFormSubmit(e as unknown as React.FormEvent);
+      // Block sending while streaming or recording
+      if (status !== 'streaming' && !isRecording) {
+        handleFormSubmit(e as unknown as React.FormEvent);
+      }
     }
   };
+
+  const canSend = !isRecording && status !== 'streaming' && (input.trim() || selectedFiles.length > 0);
 
   // Get text content from message parts
   const getMessageContent = (message: typeof messages[0]) => {
@@ -455,6 +612,14 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
       {/* Debug Modal */}
       {showDebug && chatId && (
         <DebugModal chatId={chatId} onClose={() => setShowDebug(false)} />
+      )}
+
+      {/* Camera Capture Modal */}
+      {showCamera && (
+        <CameraCapture
+          onCapture={handleCameraCapture}
+          onClose={() => setShowCamera(false)}
+        />
       )}
 
       {/* Header with debug button */}
@@ -574,20 +739,12 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
       {/* Input */}
       <div className="border-t p-4">
         <form onSubmit={handleFormSubmit} className="max-w-4xl mx-auto">
-          {/* Hidden file inputs */}
+          {/* Hidden file input */}
           <input
             type="file"
             ref={fileInputRef}
             multiple
             accept="image/*,.pdf,audio/*,video/*"
-            className="hidden"
-            onChange={(e) => handleFileSelect(e.target.files)}
-          />
-          <input
-            type="file"
-            ref={cameraInputRef}
-            accept="image/*"
-            capture="environment"
             className="hidden"
             onChange={(e) => handleFileSelect(e.target.files)}
           />
@@ -599,20 +756,20 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
               variant="outline"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
-              disabled={status === 'streaming'}
+              disabled={isRecording}
               title="Adjuntar archivo"
             >
               <span className="text-lg">📎</span>
             </Button>
 
-            {/* Camera button */}
+            {/* Camera button - opens camera capture modal */}
             <Button
               type="button"
               variant="outline"
               size="icon"
-              onClick={() => cameraInputRef.current?.click()}
-              disabled={status === 'streaming'}
-              title="Tomar foto"
+              onClick={() => setShowCamera(true)}
+              disabled={isRecording}
+              title="Tomar foto con cámara"
             >
               <span className="text-lg">📷</span>
             </Button>
@@ -633,21 +790,22 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
               )}
             </Button>
 
-            {/* Text input */}
+            {/* Text input - allow typing while streaming, just disable sending */}
             <Textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Escribe un mensaje..."
+              placeholder={status === 'streaming' ? "Esperando respuesta..." : "Escribe un mensaje..."}
               className="flex-1 min-h-[44px] max-h-[200px] resize-none"
               rows={1}
-              disabled={status === 'streaming' || isRecording}
+              disabled={isRecording}
             />
 
-            {/* Send button */}
+            {/* Send button - greyed out while streaming */}
             <Button
               type="submit"
-              disabled={status === 'streaming' || isRecording || (!input.trim() && selectedFiles.length === 0)}
+              disabled={!canSend}
             >
               Enviar
             </Button>
