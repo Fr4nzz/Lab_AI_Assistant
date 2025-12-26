@@ -10,7 +10,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 // Data directory (relative to project root)
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -92,7 +92,7 @@ export async function createChat(title: string = 'New Chat'): Promise<Chat> {
   const chats = await getChats();
 
   const chat: Chat = {
-    id: uuidv4(),
+    id: randomUUID(),
     title,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -167,7 +167,7 @@ export async function addMessage(
   const messages = await getMessages(chatId);
 
   const message: ChatMessage = {
-    id: uuidv4(),
+    id: randomUUID(),
     chatId,
     role,
     content,
@@ -199,7 +199,7 @@ export async function saveFile(
 ): Promise<ChatAttachment> {
   await ensureDirectories();
 
-  const id = uuidv4();
+  const id = randomUUID();
   const ext = path.extname(filename) || getExtensionFromMime(mimeType);
   const savedFilename = `${id}${ext}`;
   const filePath = path.join(FILES_DIR, savedFilename);
