@@ -17,7 +17,134 @@ interface FilePreview {
   id: string;
   file: File;
   preview: string;
-  type: 'image' | 'pdf' | 'audio' | 'other';
+  type: 'image' | 'pdf' | 'audio' | 'video' | 'other';
+}
+
+// Lightbox component for viewing images full size
+function ImageLightbox({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <button
+        className="absolute top-4 right-4 text-white text-2xl hover:text-gray-300"
+        onClick={onClose}
+      >
+        ✕
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full object-contain"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
+// Audio player component
+function AudioPlayer({ src, filename }: { src: string; filename?: string }) {
+  return (
+    <div className="flex items-center gap-2 bg-muted rounded-lg p-2">
+      <span className="text-lg">🎤</span>
+      <audio controls className="h-8 max-w-[250px]">
+        <source src={src} />
+        Your browser does not support the audio element.
+      </audio>
+      {filename && <span className="text-xs text-muted-foreground truncate max-w-[100px]">{filename}</span>}
+    </div>
+  );
+}
+
+// Video player component
+function VideoPlayer({ src, filename }: { src: string; filename?: string }) {
+  return (
+    <div className="rounded-lg overflow-hidden bg-muted">
+      <video controls className="max-w-[300px] max-h-[200px]">
+        <source src={src} />
+        Your browser does not support the video element.
+      </video>
+      {filename && <div className="text-xs text-muted-foreground p-1 truncate">{filename}</div>}
+    </div>
+  );
+}
+
+// Debug modal for viewing raw message data
+function DebugModal({
+  chatId,
+  onClose,
+}: {
+  chatId: string;
+  onClose: () => void;
+}) {
+  const [debugData, setDebugData] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/db/chats/${chatId}/debug`)
+      .then((res) => res.json())
+      .then((data) => {
+        setDebugData(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to load debug data:', err);
+        setLoading(false);
+      });
+  }, [chatId]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-background rounded-lg shadow-xl max-w-4xl max-h-[80vh] w-full overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <h2 className="text-lg font-semibold">Debug: Message History</h2>
+          <button className="text-muted-foreground hover:text-foreground" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="p-4 overflow-auto max-h-[calc(80vh-60px)]">
+          {loading ? (
+            <div className="text-center text-muted-foreground">Loading...</div>
+          ) : (
+            <pre className="text-xs font-mono whitespace-pre-wrap bg-muted p-4 rounded">
+              {JSON.stringify(debugData, null, 2)}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function Chat({ chatId, onTitleGenerated }: ChatProps) {
@@ -30,6 +157,8 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -43,8 +172,8 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
   // Create transport with custom body
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
-    body: { enabledTools },
-  }), [enabledTools]);
+    body: { enabledTools, chatId },
+  }), [enabledTools, chatId]);
 
   const { messages, sendMessage, status, error } = useChat({
     transport,
@@ -112,6 +241,9 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
         type = 'pdf';
       } else if (file.type.startsWith('audio/')) {
         type = 'audio';
+        preview = URL.createObjectURL(file);
+      } else if (file.type.startsWith('video/')) {
+        type = 'video';
         preview = URL.createObjectURL(file);
       }
 
@@ -238,15 +370,85 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
       .join('');
   };
 
-  // Get image parts from message
-  const getMessageImages = (message: typeof messages[0]) => {
-    return message.parts.filter((part): part is { type: 'file'; url: string; mediaType?: string } =>
-      part.type === 'file' && (part as { mediaType?: string }).mediaType?.startsWith('image/') === true
+  // Get file parts from message
+  const getMessageFiles = (message: typeof messages[0]) => {
+    return message.parts
+      .filter(part => part.type === 'file')
+      .map(part => {
+        const filePart = part as { type: 'file'; url?: string; data?: string; mimeType?: string; mediaType?: string; name?: string };
+        return {
+          url: filePart.url || (filePart.data ? `data:${filePart.mimeType || filePart.mediaType};base64,${filePart.data}` : ''),
+          mimeType: filePart.mimeType || filePart.mediaType || '',
+          name: filePart.name,
+        };
+      })
+      .filter(f => f.url);
+  };
+
+  // Render attachment based on type
+  const renderAttachment = (file: { url: string; mimeType?: string; name?: string }, idx: number) => {
+    const mimeType = file.mimeType || '';
+
+    if (mimeType.startsWith('image/')) {
+      return (
+        <img
+          key={idx}
+          src={file.url}
+          alt={file.name || `Image ${idx + 1}`}
+          className="max-w-[200px] max-h-[200px] rounded object-cover cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => setLightboxImage({ src: file.url, alt: file.name || `Image ${idx + 1}` })}
+        />
+      );
+    }
+
+    if (mimeType.startsWith('audio/')) {
+      return <AudioPlayer key={idx} src={file.url} filename={file.name} />;
+    }
+
+    if (mimeType.startsWith('video/')) {
+      return <VideoPlayer key={idx} src={file.url} filename={file.name} />;
+    }
+
+    // Default file icon
+    return (
+      <div key={idx} className="flex items-center gap-2 bg-muted rounded p-2">
+        <span className="text-lg">📄</span>
+        <span className="text-sm truncate max-w-[150px]">{file.name || 'File'}</span>
+      </div>
     );
   };
 
   return (
     <div className="flex flex-col h-full">
+      {/* Lightbox */}
+      {lightboxImage && (
+        <ImageLightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
+
+      {/* Debug Modal */}
+      {showDebug && chatId && (
+        <DebugModal chatId={chatId} onClose={() => setShowDebug(false)} />
+      )}
+
+      {/* Header with debug button */}
+      <div className="flex items-center justify-between px-4 py-2 border-b">
+        <h1 className="text-lg font-semibold">Lab Assistant AI</h1>
+        {chatId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowDebug(true)}
+            title="Ver mensajes raw (debug)"
+          >
+            🔍 Debug
+          </Button>
+        )}
+      </div>
+
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4 max-w-4xl mx-auto">
@@ -255,7 +457,7 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
               <h2 className="text-2xl font-bold mb-2">Lab Assistant AI</h2>
               <p>Selecciona un chat o escribe un mensaje para comenzar</p>
               <p className="text-sm mt-2">
-                Puedes enviar texto, imagenes del cuaderno, o audio con instrucciones
+                Puedes enviar texto, imágenes del cuaderno, audio o video con instrucciones
               </p>
             </div>
           )}
@@ -272,17 +474,10 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
               <div className="font-semibold mb-1 text-sm text-muted-foreground">
                 {message.role === 'user' ? 'Tu' : 'Asistente'}
               </div>
-              {/* Display images if any */}
-              {getMessageImages(message).length > 0 && (
+              {/* Display file attachments */}
+              {getMessageFiles(message).length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {getMessageImages(message).map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img.url}
-                      alt={`Attachment ${idx + 1}`}
-                      className="max-w-[200px] max-h-[200px] rounded object-cover"
-                    />
-                  ))}
+                  {getMessageFiles(message).map((file, idx) => renderAttachment(file, idx))}
                 </div>
               )}
               <div className="whitespace-pre-wrap">{getMessageContent(message)}</div>
@@ -315,11 +510,16 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
                   <img
                     src={file.preview}
                     alt={file.file.name}
-                    className="w-16 h-16 object-cover rounded border"
+                    className="w-16 h-16 object-cover rounded border cursor-pointer"
+                    onClick={() => setLightboxImage({ src: file.preview, alt: file.file.name })}
                   />
                 ) : file.type === 'audio' ? (
                   <div className="w-16 h-16 bg-muted rounded border flex items-center justify-center">
                     <span className="text-2xl">🎤</span>
+                  </div>
+                ) : file.type === 'video' ? (
+                  <div className="w-16 h-16 bg-muted rounded border flex items-center justify-center">
+                    <span className="text-2xl">🎬</span>
                   </div>
                 ) : file.type === 'pdf' ? (
                   <div className="w-16 h-16 bg-muted rounded border flex items-center justify-center">
@@ -356,7 +556,7 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
             type="file"
             ref={fileInputRef}
             multiple
-            accept="image/*,.pdf,audio/*"
+            accept="image/*,.pdf,audio/*,video/*"
             className="hidden"
             onChange={(e) => handleFileSelect(e.target.files)}
           />

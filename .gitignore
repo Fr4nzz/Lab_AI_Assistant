@@ -32,3 +32,4 @@ frontend-lobechat/
 
 # Data directories
 backend/data/
+frontend/data/
