@@ -34,6 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce noise from asyncio proactor logs (Windows-specific spam)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+
 # Set up Windows event loop policy if on Windows
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -51,7 +54,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Local imports
 from graph.agent import create_lab_agent, compile_agent
-from graph.tools import set_browser, close_all_tabs, get_active_tabs
+from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
@@ -118,34 +121,197 @@ async def get_orders_context() -> str:
     return initial_orders_context
 
 
+async def get_browser_tabs_context() -> str:
+    """
+    Get browser tabs context with state tracking.
+
+    - Shows all tabs with IDs, patient names, and enumeration for duplicates
+    - For NEW tabs: shows full state (exams, fields, etc.)
+    - For KNOWN tabs: shows only what CHANGED since last message
+    - Marks which tab is active
+    """
+    try:
+        tabs_info = await _get_browser_tabs_impl()
+
+        if not tabs_info.get("tabs"):
+            return ""
+
+        lines = ["# Pestañas del Navegador"]
+
+        type_display = {
+            "ordenes_list": "Lista de Órdenes",
+            "nueva_orden": "Nueva Orden",
+            "orden_edit": "Editar Orden",
+            "resultados": "Resultados",
+            "login": "Login",
+            "unknown": "Otra"
+        }
+
+        for tab in tabs_info.get("tabs", []):
+            tab_type = tab.get("type", "unknown")
+            is_active = tab.get("active", False)
+            is_new = tab.get("is_new", False)
+            tab_id = tab.get("id")
+            paciente = tab.get("paciente")
+            instance = tab.get("instance")  # For duplicate enumeration
+            state = tab.get("state")  # Full state for new tabs
+            changes = tab.get("changes")  # Only changes for known tabs
+
+            # Build tab header
+            marker = "→ " if is_active else "  "
+            tab_line = f"{marker}{type_display.get(tab_type, tab_type)}"
+
+            # Add ID
+            if tab_id:
+                if tab_type == "resultados":
+                    tab_line += f" (order_num={tab_id})"
+                elif tab_type == "orden_edit":
+                    tab_line += f" (order_id={tab_id})"
+
+            # Add instance number for duplicates
+            if instance:
+                tab_line += f" #{instance}"
+
+            # Add patient name
+            if paciente:
+                tab_line += f" - {paciente[:25]}"
+
+            # Add NEW marker
+            if is_new:
+                tab_line += " [NUEVA]"
+
+            lines.append(tab_line)
+
+            # For new tabs, show full state
+            if is_new and state:
+                if tab_type == "resultados":
+                    lines.append(f"    Exámenes: {state.get('examenes_count', 0)}")
+                    # Show field values (limited)
+                    field_values = state.get("field_values", {})
+                    filled = [(k, v) for k, v in field_values.items() if v]
+                    if filled:
+                        lines.append(f"    Campos con valor: {len(filled)}")
+                elif tab_type in ["orden_edit", "nueva_orden"]:
+                    exams = state.get("exams", [])
+                    if exams:
+                        lines.append(f"    Exámenes: {', '.join(exams[:8])}")
+                    if state.get("total"):
+                        lines.append(f"    Total: {state.get('total')}")
+
+            # For known tabs, show only changes
+            elif changes:
+                lines.append("    **Cambios detectados:**")
+                if "field_values" in changes:
+                    # Show which fields changed
+                    for field_key, new_value in list(changes["field_values"].items())[:5]:
+                        if new_value:
+                            lines.append(f"    - {field_key}: → {new_value}")
+                if "exams" in changes:
+                    lines.append(f"    - Exámenes: {', '.join(changes['exams'][:5])}")
+                if "total" in changes:
+                    lines.append(f"    - Total: {changes['total']}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.warning(f"[Context] Could not get browser tabs context: {e}")
+        return ""
+
+
 # ============================================================
 # LIFESPAN
 # ============================================================
 
 async def extract_initial_context() -> str:
-    """Extract initial orders list from the page for AI context."""
+    """Extract initial orders list and available exams from the page for AI context."""
     global browser
-    try:
-        # Make sure we're on the orders page
-        if "/ordenes" not in browser.page.url:
-            logger.info("[Context] Navigating to orders page...")
-            await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+    lines = []
 
-        await browser.page.wait_for_timeout(2000)  # Wait for page to load
-        ordenes = await browser.page.evaluate(EXTRACT_ORDENES_JS)
-        if ordenes:
-            lines = ["# Órdenes Recientes"]
+    try:
+        # Fetch orders from page 1
+        page1_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=1"
+        logger.info("[Context] Fetching orders page 1...")
+        await browser.page.goto(page1_url, timeout=30000)
+        await browser.page.wait_for_timeout(2000)
+        ordenes_page1 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
+
+        # Fetch orders from page 2
+        page2_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=2"
+        logger.info("[Context] Fetching orders page 2...")
+        await browser.page.goto(page2_url, timeout=30000)
+        await browser.page.wait_for_timeout(2000)
+        ordenes_page2 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
+
+        # Combine orders from both pages
+        all_ordenes = ordenes_page1 + ordenes_page2
+
+        if all_ordenes:
+            lines.append("# Órdenes Recientes (40 más recientes)")
             lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado | ID |")
             lines.append("|---|-------|-------|----------|--------|--------|-----|")
-            for i, o in enumerate(ordenes[:15]):
+            for i, o in enumerate(all_ordenes[:40]):
                 paciente = (o.get('paciente', '') or '')[:30]
                 lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
             lines.append("")
-            lines.append("*Usa 'num' para get_exam_fields(), 'id' para get_order_details()*")
-            return "\n".join(lines)
+            lines.append("*Usa 'num' para get_order_results(), 'id' para get_order_info() o edit_order_exams()*")
+            logger.info(f"[Context] Extracted {len(all_ordenes)} orders from 2 pages")
     except Exception as e:
-        logger.warning(f"Could not extract initial context: {e}")
-    return ""
+        logger.warning(f"Could not extract orders context: {e}")
+
+    # Also extract available exams from create order page for cotización
+    try:
+        await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create", timeout=30000)
+        await browser.page.wait_for_timeout(1500)
+
+        # Extract available exams using JavaScript
+        exams = await browser.page.evaluate(r"""
+            () => {
+                const exams = [];
+                const searchInput = document.querySelector('#buscar-examen-input');
+                if (!searchInput) return exams;
+
+                const container = searchInput.closest('.table-responsive') || searchInput.closest('.col-12');
+                if (!container) return exams;
+
+                const table = container.querySelector('table');
+                if (!table) return exams;
+
+                table.querySelectorAll('tbody tr').forEach((row, index) => {
+                    const td = row.querySelector('td');
+                    const div = td?.querySelector('div[title]');
+                    if (div) {
+                        const text = div.innerText?.trim() || '';
+                        if (text.includes(' - ')) {
+                            const parts = text.split(' - ');
+                            exams.push({
+                                codigo: parts[0].trim(),
+                                nombre: parts.slice(1).join(' - ').replace(/\s*Se remite.*$/i, '').trim()
+                            });
+                        }
+                    }
+                });
+                return exams;
+            }
+        """)
+
+        if exams:
+            lines.append("")
+            lines.append("# Exámenes Disponibles para Cotización")
+            lines.append("| Código | Nombre |")
+            lines.append("|--------|--------|")
+            for exam in exams[:50]:  # Limit to 50 most common
+                lines.append(f"| {exam.get('codigo', '')} | {exam.get('nombre', '')[:50]} |")
+            lines.append("")
+            lines.append("*Para cotización: create_new_order(cedula=\"0000000000\", exams=[\"CODIGO1\", \"CODIGO2\", ...])*")
+            logger.info(f"[Context] Extracted {len(exams)} available exams for cotización")
+
+        # Navigate back to orders page
+        await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+
+    except Exception as e:
+        logger.warning(f"Could not extract available exams: {e}")
+
+    return "\n".join(lines) if lines else ""
 
 
 @asynccontextmanager
@@ -572,24 +738,54 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             full_response = []
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             created_time = int(time_module.time())  # Unix timestamp
+
+            # Step tracking for enumeration
+            step_counter = 0
+            total_input_tokens = 0
+            total_output_tokens = 0
+            seen_run_ids = set()  # Track unique LLM calls to avoid double counting
+
+            # Gemini pricing (per 1M tokens) - adjust based on model
+            # Gemini 3 Flash Preview: $0.50 input, $3.00 output (incl. thinking tokens)
+            INPUT_PRICE_PER_1M = 0.50
+            OUTPUT_PRICE_PER_1M = 3.00
+
             try:
                 # Check if this is first message in conversation (from frontend history)
                 is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
 
+                # Reset tab state tracking on new conversation
+                if is_first_message:
+                    reset_tab_state()
+
                 # Get current context (checks login state, fetches orders if needed)
                 current_context = await get_orders_context()
+
+                # Get browser tabs context (always at each user message)
+                tabs_context = await get_browser_tabs_context()
 
                 # Pass full conversation history to the graph
                 initial_state = {"messages": conversation_messages}
 
-                # Include context if: first message OR we haven't sent valid orders yet
-                should_include_context = is_first_message or not orders_context_sent
-                if should_include_context and current_context:
-                    initial_state["current_page_context"] = current_context
+                # Build full context
+                context_parts = []
+
+                # Include orders context if: first message OR we haven't sent valid orders yet
+                should_include_orders = is_first_message or not orders_context_sent
+                if should_include_orders and current_context:
+                    context_parts.append(current_context)
                     if "SESIÓN NO INICIADA" in current_context:
                         logger.info("[Chat] Not logged in - sending login reminder")
                     else:
                         logger.info("[Chat] Including orders context")
+
+                # Always include tabs context at every message
+                if tabs_context:
+                    context_parts.append(tabs_context)
+                    logger.info("[Chat] Including browser tabs context")
+
+                if context_parts:
+                    initial_state["current_page_context"] = "\n\n".join(context_parts)
 
                 async for event in graph.astream_events(
                     initial_state,
@@ -598,6 +794,20 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 ):
                     event_type = event.get("event", "")
 
+                    # Track LLM calls for step enumeration (avoid double counting from wrapper)
+                    if event_type == "on_chat_model_start":
+                        run_id = event.get("run_id", "")
+                        # Only count if this is a new run_id (wrapper and inner model share same run_id parent)
+                        # Check metadata to see if this is the actual Gemini call
+                        metadata = event.get("metadata", {})
+                        model_name = event.get("name", "")
+                        # Only count events from the actual ChatGoogleGenerativeAI, not the wrapper
+                        if "ChatGoogleGenerativeAI" in model_name or "gemini" in model_name.lower():
+                            if run_id and run_id not in seen_run_ids:
+                                seen_run_ids.add(run_id)
+                                step_counter += 1
+                                logger.info(f"[Step {step_counter}] LLM call started (run_id: {run_id[:8]})")
+
                     # Stream tool calls to show "thinking" in LobeChat
                     if event_type == "on_tool_start":
                         tool_name = event.get("name", "unknown")
@@ -605,8 +815,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         logger.info(f"TOOL CALL: {tool_name}")
                         logger.debug(f"  Input: {json.dumps(tool_input, ensure_ascii=False)[:500]}")
 
-                        # Send tool call as a "thinking" step to frontend
-                        tool_display = f"🔧 **{tool_name}**"
+                        # Send tool call as a "thinking" step to frontend with step number
+                        tool_display = f"**[{step_counter}]** 🔧 **{tool_name}**"
                         if tool_input:
                             # Show key parameters
                             params = []
@@ -677,9 +887,40 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                 }
                                 yield f"data: {json.dumps(data)}\n\n"
 
-                    # Handle non-streaming model responses (after key rotation)
+                    # Handle non-streaming model responses (after key rotation) and extract token usage
                     elif event_type == "on_chat_model_end":
                         output = event.get("data", {}).get("output")
+
+                        # Try to extract token usage from response
+                        if output:
+                            # Check for usage_metadata on AIMessage (it's a dict, not object)
+                            # LangChain format: {'input_tokens': X, 'output_tokens': Y, 'total_tokens': Z}
+                            usage = getattr(output, 'usage_metadata', None)
+                            if usage and isinstance(usage, dict):
+                                input_tokens = usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
+                                output_tokens = usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
+                                if input_tokens or output_tokens:
+                                    total_input_tokens += input_tokens
+                                    total_output_tokens += output_tokens
+                                    # Log thinking tokens if available
+                                    output_details = usage.get('output_token_details', {})
+                                    thinking_tokens = output_details.get('reasoning', 0) if output_details else 0
+                                    logger.info(f"[Step {step_counter}] Tokens: in={input_tokens}, out={output_tokens}" +
+                                               (f" (thinking={thinking_tokens})" if thinking_tokens else ""))
+
+                            # Also check response_metadata for langchain (Google-specific format)
+                            resp_meta = getattr(output, 'response_metadata', {}) or {}
+                            if resp_meta and 'usage_metadata' in resp_meta:
+                                usage_meta = resp_meta['usage_metadata']
+                                # Google format: prompt_token_count, candidates_token_count
+                                input_tokens = usage_meta.get('prompt_token_count', 0)
+                                output_tokens = usage_meta.get('candidates_token_count', 0)
+                                # Avoid double counting - only add if we didn't get from usage_metadata above
+                                if (input_tokens or output_tokens) and not usage:
+                                    total_input_tokens += input_tokens
+                                    total_output_tokens += output_tokens
+                                    logger.info(f"[Step {step_counter}] Tokens (from response_meta): in={input_tokens}, out={output_tokens}")
+
                         if output and hasattr(output, 'content') and output.content:
                             content = output.content
                             if isinstance(content, list):
@@ -703,6 +944,34 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
                 if full_response:
                     logger.info(f"AI RESPONSE: {''.join(full_response)[:300]}{'...' if len(''.join(full_response)) > 300 else ''}")
+
+                # Calculate and display usage summary
+                total_tokens = total_input_tokens + total_output_tokens
+                input_cost = (total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+                output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+                total_cost = input_cost + output_cost
+
+                # Send usage summary at the end
+                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                if total_tokens > 0:
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
+                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                usage_summary += "\n"
+
+                data = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": request.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": usage_summary},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+
+                logger.info(f"[Usage] Steps: {step_counter}, Input: {total_input_tokens}, Output: {total_output_tokens}, Cost: ${total_cost:.6f}")
 
                 # Send final chunk with finish_reason to signal completion
                 final_chunk = {
@@ -738,20 +1007,38 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             # Check if this is first message in conversation (from frontend history)
             is_first_message = len(conversation_messages) <= 2  # Just system + first user msg
 
+            # Reset tab state tracking on new conversation
+            if is_first_message:
+                reset_tab_state()
+
             # Get current context (checks login state, fetches orders if needed)
             current_context = await get_orders_context()
+
+            # Get browser tabs context (always at each user message)
+            tabs_context = await get_browser_tabs_context()
 
             # Pass full conversation history to the graph
             initial_state = {"messages": conversation_messages}
 
-            # Include context if: first message OR we haven't sent valid orders yet
-            should_include_context = is_first_message or not orders_context_sent
-            if should_include_context and current_context:
-                initial_state["current_page_context"] = current_context
+            # Build full context
+            context_parts = []
+
+            # Include orders context if: first message OR we haven't sent valid orders yet
+            should_include_orders = is_first_message or not orders_context_sent
+            if should_include_orders and current_context:
+                context_parts.append(current_context)
                 if "SESIÓN NO INICIADA" in current_context:
                     logger.info("[Chat] Not logged in - sending login reminder")
                 else:
                     logger.info("[Chat] Including orders context")
+
+            # Always include tabs context at every message
+            if tabs_context:
+                context_parts.append(tabs_context)
+                logger.info("[Chat] Including browser tabs context")
+
+            if context_parts:
+                initial_state["current_page_context"] = "\n\n".join(context_parts)
 
             logger.info("Invoking LangGraph agent...")
             result = await graph.ainvoke(initial_state, config)

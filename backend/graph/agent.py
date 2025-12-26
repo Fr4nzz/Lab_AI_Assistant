@@ -103,8 +103,24 @@ def create_lab_agent(browser_manager=None):
         # Log for debugging
         logger.info(f"[Agent] Invoking LLM with {len(messages)} messages, context: {len(context_str)} chars")
 
-        # Call LLM
-        response = model_with_tools.invoke(messages)
+        # Call LLM with retry on empty response
+        max_empty_retries = 2
+        for attempt in range(max_empty_retries + 1):
+            response = model_with_tools.invoke(messages)
+
+            # Check if response is empty (no content and no tool calls)
+            has_content = bool(response.content)
+            has_tool_calls = hasattr(response, 'tool_calls') and bool(response.tool_calls)
+
+            if has_content or has_tool_calls:
+                break  # Got a valid response
+
+            if attempt < max_empty_retries:
+                logger.warning(f"[Agent] Empty response, retrying ({attempt + 1}/{max_empty_retries})...")
+                import time
+                time.sleep(2)  # Brief wait before retry
+            else:
+                logger.error(f"[Agent] LLM returned empty after {max_empty_retries + 1} attempts")
 
         # Log thinking if present (Gemini 3+ with include_thoughts=True)
         if hasattr(response, 'additional_kwargs'):
@@ -129,7 +145,7 @@ def create_lab_agent(browser_manager=None):
             content_preview = content[:200] if len(content) > 200 else content
             logger.info(f"[Agent] LLM response: {content_preview}")
         else:
-            logger.warning(f"[Agent] LLM returned empty! additional_kwargs: {getattr(response, 'additional_kwargs', {})}")
+            logger.warning(f"[Agent] LLM returned empty! response: {response}")
 
         return {"messages": [response]}
 
