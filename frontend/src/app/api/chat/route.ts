@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
       chatId,
       'user',
       textContent,
-      lastUserMessage,  // Store raw for debugging
+      summarizeForDebug(lastUserMessage),  // Summarize to avoid huge base64 in logs
       attachments
     );
   }
