@@ -85,18 +85,28 @@ export async function POST(req: NextRequest) {
   }
 
   const reader = backendResponse.body.getReader();
+  const messageId = `msg_${Date.now()}`;
 
   // Use AI SDK's createUIMessageStream for proper format
   const stream = createUIMessageStream({
-    execute: async (writer) => {
+    execute: async ({ writer }) => {
       let chunkCount = 0;
+
+      // Send text-start
+      writer.write({ type: 'text-start', id: messageId });
+
       for await (const text of parseOpenAIStream(reader)) {
         chunkCount++;
         if (chunkCount <= 3) {
           console.log(`[API/chat] Chunk ${chunkCount}:`, text.slice(0, 50));
         }
-        writer.write({ type: 'text-delta', textDelta: text });
+        // Send text-delta with correct format
+        writer.write({ type: 'text-delta', id: messageId, delta: text });
       }
+
+      // Send text-end
+      writer.write({ type: 'text-end', id: messageId });
+
       console.log('[API/chat] Stream complete, total chunks:', chunkCount);
     },
     onError: (error) => {
