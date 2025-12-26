@@ -18,28 +18,28 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Check for package manager (prefer pnpm, fallback to npm)
-set "PKG_MGR=npm"
-where pnpm >nul 2>&1
-if %errorlevel% equ 0 (
-    set "PKG_MGR=pnpm"
+:: Check if npm is available
+where npm >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Error: npm not found in PATH
+    echo Please install Node.js from https://nodejs.org/
+    pause
+    exit /b 1
 )
-
-echo Using package manager: %PKG_MGR%
 
 :: Install backend dependencies if needed
-if not exist "%SCRIPT_DIR%backend\venv" (
-    echo Installing backend dependencies...
-    cd /d "%SCRIPT_DIR%backend"
-    python -m pip install -r requirements.txt
-    cd /d "%SCRIPT_DIR%"
-)
+echo Checking backend dependencies...
+cd /d "%SCRIPT_DIR%backend"
+python -m pip install -r requirements.txt -q
+cd /d "%SCRIPT_DIR%"
 
-:: Install frontend dependencies if needed
-if not exist "%SCRIPT_DIR%frontend\node_modules" (
+:: Install frontend dependencies if needed (check for next binary, not just node_modules)
+if not exist "%SCRIPT_DIR%frontend\node_modules\.bin\next.cmd" (
     echo Installing frontend dependencies...
     cd /d "%SCRIPT_DIR%frontend"
-    %PKG_MGR% install
+    :: Remove old node_modules if it exists but is broken
+    if exist node_modules rmdir /s /q node_modules
+    npm install
     cd /d "%SCRIPT_DIR%"
 )
 
@@ -51,7 +51,7 @@ start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python serv
 timeout /t 3 /nobreak >nul
 
 echo Starting Frontend (Next.js on port 3000)...
-start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && %PKG_MGR% run dev"
+start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && npm run dev"
 
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
