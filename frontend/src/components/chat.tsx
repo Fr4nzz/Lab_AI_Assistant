@@ -276,6 +276,15 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
         audioChunksRef.current.push(event.data);
       };
 
+      // Only start UI timer when recording actually begins
+      mediaRecorder.onstart = () => {
+        setIsRecording(true);
+        setRecordingTime(0);
+        recordingIntervalRef.current = setInterval(() => {
+          setRecordingTime(t => t + 1);
+        }, 1000);
+      };
+
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
@@ -292,12 +301,6 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
       };
 
       mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingTime(t => t + 1);
-      }, 1000);
     } catch (err) {
       console.error('Microphone access denied:', err);
       alert('No se pudo acceder al micrófono');

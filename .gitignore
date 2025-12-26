@@ -33,3 +33,7 @@ frontend-lobechat/
 # Data directories
 backend/data/
 frontend/data/
+
+# Debug logs (contain potentially sensitive info)
+data/debug/
+data/requests/
