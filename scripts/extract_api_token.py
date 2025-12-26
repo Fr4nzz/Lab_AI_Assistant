@@ -172,6 +172,13 @@ class TokenExtractor:
         """Check localStorage and sessionStorage for tokens."""
         print("\n📦 Checking browser storage...")
 
+        # Make sure we're on the Orion domain first
+        current_url = self.page.url
+        if "orion" not in current_url.lower() and "about:blank" in current_url.lower():
+            print("   ⚠️ Not on Orion site yet, skipping storage check...")
+            print("   (Storage will be checked after navigation)")
+            return
+
         storage_script = """
         () => {
             const results = {
@@ -179,34 +186,56 @@ class TokenExtractor:
                 sessionStorage: {},
             };
 
-            // Check localStorage
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                const value = localStorage.getItem(key);
-                if (key && value) {
-                    results.localStorage[key] = value;
+            try {
+                // Check localStorage
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    const value = localStorage.getItem(key);
+                    if (key && value) {
+                        results.localStorage[key] = value;
+                    }
                 }
+            } catch (e) {
+                results.localStorageError = e.message;
             }
 
-            // Check sessionStorage
-            for (let i = 0; i < sessionStorage.length; i++) {
-                const key = sessionStorage.key(i);
-                const value = sessionStorage.getItem(key);
-                if (key && value) {
-                    results.sessionStorage[key] = value;
+            try {
+                // Check sessionStorage
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    const value = sessionStorage.getItem(key);
+                    if (key && value) {
+                        results.sessionStorage[key] = value;
+                    }
                 }
+            } catch (e) {
+                results.sessionStorageError = e.message;
             }
 
             return results;
         }
         """
 
-        storage = await self.page.evaluate(storage_script)
+        try:
+            storage = await self.page.evaluate(storage_script)
+        except Exception as e:
+            print(f"   ⚠️ Could not access storage: {e}")
+            return
+
+        # Check for storage access errors
+        if storage.get("localStorageError"):
+            print(f"   ⚠️ localStorage error: {storage['localStorageError']}")
+        if storage.get("sessionStorageError"):
+            print(f"   ⚠️ sessionStorage error: {storage['sessionStorageError']}")
 
         # Keywords that might indicate token storage
         token_keywords = ["token", "jwt", "auth", "bearer", "access", "session", "credential"]
 
         for storage_type, items in storage.items():
+            # Skip error entries
+            if storage_type.endswith("Error") or not isinstance(items, dict):
+                continue
+
             print(f"\n   {storage_type}:")
             for key, value in items.items():
                 # Check if key suggests it's a token
@@ -428,18 +457,18 @@ async def main():
         if not await extractor.start_browser():
             return
 
-        # Check storage first
-        await extractor.check_storage()
-
-        # Check cookies
-        await extractor.check_cookies()
-
-        # Trigger API calls by navigating
+        # First navigate to Orion to trigger API calls (this also gets us on the right domain)
         await extractor.trigger_api_calls()
 
         # Wait a bit for any delayed API calls
         print("\n⏳ Waiting for additional API calls...")
         await asyncio.sleep(3)
+
+        # Now check storage (after we're on the Orion domain)
+        await extractor.check_storage()
+
+        # Check cookies
+        await extractor.check_cookies()
 
         # Try to find API login endpoint
         await extractor.attempt_api_login()
