@@ -190,9 +190,9 @@ export function Chat({ chatId, onTitleGenerated }: ChatProps) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               message: messages[0]?.parts
-                .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+                ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
                 .map(p => p.text)
-                .join('') || ''
+                .join('') ?? ''
             }),
           });
           const { title } = await res.json();
