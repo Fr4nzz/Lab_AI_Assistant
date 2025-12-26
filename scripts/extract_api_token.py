@@ -166,7 +166,17 @@ class TokenExtractor:
         if not token or not isinstance(token, str):
             return False
         parts = token.split(".")
-        return len(parts) == 3 and len(token) > 30
+        # JWT has exactly 3 parts, each part is base64url encoded
+        # Real JWTs are typically 100+ chars and start with eyJ (base64 for '{"')
+        if len(parts) != 3 or len(token) < 100:
+            return False
+        # Check if it looks like base64url (JWTs start with eyJ which is base64 for '{"')
+        if not parts[0].startswith("eyJ"):
+            return False
+        # Exclude Google Analytics cookies (contain $ signs)
+        if "$" in token:
+            return False
+        return True
 
     async def check_storage(self):
         """Check localStorage and sessionStorage for tokens."""
