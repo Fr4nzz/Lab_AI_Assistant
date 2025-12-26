@@ -56,32 +56,65 @@ export function BrowserTabsPanel({ collapsed = false, onRefresh, onOpenEditor }:
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  const fetchTabs = useCallback(async () => {
+  const fetchTabs = useCallback(async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setLoading(true);
       setError(null);
       const response = await fetch('/api/browser/tabs/detailed');
       if (!response.ok) throw new Error('Failed to fetch tabs');
       const data = await response.json();
       setTabs(data.tabs || []);
       setLastUpdate(new Date());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error');
-      setTabs([]);
+    } catch {
+      // Silently fail for background refreshes, only show error on initial load
+      if (isInitial) {
+        setError('Backend no disponible');
+        setTabs([]);
+      }
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, []);
 
-  // Auto-refresh every 5 seconds
+  // Auto-refresh every 10 seconds, only when tab is visible and not collapsed
   useEffect(() => {
-    fetchTabs();
-    const interval = setInterval(fetchTabs, 5000);
-    return () => clearInterval(interval);
-  }, [fetchTabs]);
+    fetchTabs(true);
+
+    // Only poll if not collapsed and document is visible
+    if (collapsed) return;
+
+    let interval: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (interval) clearInterval(interval);
+      interval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchTabs(false);
+        }
+      }, 10000); // 10 seconds instead of 5
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchTabs(false); // Refresh immediately when tab becomes visible
+        startPolling();
+      } else if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchTabs, collapsed]);
 
   const handleRefresh = () => {
-    fetchTabs();
+    fetchTabs(true);
     onRefresh?.();
   };
 

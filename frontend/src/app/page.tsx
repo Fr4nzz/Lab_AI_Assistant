@@ -15,18 +15,40 @@ export default function Home() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [showTabEditor, setShowTabEditor] = useState(false);
 
-  // Load chats from database on mount
+  // Load chats from database on mount, auto-create if none exist
   useEffect(() => {
     async function loadChats() {
       try {
         const response = await fetch('/api/db/chats');
         if (response.ok) {
           const data = await response.json();
-          setChats(data.map((chat: { id: string; title: string; createdAt: string }) => ({
+          const loadedChats = data.map((chat: { id: string; title: string; createdAt: string }) => ({
             id: chat.id,
             title: chat.title,
             createdAt: new Date(chat.createdAt),
-          })));
+          }));
+          setChats(loadedChats);
+
+          // Auto-select the most recent chat, or create new one if none exist
+          if (loadedChats.length > 0) {
+            setSelectedChatId(loadedChats[0].id);
+          } else {
+            // Create a new chat automatically
+            const createResponse = await fetch('/api/db/chats', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: 'Nuevo Chat' }),
+            });
+            if (createResponse.ok) {
+              const newChat = await createResponse.json();
+              setChats([{
+                id: newChat.id,
+                title: newChat.title,
+                createdAt: new Date(newChat.createdAt),
+              }]);
+              setSelectedChatId(newChat.id);
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to load chats:', error);
