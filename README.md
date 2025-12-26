@@ -13,16 +13,22 @@ AI-powered assistant for clinical laboratory staff to enter exam results in labo
 ## Architecture
 
 ```
-User (LobeChat) → FastAPI Backend → Gemini AI → Playwright Browser
-                                         ↓
-                              Tool calls (search, edit, etc.)
-                                         ↓
-                              Browser fills forms
-                                         ↓
-                              User clicks "Save"
+User (Next.js) → FastAPI Backend → Gemini AI → Playwright Browser
+                                        ↓
+                             Tool calls (search, edit, etc.)
+                                        ↓
+                             Browser fills forms
+                                        ↓
+                             User clicks "Save"
 ```
 
-## Quick Start (Docker)
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Microsoft Edge browser installed
 
 ### 1. Clone and configure
 
@@ -39,72 +45,44 @@ cp .env.example .env
 ```bash
 # Required: Gemini API keys (get from https://aistudio.google.com/apikey)
 GEMINI_API_KEYS=key1,key2,key3
-
-# Optional: OpenRouter for LobeChat topic naming (https://openrouter.ai/keys)
-OPENROUTER_API_KEY=sk-or-v1-xxxxx
 ```
 
-### 3. Start with Docker
+### 3. Configure frontend
 
 ```bash
-docker-compose up -d
+# Copy frontend env
+cp frontend/.env.local.example frontend/.env.local
+
+# Edit frontend/.env.local with:
+OPENROUTER_API_KEY=sk-or-v1-xxxxx  # For topic naming (get from https://openrouter.ai/keys)
+```
+
+### 4. Start
+
+**Option A: Double-click `start-dev.bat`** (Windows)
+
+**Option B: Manual**
+```bash
+# Terminal 1 - Backend
+cd backend
+pip install -r requirements.txt
+python server.py
+
+# Terminal 2 - Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
 This starts:
-- **Backend** on http://localhost:8000 (Lab Assistant API)
-- **LobeChat** on http://localhost:3210 (Chat UI)
+- **Backend** on http://localhost:8000
+- **Frontend** on http://localhost:3000
 
-### 4. Open LobeChat
+### 5. Open the app
 
-1. Go to http://localhost:3210
-2. Create a new chat
-3. Select **"Lab Assistant"** as the model
-4. Start chatting!
-
-## Quick Start (Local Development)
-
-### Prerequisites
-
-- Python 3.11+
-- Microsoft Edge browser installed
-
-### 1. Setup
-
-```powershell
-# Clone
-git clone https://github.com/yourusername/Lab_AI_Assistant.git
-cd Lab_AI_Assistant
-
-# Create virtual environment
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r backend/requirements.txt
-
-# Copy and edit config
-cp .env.example .env
-# Edit .env with your GEMINI_API_KEYS
-```
-
-### 2. Run Backend
-
-```powershell
-cd backend
-python server.py
-```
-
-Backend runs on http://localhost:8000
-
-### 3. Run LobeChat (Docker)
-
-```bash
-docker run -d -p 3210:3210 \
-  -e OPENAI_PROXY_URL=http://host.docker.internal:8000/v1 \
-  -e OPENAI_API_KEY=dummy \
-  -e "OPENAI_MODEL_LIST=-all,+lab-assistant=Lab Assistant<100000:vision:fc>" \
-  lobehub/lobe-chat:latest
-```
+1. Go to http://localhost:3000
+2. Login to the lab system in the browser window that opens
+3. Start chatting!
 
 ## Configuration
 
@@ -114,19 +92,19 @@ docker run -d -p 3210:3210 \
 |----------|-------------|---------|
 | `GEMINI_API_KEYS` | Comma-separated Gemini API keys | `key1,key2,key3` |
 | `GEMINI_MODEL` | Model to use | `gemini-2.0-flash` |
-| `OPENROUTER_API_KEY` | For LobeChat topic naming | `sk-or-v1-xxx` |
 | `BROWSER_CHANNEL` | Browser to use | `msedge`, `chrome`, `chromium` |
 | `TARGET_URL` | Lab system URL | `https://laboratoriofranz.orion-labs.com/` |
 
-### LobeChat Model Selection
+### Frontend Environment (frontend/.env.local)
 
-In LobeChat Settings → System Assistant:
-- **Topic Naming Model**: Use OpenRouter free model (e.g., `meta-llama/llama-3.2-3b-instruct:free`)
-- **Default Chat Model**: Use `lab-assistant` (your backend)
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OPENROUTER_API_KEY` | For topic naming | `sk-or-v1-xxx` |
+| `BACKEND_URL` | Backend URL | `http://localhost:8000` |
 
 ## Usage
 
-1. Open http://localhost:3210
+1. Open http://localhost:3000
 2. Login to the lab system in the browser window that opens
 3. Send a message like: *"busca las ordenes de Juan Perez y llena la hemoglobina con 15.5"*
 4. AI will:
@@ -161,7 +139,12 @@ Lab_AI_Assistant/
 │   └── graph/
 │       ├── agent.py        # LangGraph agent
 │       └── tools.py        # Tool definitions
-├── docker-compose.yml      # Docker setup
+├── frontend/
+│   ├── src/
+│   │   ├── app/            # Next.js app router
+│   │   └── components/     # React components
+│   └── .env.local          # Frontend config
+├── start-dev.bat           # Windows launcher
 ├── .env.example            # Example configuration
 └── README.md
 ```
@@ -172,7 +155,7 @@ Lab_AI_Assistant/
 
 ```bash
 # Find what's using the port
-netstat -ano | findstr :3210
+netstat -ano | findstr :8000
 # Kill the process
 taskkill /PID <PID> /F
 ```

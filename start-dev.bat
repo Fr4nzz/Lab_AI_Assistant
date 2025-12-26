@@ -18,14 +18,14 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Check if pnpm is available
+:: Check for package manager (prefer pnpm, fallback to npm)
+set "PKG_MGR=npm"
 where pnpm >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Error: pnpm not found in PATH
-    echo Install with: npm install -g pnpm
-    pause
-    exit /b 1
+if %errorlevel% equ 0 (
+    set "PKG_MGR=pnpm"
 )
+
+echo Using package manager: %PKG_MGR%
 
 :: Install backend dependencies if needed
 if not exist "%SCRIPT_DIR%backend\venv" (
@@ -39,7 +39,7 @@ if not exist "%SCRIPT_DIR%backend\venv" (
 if not exist "%SCRIPT_DIR%frontend\node_modules" (
     echo Installing frontend dependencies...
     cd /d "%SCRIPT_DIR%frontend"
-    pnpm install
+    %PKG_MGR% install
     cd /d "%SCRIPT_DIR%"
 )
 
@@ -51,7 +51,7 @@ start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python serv
 timeout /t 3 /nobreak >nul
 
 echo Starting Frontend (Next.js on port 3000)...
-start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && pnpm dev"
+start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && %PKG_MGR% run dev"
 
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
