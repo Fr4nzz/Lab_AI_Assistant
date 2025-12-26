@@ -61,16 +61,6 @@ class TabStateManager:
         """Generate unique key for a tab based on URL and index."""
         return f"{index}:{url}"
 
-    def _extract_id_from_url(self, url: str, tab_type: str) -> Optional[str]:
-        """Extract order_num or order_id from URL."""
-        if tab_type == "resultados":
-            match = re.search(r'numeroOrden=(\d+)', url)
-            return match.group(1) if match else None
-        elif tab_type == "orden_edit":
-            match = re.search(r'/ordenes/(\d+)/edit', url)
-            return match.group(1) if match else None
-        return None
-
     def compute_state_delta(self, known: Dict, current: Dict) -> Dict:
         """Compute what changed between known and current state."""
         if not known:
