@@ -26,7 +26,50 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
+# Disable google-genai SDK internal retries by setting retry attempts to 0
+# This allows our key rotation logic to handle rate limits immediately
+os.environ.setdefault("GOOGLE_API_PYTHON_CLIENT_RETRIES", "0")
+
 logger = logging.getLogger(__name__)
+
+
+def _disable_genai_sdk_retry():
+    """
+    Disable the google-genai SDK's internal tenacity retry.
+    The SDK uses Retrying class internally (not decorator), so we patch that.
+    """
+    try:
+        import tenacity
+        from tenacity import stop_after_attempt
+
+        # Check if already patched
+        if hasattr(tenacity.Retrying, '_patched_for_genai'):
+            logger.info("[Model] Tenacity Retrying already patched")
+            return
+
+        # Store original __init__
+        original_init = tenacity.Retrying.__init__
+
+        def patched_init(self, *args, **kwargs):
+            # Force stop after 1 attempt (no retries) for all Retrying instances
+            kwargs['stop'] = stop_after_attempt(1)
+            # Also disable wait time
+            kwargs['wait'] = tenacity.wait_none()
+            original_init(self, *args, **kwargs)
+
+        # Apply patch
+        tenacity.Retrying.__init__ = patched_init
+        tenacity.Retrying._patched_for_genai = True
+        logger.info("[Model] Patched tenacity.Retrying to stop after 1 attempt (no retries)")
+
+    except ImportError as e:
+        logger.info(f"[Model] tenacity not found: {e}")
+    except Exception as e:
+        logger.info(f"[Model] Could not patch tenacity: {type(e).__name__}: {e}")
+
+
+# Flag to track if we've tried to patch
+_sdk_retry_patch_attempted = False
 
 # Rate limit tracking file
 RATE_LIMIT_FILE = Path(__file__).parent / "data" / "rate_limits.json"
@@ -99,7 +142,24 @@ def _init_exhausted_keys(model_name: str):
 
 def _is_daily_rate_limit(error_str: str) -> bool:
     """Check if error is a daily rate limit (not per-minute)."""
-    return "PerDay" in error_str or "per_day" in error_str.lower()
+    error_lower = error_str.lower()
+
+    # Explicit daily indicators
+    if "PerDay" in error_str or "per_day" in error_lower or "daily" in error_lower:
+        return True
+
+    # Free tier limits are typically daily
+    if "free_tier" in error_lower or "freetier" in error_lower:
+        return True
+
+    # If it's a quota error but does NOT mention per-minute/rpm, assume daily
+    is_quota_error = "quota" in error_lower or "resource_exhausted" in error_lower
+    is_per_minute = "per minute" in error_lower or "per_minute" in error_lower or "rpm" in error_lower
+
+    if is_quota_error and not is_per_minute:
+        return True
+
+    return False
 
 
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
@@ -147,7 +207,13 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
     def _configure_model(self):
         """Creates a new model with the current API key. Re-binds tools if previously bound."""
-        global _shared_key_index
+        global _shared_key_index, _sdk_retry_patch_attempted
+
+        # Try to disable SDK retry on first model creation (when SDK is fully loaded)
+        if not _sdk_retry_patch_attempted:
+            _sdk_retry_patch_attempted = True
+            _disable_genai_sdk_retry()
+
         key = self.api_keys[_shared_key_index]
 
         # Detect if using Gemini 3.x (supports thinking_level)
@@ -158,8 +224,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "google_api_key": key,
             "temperature": self.temperature,
             "convert_system_message_to_human": True,
-            "max_retries": 0,  # Disable internal retry
-            "timeout": 60,  # Fail faster on slow/stuck requests
+            "max_retries": 0,  # Disable LangChain's internal retry
+            "timeout": 30,  # Short timeout to fail faster on rate limits
         }
 
         # Enable thinking for supported models

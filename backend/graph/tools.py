@@ -274,12 +274,12 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={order_num}"
     await page.goto(url, timeout=30000)
 
-    # Wait for exam rows instead of full networkidle (much faster)
+    # Wait for network to settle (AJAX data loading)
     try:
-        await page.wait_for_selector('tr.examen, .result-field, table', timeout=5000)
+        await page.wait_for_load_state('networkidle', timeout=10000)
     except Exception:
-        # Fallback to brief wait if selector not found
-        await page.wait_for_timeout(500)
+        # Fallback to brief wait if networkidle times out
+        await page.wait_for_timeout(1000)
 
     await _inject_highlight_styles(page)
     _results_tabs[order_num] = page
@@ -330,12 +330,12 @@ async def _find_or_create_order_tab(order_id: int) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
     await page.goto(url, timeout=30000)
 
-    # Wait for key form elements instead of full networkidle (much faster)
+    # Wait for network to settle (AJAX data loading for exams list)
     try:
-        await page.wait_for_selector('form, .examenes-list, input[name="cedula"]', timeout=5000)
+        await page.wait_for_load_state('networkidle', timeout=10000)
     except Exception:
-        # Fallback to brief wait if selector not found
-        await page.wait_for_timeout(500)
+        # Fallback to brief wait if networkidle times out
+        await page.wait_for_timeout(1000)
 
     _order_tabs[order_id] = page
     return page
@@ -676,6 +676,18 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
     """Edit exam result fields. Finds tabs by order_num or creates new ones."""
     logger.info(f"[edit_results] Editing {len(data)} fields")
 
+    # Validate input - ensure all required fields are present
+    required_fields = ["orden", "e", "f", "v"]
+    for i, item in enumerate(data):
+        missing = [f for f in required_fields if f not in item]
+        if missing:
+            return {
+                "error": f"Item {i} missing required fields: {missing}",
+                "hint": "Each item needs: orden (order number), e (exam name), f (field name), v (value)",
+                "suggestion": "Use get_order_results(order_nums) first to open the results tab and get the correct field names",
+                "received": item
+            }
+
     results = []
     results_by_order = {}
 
@@ -878,51 +890,55 @@ async def _edit_order_exams_impl(
 
 
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
-    """Create a new order with exams."""
+    """Create a new order with exams. Optimized for fast batch adding."""
     is_cotizacion = not cedula or cedula.strip() == ""
     logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams")
 
     page = await _browser.ensure_page()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
-    await page.wait_for_timeout(1000)
+
+    # Wait for page to load and exams table to be ready
+    await page.wait_for_load_state('networkidle', timeout=10000)
 
     if not is_cotizacion:
         cedula_input = page.locator('#identificacion')
         await cedula_input.fill(cedula)
         await page.keyboard.press("Enter")
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(1500)
+
+    # Extract ALL available exams at once (no need to search individually)
+    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+    # Build a map from exam code (uppercase) to button_id for fast lookup
+    code_to_button = {}
+    for exam in available:
+        if exam.get('codigo'):
+            code_to_button[exam['codigo'].upper()] = exam['button_id']
 
     added_codes = []
     failed_exams = []
 
+    # Click all matching exam buttons in rapid succession
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
-        search = page.locator('#buscar-examen-input')
-        await search.fill('')
-        await page.wait_for_timeout(200)
-        await search.fill(exam_code_upper)
-        await page.wait_for_timeout(1000)
+        button_id = code_to_button.get(exam_code_upper)
 
-        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-        matched_exam = None
-        for exam in available:
-            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
-                matched_exam = exam
-                break
-
-        if matched_exam:
-            button_id = matched_exam['button_id']
+        if button_id:
             btn = page.locator(f'#{button_id}')
             if await btn.count() > 0:
                 await btn.click()
                 added_codes.append(exam_code_upper)
-                await page.wait_for_timeout(500)
+                # Minimal delay between clicks (100ms) - just enough for UI to respond
+                await page.wait_for_timeout(100)
             else:
                 failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
         else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match'})
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match in available exams'})
 
+    # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
+
+    # Get the final list of added exams
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
     totals = await page.evaluate(r"""
@@ -935,6 +951,8 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
             return result;
         }
     """)
+
+    logger.info(f"[create_order] Added {len(added_codes)} exams, failed {len(failed_exams)}")
 
     return {
         "cedula": cedula if not is_cotizacion else None,
