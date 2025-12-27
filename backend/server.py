@@ -899,14 +899,16 @@ async def chat_aisdk(request: AISdkChatRequest):
                     tool_input = event.get("data", {}).get("input", {})
                     run_id = event.get("run_id", str(uuid.uuid4()))
                     logger.info(f"[AI SDK] TOOL START: {tool_name}")
-                    # Note: AI SDK v6 UI Message Stream doesn't support tool events
-                    # Tool status would need to be shown via text streaming instead
+                    # Stream tool status as text content
+                    yield adapter.tool_status(tool_name, "start", tool_input)
 
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name", "unknown")
                     tool_output = event.get("data", {}).get("output", "")
                     run_id = event.get("run_id", "")
                     logger.info(f"[AI SDK] TOOL END: {tool_name}")
+                    # Stream tool completion as text content
+                    yield adapter.tool_status(tool_name, "end")
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
