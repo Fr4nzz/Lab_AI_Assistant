@@ -80,15 +80,22 @@ class StreamAdapter:
         Since AI SDK v6 doesn't support tool events, we show them as styled text.
         """
         if status == "start":
-            # Show tool being called with args
+            # Show tool being called with ALL args
             params = []
             if args:
                 for k, v in args.items():
-                    if isinstance(v, str) and len(v) < 50:
+                    if isinstance(v, str):
+                        display_v = v if len(v) < 50 else v[:47] + "..."
+                        params.append(f"{k}={display_v}")
+                    elif isinstance(v, list):
+                        if len(v) <= 10:
+                            params.append(f"{k}={v}")
+                        else:
+                            items = ', '.join(str(x) for x in v[:10])
+                            params.append(f"{k}=[{items}... +{len(v)-10} more]")
+                    elif isinstance(v, (int, float, bool)):
                         params.append(f"{k}={v}")
-                    elif isinstance(v, list) and len(v) < 5:
-                        params.append(f"{k}={v}")
-            param_str = f" ({', '.join(params[:3])})" if params else ""
+            param_str = f" ({', '.join(params)})" if params else ""
             text = f"🔧 **{tool_name}**{param_str}\n"
         else:  # end
             text = f"✓ {tool_name} completado\n\n"
