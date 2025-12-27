@@ -196,9 +196,6 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "convert_system_message_to_human": True,
             "max_retries": 1,  # Minimal internal retry (0 can cause issues)
             "timeout": 30,  # Shorter timeout to fail faster
-            "request_options": {
-                "retry": None,  # Disable google client retries
-            },
         }
 
         # Enable thinking for supported models
