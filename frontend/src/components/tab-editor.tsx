@@ -5,14 +5,34 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+interface ExamDetail {
+  codigo: string;
+  nombre: string;
+  valor: string | null;  // Price
+  estado: string | null;
+  can_remove: boolean;
+}
+
+interface FieldDetail {
+  key: string;
+  exam: string;
+  field: string;
+  value: string;
+  type: 'input' | 'select';
+  options: string[] | null;  // Dropdown options
+  ref: string | null;  // Reference values
+}
+
 interface TabState {
   paciente?: string;
   order_num?: string;
   exams?: string[];
+  exams_details?: ExamDetail[];  // Full exam details with prices
   exams_count?: number;
   examenes_count?: number;
   total?: string;
   field_values?: Record<string, string>;
+  fields_details?: FieldDetail[];  // Full field details with dropdown options
 }
 
 interface TabInfo {
@@ -50,7 +70,9 @@ export function TabEditor({ onClose }: TabEditorProps) {
 
   // Editable state for the selected tab
   const [editedExams, setEditedExams] = useState<string[]>([]);
+  const [editedExamsDetails, setEditedExamsDetails] = useState<ExamDetail[]>([]);
   const [editedFields, setEditedFields] = useState<Record<string, string>>({});
+  const [fieldsDetails, setFieldsDetails] = useState<FieldDetail[]>([]);
   const [newExamCode, setNewExamCode] = useState('');
 
   // Available exams for autocomplete
@@ -100,7 +122,9 @@ export function TabEditor({ onClose }: TabEditorProps) {
   useEffect(() => {
     if (selectedTabIndex === null) {
       setEditedExams([]);
+      setEditedExamsDetails([]);
       setEditedFields({});
+      setFieldsDetails([]);
       return;
     }
 
@@ -109,7 +133,9 @@ export function TabEditor({ onClose }: TabEditorProps) {
 
     const state = tab.state || {};
     setEditedExams(state.exams || []);
+    setEditedExamsDetails(state.exams_details || []);
     setEditedFields(state.field_values || {});
+    setFieldsDetails(state.fields_details || []);
   }, [selectedTabIndex, tabs]);
 
   const selectedTab = selectedTabIndex !== null ? tabs[selectedTabIndex] : null;
@@ -308,39 +334,68 @@ export function TabEditor({ onClose }: TabEditorProps) {
 
                 <div className="space-y-2">
                   <h3 className="font-medium text-sm">Campos de Resultados</h3>
-                  <div className="grid gap-2">
-                    {Object.entries(editedFields).map(([key, value]) => {
-                      const original = selectedTab.state?.field_values?.[key] || '';
-                      const isChanged = value !== original;
-                      const [examName, fieldName] = key.split(':');
-                      return (
-                        <div key={key} className="flex items-center gap-2">
-                          <div className="w-32 text-xs text-muted-foreground truncate" title={examName}>
-                            {examName}
-                          </div>
-                          <div className="w-24 text-xs font-medium truncate" title={fieldName}>
-                            {fieldName}
-                          </div>
-                          <input
-                            type="text"
-                            value={value}
-                            onChange={(e) => updateField(key, e.target.value)}
-                            className={`flex-1 px-2 py-1 text-sm border rounded ${
-                              isChanged ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : ''
-                            }`}
-                          />
-                          {isChanged && (
-                            <span className="text-[10px] text-yellow-600">modificado</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {Object.keys(editedFields).length === 0 && (
-                      <div className="text-sm text-muted-foreground">
-                        No hay campos de resultados disponibles
-                      </div>
-                    )}
-                  </div>
+                  {fieldsDetails.length > 0 ? (
+                    <div className="border rounded overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium">Examen</th>
+                            <th className="text-left px-3 py-2 font-medium">Campo</th>
+                            <th className="text-left px-3 py-2 font-medium">Valor</th>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">Ref.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fieldsDetails.map((field, idx) => {
+                            const currentValue = editedFields[field.key] ?? field.value;
+                            const originalValue = selectedTab.state?.field_values?.[field.key] || '';
+                            const isChanged = currentValue !== originalValue;
+                            return (
+                              <tr key={field.key + idx} className="border-t">
+                                <td className="px-3 py-2 text-xs text-muted-foreground">
+                                  {field.exam}
+                                </td>
+                                <td className="px-3 py-2 text-xs font-medium">
+                                  {field.field}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {field.type === 'select' && field.options ? (
+                                    <select
+                                      value={currentValue}
+                                      onChange={(e) => updateField(field.key, e.target.value)}
+                                      className={`w-full px-2 py-1 text-sm border rounded ${
+                                        isChanged ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : ''
+                                      }`}
+                                    >
+                                      {field.options.map((opt, i) => (
+                                        <option key={i} value={opt}>{opt}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={currentValue}
+                                      onChange={(e) => updateField(field.key, e.target.value)}
+                                      className={`w-full px-2 py-1 text-sm border rounded ${
+                                        isChanged ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : ''
+                                      }`}
+                                    />
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-muted-foreground">
+                                  {field.ref || '-'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground py-4 text-center">
+                      No hay campos de resultados disponibles
+                    </div>
+                  )}
                 </div>
               </div>
             ) : selectedTab.type === 'orden_edit' || selectedTab.type === 'nueva_orden' ? (
@@ -352,78 +407,101 @@ export function TabEditor({ onClose }: TabEditorProps) {
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <h3 className="font-medium text-sm">Exámenes</h3>
+                <div className="space-y-3">
+                  <h3 className="font-medium text-sm">Exámenes Agregados</h3>
 
-                  {/* Add exam input */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newExamCode}
-                      onChange={(e) => setNewExamCode(e.target.value.toUpperCase())}
-                      onKeyDown={(e) => e.key === 'Enter' && addExam()}
-                      placeholder="Código del examen (ej: BH, EMO)"
-                      className="flex-1 px-2 py-1 text-sm border rounded"
-                      list="exam-suggestions"
-                    />
-                    <datalist id="exam-suggestions">
-                      {availableExams.slice(0, 20).map(exam => (
-                        <option key={exam.codigo} value={exam.codigo}>
-                          {exam.nombre}
-                        </option>
-                      ))}
-                    </datalist>
-                    <Button size="sm" onClick={addExam}>
-                      Agregar
-                    </Button>
-                  </div>
-
-                  {/* Exam list */}
-                  <div className="flex flex-wrap gap-2">
-                    {editedExams.map(code => {
-                      const isNew = !selectedTab.state?.exams?.includes(code);
-                      return (
-                        <div
-                          key={code}
-                          className={`flex items-center gap-1 px-2 py-1 rounded text-sm ${
-                            isNew
-                              ? 'bg-green-100 dark:bg-green-900/30 border border-green-500'
-                              : 'bg-muted'
-                          }`}
-                        >
-                          <span>{code}</span>
-                          <button
-                            onClick={() => removeExam(code)}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {/* Show removed exams */}
-                    {selectedTab.state?.exams?.filter(e => !editedExams.includes(e)).map(code => (
-                      <div
-                        key={code}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-red-100 dark:bg-red-900/30 border border-red-500 line-through opacity-60"
-                      >
-                        <span>{code}</span>
-                        <button
-                          onClick={() => setEditedExams(prev => [...prev, code])}
-                          className="text-muted-foreground hover:text-foreground"
-                          title="Restaurar"
-                        >
-                          ↩
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {selectedTab.state?.total && (
-                    <div className="text-sm">
-                      Total: <span className="font-medium">{selectedTab.state.total}</span>
+                  {/* Exam table with details */}
+                  {editedExamsDetails.length > 0 ? (
+                    <div className="border rounded overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium">Código</th>
+                            <th className="text-left px-3 py-2 font-medium">Nombre</th>
+                            <th className="text-right px-3 py-2 font-medium">Precio</th>
+                            <th className="w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editedExamsDetails.map((exam, idx) => {
+                            const isRemoved = !editedExams.includes(exam.codigo);
+                            return (
+                              <tr
+                                key={exam.codigo + idx}
+                                className={`border-t ${isRemoved ? 'bg-red-50 dark:bg-red-900/10 opacity-60' : ''}`}
+                              >
+                                <td className={`px-3 py-2 font-mono ${isRemoved ? 'line-through' : ''}`}>
+                                  {exam.codigo}
+                                </td>
+                                <td className={`px-3 py-2 ${isRemoved ? 'line-through' : ''}`}>
+                                  {exam.nombre}
+                                </td>
+                                <td className={`px-3 py-2 text-right ${isRemoved ? 'line-through' : ''}`}>
+                                  {exam.valor || '-'}
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  {isRemoved ? (
+                                    <button
+                                      onClick={() => setEditedExams(prev => [...prev, exam.codigo])}
+                                      className="text-muted-foreground hover:text-foreground"
+                                      title="Restaurar"
+                                    >
+                                      ↩
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => removeExam(exam.codigo)}
+                                      className="text-muted-foreground hover:text-destructive"
+                                      title="Quitar"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground py-2">
+                      No hay exámenes agregados
                     </div>
                   )}
+
+                  {/* Total */}
+                  {selectedTab.state?.total && (
+                    <div className="flex justify-end text-sm font-medium pt-2 border-t">
+                      Total: <span className="ml-2">{selectedTab.state.total}</span>
+                    </div>
+                  )}
+
+                  {/* Add exam input */}
+                  <div className="pt-3 border-t">
+                    <h4 className="text-xs font-medium text-muted-foreground mb-2">Agregar Examen</h4>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newExamCode}
+                        onChange={(e) => setNewExamCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => e.key === 'Enter' && addExam()}
+                        placeholder="Código del examen (ej: BH, EMO)"
+                        className="flex-1 px-2 py-1 text-sm border rounded"
+                        list="exam-suggestions"
+                      />
+                      <datalist id="exam-suggestions">
+                        {availableExams.slice(0, 20).map(exam => (
+                          <option key={exam.codigo} value={exam.codigo}>
+                            {exam.nombre}
+                          </option>
+                        ))}
+                      </datalist>
+                      <Button size="sm" onClick={addExam}>
+                        Agregar
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -449,7 +527,9 @@ export function TabEditor({ onClose }: TabEditorProps) {
                   variant="outline"
                   onClick={() => {
                     setEditedExams(selectedTab.state?.exams || []);
+                    setEditedExamsDetails(selectedTab.state?.exams_details || []);
                     setEditedFields(selectedTab.state?.field_values || {});
+                    setFieldsDetails(selectedTab.state?.fields_details || []);
                     setError(null);
                     setSuccessMessage(null);
                   }}

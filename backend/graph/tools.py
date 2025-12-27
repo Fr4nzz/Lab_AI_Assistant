@@ -347,17 +347,31 @@ async def _extract_tab_state(page, tab_type: str) -> dict:
             data = await page.evaluate(EXTRACT_REPORTES_JS)
             state["paciente"] = data.get("paciente")
             state["order_num"] = data.get("numero_orden")
-            # Extract exam field values (simplified)
+            # Extract exam field values with dropdown options
             examenes = data.get("examenes", [])
             state["examenes_count"] = len(examenes)
             # Track field values for change detection
             field_values = {}
+            # Full field details with dropdown options
+            fields_details = []
             for exam in examenes:
                 exam_name = exam.get("nombre", "")
-                for param in exam.get("parametros", []):
-                    field_key = f"{exam_name}:{param.get('nombre', '')}"
-                    field_values[field_key] = param.get("valor", "")
+                for campo in exam.get("campos", []):
+                    field_name = campo.get("f", "")
+                    field_key = f"{exam_name}:{field_name}"
+                    field_values[field_key] = campo.get("val", "")
+                    # Include full field details
+                    fields_details.append({
+                        "key": field_key,
+                        "exam": exam_name,
+                        "field": field_name,
+                        "value": campo.get("val", ""),
+                        "type": campo.get("tipo", "input"),
+                        "options": campo.get("opciones"),  # Dropdown options
+                        "ref": campo.get("ref")  # Reference values
+                    })
             state["field_values"] = field_values
+            state["fields_details"] = fields_details
 
         elif tab_type == "orden_edit":
             # Extract order edit page state
@@ -365,12 +379,40 @@ async def _extract_tab_state(page, tab_type: str) -> dict:
             state["paciente"] = data.get("paciente", {}).get("nombres") if isinstance(data.get("paciente"), dict) else data.get("paciente")
             added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
             state["exams"] = [e.get("codigo") for e in added_exams]
+            # Include full exam details with prices
+            state["exams_details"] = [{
+                "codigo": e.get("codigo"),
+                "nombre": e.get("nombre"),
+                "valor": e.get("valor"),  # Price
+                "estado": e.get("estado"),
+                "can_remove": e.get("can_remove", False)
+            } for e in added_exams]
             state["exams_count"] = len(added_exams)
+            # Get total
+            totals = await page.evaluate(r"""
+                () => {
+                    let total = null;
+                    document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
+                        const text = el.innerText?.trim() || '';
+                        if (text.startsWith('$') && !total) total = text;
+                    });
+                    return { total };
+                }
+            """)
+            state["total"] = totals.get("total")
 
         elif tab_type == "nueva_orden":
             # Extract new order page state
             added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
             state["exams"] = [e.get("codigo") for e in added_exams]
+            # Include full exam details with prices
+            state["exams_details"] = [{
+                "codigo": e.get("codigo"),
+                "nombre": e.get("nombre"),
+                "valor": e.get("valor"),  # Price
+                "estado": e.get("estado"),
+                "can_remove": e.get("can_remove", False)
+            } for e in added_exams]
             state["exams_count"] = len(added_exams)
             # Get total
             totals = await page.evaluate(r"""
