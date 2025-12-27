@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { createUIMessageStream, createUIMessageStreamResponse, generateText } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { addMessage, saveFile, createChat, ChatAttachment, saveDebugRequest, updateDebugRequest, updateChatTitle } from '@/lib/db';
+import { addMessage, saveFile, createChat, ChatAttachment, updateChatTitle } from '@/lib/db';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -27,30 +27,6 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
   } catch (error) {
     console.error('[API/chat] Title generation error:', error);
   }
-}
-
-// Summarize media content for debug (avoid storing huge base64 strings)
-function summarizeForDebug(obj: unknown): unknown {
-  if (typeof obj !== 'object' || obj === null) return obj;
-
-  if (Array.isArray(obj)) {
-    return obj.map(summarizeForDebug);
-  }
-
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (key === 'data' && typeof value === 'string' && value.length > 200) {
-      result[key] = `[BASE64 DATA: ${value.length} chars]`;
-    } else if (key === 'url' && typeof value === 'string' && value.startsWith('data:') && value.length > 200) {
-      const mimeMatch = value.match(/^data:([^;]+)/);
-      result[key] = `[DATA URL: ${mimeMatch?.[1] || 'unknown'}, ${value.length} chars]`;
-    } else if (typeof value === 'object') {
-      result[key] = summarizeForDebug(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
 }
 
 interface MessagePart {
@@ -270,13 +246,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await addMessage(
-      chatId,
-      'user',
-      textContent,
-      summarizeForDebug(lastUserMessage),  // Summarize to avoid huge base64 in logs
-      attachments
-    );
+    await addMessage(chatId, 'user', textContent, undefined, attachments);
   }
 
   // Convert messages for backend
@@ -290,15 +260,7 @@ export async function POST(req: NextRequest) {
     tools: enabledTools,
   };
 
-  // Save debug info (summarized to avoid huge base64 data)
-  const debugId = await saveDebugRequest(
-    chatId,
-    summarizeForDebug(messages),
-    summarizeForDebug(backendRequest)
-  );
-
   console.log('[API/chat] Messages count:', messages.length);
-  console.log('[API/chat] Backend request (summarized):', JSON.stringify(summarizeForDebug(openaiMessages.slice(-1)), null, 2));
 
   let backendResponse: Response;
   try {
@@ -316,7 +278,6 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[API/chat] Backend connection failed after retries:', errorMessage);
-    await updateDebugRequest(chatId, debugId, { error: `Backend connection failed: ${errorMessage}` });
     return new Response(JSON.stringify({ error: 'Backend not available. Please wait and try again.' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },
@@ -326,7 +287,6 @@ export async function POST(req: NextRequest) {
   console.log('[API/chat] Backend response status:', backendResponse.status);
 
   if (!backendResponse.ok || !backendResponse.body) {
-    await updateDebugRequest(chatId, debugId, { error: `Backend error: ${backendResponse.status}` });
     return new Response(JSON.stringify({ error: 'Backend error' }), {
       status: backendResponse.status,
       headers: { 'Content-Type': 'application/json' },
@@ -366,12 +326,10 @@ export async function POST(req: NextRequest) {
       // Store assistant response in database
       if (fullResponse) {
         await addMessage(chatId, 'assistant', fullResponse);
-        await updateDebugRequest(chatId, debugId, { backendResponse: fullResponse });
       }
     },
     onError: (error) => {
       console.error('[API/chat] Stream error:', error);
-      updateDebugRequest(chatId, debugId, { error: String(error) });
       return 'An error occurred';
     },
   });

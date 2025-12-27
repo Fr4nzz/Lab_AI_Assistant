@@ -30,112 +30,12 @@ OPTIMIZATION GOAL:
 from typing import Literal
 import sys
 import logging
-import json
-import re
 from pathlib import Path
-from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
-
-# Directory for LLM call logs
-LLM_LOG_DIR = Path(__file__).parent.parent / "data" / "llm_calls"
-
-
-def summarize_content_for_log(content):
-    """Summarize content for logging, truncating base64 data."""
-    if isinstance(content, str):
-        # Truncate long base64 data URLs
-        if content.startswith('data:') and len(content) > 200:
-            mime_match = re.match(r'^data:([^;]+)', content)
-            return f"[DATA URL: {mime_match.group(1) if mime_match else 'unknown'}, {len(content)} chars]"
-        return content
-    if isinstance(content, list):
-        result = []
-        for item in content:
-            if isinstance(item, dict):
-                summarized = {}
-                for k, v in item.items():
-                    if k in ('data', 'url', 'image_url') and isinstance(v, str) and len(v) > 200:
-                        if isinstance(v, str) and v.startswith('data:'):
-                            mime_match = re.match(r'^data:([^;]+)', v)
-                            summarized[k] = f"[DATA URL: {mime_match.group(1) if mime_match else 'unknown'}, {len(v)} chars]"
-                        else:
-                            summarized[k] = f"[BASE64: {len(v)} chars]"
-                    elif isinstance(v, dict) and 'url' in v:
-                        # Handle nested image_url: {url: "data:..."}
-                        url = v.get('url', '')
-                        if isinstance(url, str) and len(url) > 200:
-                            summarized[k] = {"url": f"[DATA URL: {len(url)} chars]"}
-                        else:
-                            summarized[k] = v
-                    else:
-                        summarized[k] = v
-                result.append(summarized)
-            else:
-                result.append(item)
-        return result
-    return content
-
-
-def log_llm_call(call_num: int, messages: list, response, tools_bound: bool = False):
-    """
-    Log the full LLM call to a JSON file for debugging.
-
-    This shows EXACTLY what Gemini receives and returns.
-    """
-    LLM_LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"llm_{timestamp}_{call_num:02d}.json"
-
-    # Serialize messages
-    serialized_messages = []
-    for msg in messages:
-        msg_type = type(msg).__name__
-        content = msg.content if hasattr(msg, 'content') else str(msg)
-
-        # Summarize content to avoid huge files
-        summarized_content = summarize_content_for_log(content)
-
-        serialized_messages.append({
-            "type": msg_type,
-            "content": summarized_content,
-            "content_length": len(str(content)),
-        })
-
-    # Serialize response
-    response_data = {
-        "type": type(response).__name__,
-        "content": summarize_content_for_log(response.content) if hasattr(response, 'content') else str(response),
-        "content_length": len(str(response.content)) if hasattr(response, 'content') else 0,
-    }
-
-    if hasattr(response, 'tool_calls') and response.tool_calls:
-        response_data["tool_calls"] = [
-            {"name": tc.get('name'), "args": tc.get('args')}
-            for tc in response.tool_calls
-        ]
-
-    if hasattr(response, 'usage_metadata') and response.usage_metadata:
-        response_data["usage"] = dict(response.usage_metadata)
-
-    log_data = {
-        "timestamp": datetime.now().isoformat(),
-        "call_number": call_num,
-        "tools_bound": tools_bound,
-        "input_messages": serialized_messages,
-        "input_total_chars": sum(m["content_length"] for m in serialized_messages),
-        "response": response_data,
-    }
-
-    filepath = LLM_LOG_DIR / filename
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(log_data, f, ensure_ascii=False, indent=2)
-
-    logger.info(f"[LLM] Logged call #{call_num} to {filename} (input: {log_data['input_total_chars']} chars)")
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -169,9 +69,6 @@ def create_lab_agent(browser_manager=None):
     # Get model and bind tools
     model = get_chat_model()
     model_with_tools = model.bind_tools(ALL_TOOLS)
-
-    # Track LLM call count for logging
-    llm_call_counter = [0]  # Use list to allow mutation in nested function
 
     # ============================================================
     # NODE DEFINITIONS
@@ -224,10 +121,6 @@ def create_lab_agent(browser_manager=None):
                 time.sleep(2)  # Brief wait before retry
             else:
                 logger.error(f"[Agent] LLM returned empty after {max_empty_retries + 1} attempts")
-
-        # Log the full LLM call for debugging
-        llm_call_counter[0] += 1
-        log_llm_call(llm_call_counter[0], messages, response, tools_bound=True)
 
         # Log thinking if present (Gemini 3+ with include_thoughts=True)
         if hasattr(response, 'additional_kwargs'):
