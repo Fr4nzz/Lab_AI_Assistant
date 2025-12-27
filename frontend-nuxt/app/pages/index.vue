@@ -48,32 +48,28 @@ async function onSubmit() {
 
 const quickChats = [
   {
-    label: 'Why use Nuxt UI?',
-    icon: 'i-logos-nuxt-icon'
+    label: 'Buscar orden por nombre de paciente',
+    icon: 'i-lucide-search'
   },
   {
-    label: 'Help me create a Vue composable',
-    icon: 'i-logos-vue'
+    label: 'Ver resultados de una orden',
+    icon: 'i-lucide-file-text'
   },
   {
-    label: 'Tell me more about UnJS',
-    icon: 'i-logos-unjs'
+    label: 'Crear una nueva orden',
+    icon: 'i-lucide-plus-circle'
   },
   {
-    label: 'Why should I consider VueUse?',
-    icon: 'i-logos-vueuse'
+    label: 'Editar exámenes de una orden',
+    icon: 'i-lucide-list-checks'
   },
   {
-    label: 'Tailwind CSS best practices',
-    icon: 'i-logos-tailwindcss-icon'
+    label: 'Qué exámenes están disponibles?',
+    icon: 'i-lucide-list'
   },
   {
-    label: 'What is the weather in Bordeaux?',
-    icon: 'i-lucide-sun'
-  },
-  {
-    label: 'Show me a chart of sales data',
-    icon: 'i-lucide-line-chart'
+    label: 'Agregar exámenes a una orden existente',
+    icon: 'i-lucide-plus'
   }
 ]
 </script>
@@ -88,7 +84,7 @@ const quickChats = [
       <DragDropOverlay :show="isDragging" />
       <UContainer ref="dropzoneRef" class="flex-1 flex flex-col justify-center gap-4 sm:gap-6 py-8">
         <h1 class="text-3xl sm:text-4xl text-highlighted font-bold">
-          How can I help you today?
+          ¿En qué puedo ayudarte hoy?
         </h1>
 
         <UChatPrompt

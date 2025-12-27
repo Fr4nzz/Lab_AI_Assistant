@@ -2,12 +2,11 @@
 declare module '#auth-utils' {
   interface User {
     id: string
-    name: string
+    name?: string
     email: string
-    avatar: string
-    username: string
-    provider: 'github'
-    providerId: number
+    avatar?: string
+    provider: 'google' | 'github'
+    providerId: string
   }
 }
 

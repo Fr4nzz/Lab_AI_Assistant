@@ -45,11 +45,19 @@ if (!data.value) {
   throw createError({ statusCode: 404, statusMessage: 'Chat not found' })
 }
 
+// Transform messages to include parts if they only have content
+const transformedMessages = (data.value.messages || []).map((msg: any) => ({
+  id: msg.id,
+  role: msg.role,
+  createdAt: msg.createdAt,
+  parts: msg.parts || (msg.content ? [{ type: 'text', text: msg.content }] : [])
+}))
+
 const input = ref('')
 
 const chat = new Chat({
   id: data.value.id,
-  messages: data.value.messages,
+  messages: transformedMessages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
     body: {
@@ -116,7 +124,7 @@ onMounted(() => {
           should-auto-scroll
           :messages="chat.messages"
           :status="chat.status"
-          :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copy', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
+          :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copiar', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
           :spacing-offset="160"
           class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
         >
@@ -135,13 +143,13 @@ onMounted(() => {
                 :parser-options="{ highlight: false }"
                 class="*:first:mt-0 *:last:mb-0"
               />
-              <ToolWeather
-                v-else-if="part.type === 'tool-weather'"
-                :invocation="(part as WeatherUIToolInvocation)"
-              />
-              <ToolChart
-                v-else-if="part.type === 'tool-chart'"
-                :invocation="(part as ChartUIToolInvocation)"
+              <!-- Lab tool invocations -->
+              <ToolLabTool
+                v-else-if="part.type === 'tool-invocation'"
+                :name="(part as any).toolName"
+                :args="(part as any).args || {}"
+                :result="(part as any).result"
+                :state="(part as any).state || 'pending'"
               />
               <FileAvatar
                 v-else-if="part.type === 'file'"

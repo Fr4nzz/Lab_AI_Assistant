@@ -8,10 +8,9 @@ const timestamps = {
 export const users = sqliteTable('users', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   email: text('email').notNull(),
-  name: text('name').notNull(),
-  avatar: text('avatar').notNull(),
-  username: text('username').notNull(),
-  provider: text('provider').notNull(), // 'github'
+  name: text('name'),
+  avatar: text('avatar'),
+  provider: text('provider').notNull(), // 'google' or 'github'
   providerId: text('provider_id').notNull(),
   ...timestamps
 }, table => [
@@ -25,7 +24,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const chats = sqliteTable('chats', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   title: text('title'),
-  userId: text('user_id').notNull(),
+  userId: text('user_id'),
   ...timestamps
 }, table => [
   index('chats_user_id_idx').on(table.userId)
@@ -43,15 +42,37 @@ export const messages = sqliteTable('messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   chatId: text('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
-  parts: text('parts', { mode: 'json' }),
+  content: text('content'), // Plain text content
+  parts: text('parts', { mode: 'json' }), // Multimodal parts (JSON array)
   ...timestamps
 }, table => [
   index('messages_chat_id_idx').on(table.chatId)
 ])
 
-export const messagesRelations = relations(messages, ({ one }) => ({
+export const messagesRelations = relations(messages, ({ one, many }) => ({
   chat: one(chats, {
     fields: [messages.chatId],
     references: [chats.id]
+  }),
+  files: many(files)
+}))
+
+// File attachments table
+export const files = sqliteTable('files', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  messageId: text('message_id').references(() => messages.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  mimeType: text('mime_type').notNull(),
+  path: text('path').notNull(), // Relative path in data/files/
+  size: integer('size'),
+  ...timestamps
+}, table => [
+  index('files_message_id_idx').on(table.messageId)
+])
+
+export const filesRelations = relations(files, ({ one }) => ({
+  message: one(messages, {
+    fields: [files.messageId],
+    references: [messages.id]
   })
 }))

@@ -1,29 +1,41 @@
-import type { UIMessage } from 'ai'
-import { db, schema } from 'hub:db'
 import { z } from 'zod'
+import { createChat, addMessage } from '../utils/db'
 
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
-  const { id, message } = await readValidatedBody(event, z.object({
-    id: z.string(),
-    message: z.custom<UIMessage>()
+
+  const body = await readValidatedBody(event, z.object({
+    id: z.string().optional(),
+    title: z.string().optional(),
+    message: z.object({
+      role: z.string(),
+      parts: z.array(z.any()).optional(),
+      content: z.string().optional()
+    }).optional()
   }).parse)
 
-  const [chat] = await db.insert(schema.chats).values({
-    id,
-    title: '',
-    userId: session.user?.id || session.id
-  }).returning()
+  // Get user ID from session
+  const userId = session.user?.id || session.id
 
-  if (!chat) {
-    throw createError({ statusCode: 500, statusMessage: 'Failed to create chat' })
-  }
-
-  await db.insert(schema.messages).values({
-    chatId: chat.id,
-    role: 'user',
-    parts: message.parts
+  // Create chat
+  const chat = await createChat({
+    id: body.id,
+    title: body.title || 'Nuevo Chat',
+    userId
   })
+
+  // Add initial message if provided
+  if (body.message) {
+    const textContent = body.message.content ||
+      body.message.parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || ''
+
+    await addMessage({
+      chatId: chat.id,
+      role: body.message.role as 'user' | 'assistant' | 'system',
+      content: textContent,
+      parts: body.message.parts
+    })
+  }
 
   return chat
 })

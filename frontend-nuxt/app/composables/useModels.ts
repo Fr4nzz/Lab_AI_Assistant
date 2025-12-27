@@ -1,5 +1,20 @@
 export function formatModelName(modelId: string): string {
-  const acronyms = ['gpt'] // words that should be uppercase
+  // Map of model IDs to display names
+  const displayNames: Record<string, string> = {
+    'lab-assistant': 'Lab Assistant',
+    'google/gemini-2.5-flash-preview-05-20': 'Gemini 2.5 Flash',
+    'google/gemini-2.0-flash-exp:free': 'Gemini 2.0 Flash (Free)',
+    'anthropic/claude-3.5-sonnet': 'Claude 3.5 Sonnet',
+    'openai/gpt-4o-mini': 'GPT-4o Mini',
+    'meta-llama/llama-3.3-70b-instruct:free': 'Llama 3.3 70B (Free)'
+  }
+
+  if (displayNames[modelId]) {
+    return displayNames[modelId]
+  }
+
+  // Fallback: format from model ID
+  const acronyms = ['gpt']
   const modelName = modelId.split('/')[1] || modelId
 
   return modelName
@@ -15,12 +30,15 @@ export function formatModelName(modelId: string): string {
 
 export function useModels() {
   const models = [
-    'openai/gpt-5-nano',
-    'anthropic/claude-haiku-4.5',
-    'google/gemini-2.5-flash'
+    'lab-assistant',
+    'google/gemini-2.5-flash-preview-05-20',
+    'google/gemini-2.0-flash-exp:free',
+    'anthropic/claude-3.5-sonnet',
+    'openai/gpt-4o-mini',
+    'meta-llama/llama-3.3-70b-instruct:free'
   ]
 
-  const model = useCookie<string>('model', { default: () => 'openai/gpt-5-nano' })
+  const model = useCookie<string>('model', { default: () => 'lab-assistant' })
 
   return {
     models,

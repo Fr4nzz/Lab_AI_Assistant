@@ -1,38 +1,43 @@
-interface BlobResult {
-  pathname: string
-  url?: string
-  contentType?: string
-  size: number
-}
+import { FILE_UPLOAD_CONFIG, type FileWithStatus } from '~~/shared/utils/file'
 
 function createObjectUrl(file: File): string {
   return URL.createObjectURL(file)
 }
 
-function fileToInput(file: File): HTMLInputElement {
-  const dataTransfer = new DataTransfer()
-  dataTransfer.items.add(file)
-
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.files = dataTransfer.files
-
-  return input
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // Remove the data URL prefix to get just the base64 data
+      const base64 = result.split(',')[1]
+      resolve(base64 || '')
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
-export function useFileUploadWithStatus(chatId: string) {
+export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
-  const { loggedIn } = useUserSession()
-
-  const upload = useUpload(`/api/upload/${chatId}`, { method: 'PUT' })
 
   async function uploadFiles(newFiles: File[]) {
-    if (!loggedIn.value) {
-      return
-    }
+    // Validate file sizes
+    const validFiles = newFiles.filter((file) => {
+      if (file.size > FILE_UPLOAD_CONFIG.maxSize) {
+        toast.add({
+          title: 'Archivo muy grande',
+          description: `${file.name} excede el límite de 8MB`,
+          icon: 'i-lucide-alert-circle',
+          color: 'error'
+        })
+        return false
+      }
+      return true
+    })
 
-    const filesWithStatus: FileWithStatus[] = newFiles.map(file => ({
+    const filesWithStatus: FileWithStatus[] = validFiles.map(file => ({
       file,
       id: crypto.randomUUID(),
       previewUrl: createObjectUrl(file),
@@ -41,36 +46,23 @@ export function useFileUploadWithStatus(chatId: string) {
 
     files.value = [...files.value, ...filesWithStatus]
 
+    // Convert files to base64
     const uploadPromises = filesWithStatus.map(async (fileWithStatus) => {
       const index = files.value.findIndex(f => f.id === fileWithStatus.id)
       if (index === -1) return
 
       try {
-        const input = fileToInput(fileWithStatus.file)
-        const response = await upload(input) as BlobResult | BlobResult[] | undefined
-
-        if (!response) {
-          throw new Error('Upload failed')
-        }
-
-        const result = Array.isArray(response) ? response[0] : response
-
-        if (!result) {
-          throw new Error('Upload failed')
-        }
+        const base64Data = await fileToBase64(fileWithStatus.file)
 
         files.value[index] = {
           ...files.value[index]!,
           status: 'uploaded',
-          uploadedUrl: result.url,
-          uploadedPathname: result.pathname
+          base64Data
         }
       } catch (error) {
-        const errorMessage = (error as { data?: { message?: string } }).data?.message
-          || (error as Error).message
-          || 'Upload failed'
+        const errorMessage = (error as Error).message || 'Error al procesar archivo'
         toast.add({
-          title: 'Upload failed',
+          title: 'Error',
           description: errorMessage,
           icon: 'i-lucide-alert-circle',
           color: 'error'
@@ -96,13 +88,16 @@ export function useFileUploadWithStatus(chatId: string) {
     files.value.some(f => f.status === 'uploading')
   )
 
+  // Format files for AI SDK message parts
   const uploadedFiles = computed(() =>
     files.value
-      .filter(f => f.status === 'uploaded' && f.uploadedUrl)
+      .filter(f => f.status === 'uploaded' && f.base64Data)
       .map(f => ({
         type: 'file' as const,
         mediaType: f.file.type,
-        url: f.uploadedUrl!
+        url: `data:${f.file.type};base64,${f.base64Data}`,
+        data: f.base64Data!,
+        name: f.file.name
       }))
   )
 
@@ -112,14 +107,6 @@ export function useFileUploadWithStatus(chatId: string) {
 
     URL.revokeObjectURL(file.previewUrl)
     files.value = files.value.filter(f => f.id !== id)
-
-    if (file.status === 'uploaded' && file.uploadedPathname) {
-      fetch(`/api/upload/${file.uploadedPathname}`, {
-        method: 'DELETE'
-      }).catch((error) => {
-        console.error('Failed to delete file from blob:', error)
-      })
-    }
   }
 
   function clearFiles() {
