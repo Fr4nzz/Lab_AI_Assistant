@@ -874,10 +874,14 @@ async def chat_aisdk(request: AISdkChatRequest):
             if context_parts:
                 initial_state["current_page_context"] = "\n\n".join(context_parts)
 
-            # Stream events
+            # Stream events using new AI SDK v6 protocol
+            adapter = StreamAdapter()
             full_response = []
             total_input_tokens = 0
             total_output_tokens = 0
+
+            # Start the message
+            yield adapter.start_message()
 
             async for event in graph.astream_events(
                 initial_state,
@@ -894,20 +898,17 @@ async def chat_aisdk(request: AISdkChatRequest):
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
                     run_id = event.get("run_id", str(uuid.uuid4()))
-                    logger.info(f"[AI SDK] TOOL: {tool_name}")
-                    stream_data = StreamAdapter.tool_call(run_id, tool_name, tool_input)
-                    logger.info(f"[AI SDK] YIELD tool_call: {stream_data[:100]}...")
-                    yield stream_data
+                    logger.info(f"[AI SDK] TOOL START: {tool_name}")
+                    # Send tool start and input
+                    yield adapter.tool_start(run_id, tool_name)
+                    yield adapter.tool_input(run_id, tool_input)
 
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name", "unknown")
                     tool_output = event.get("data", {}).get("output", "")
                     run_id = event.get("run_id", "")
-                    # Truncate large outputs for streaming
-                    output_str = str(tool_output)[:500] if tool_output else ""
-                    stream_data = StreamAdapter.tool_result(run_id, output_str)
-                    logger.info(f"[AI SDK] YIELD tool_result: {stream_data[:100]}...")
-                    yield stream_data
+                    logger.info(f"[AI SDK] TOOL END: {tool_name}")
+                    yield adapter.tool_output(run_id, tool_output)
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
@@ -920,8 +921,8 @@ async def chat_aisdk(request: AISdkChatRequest):
                             content = ''.join(text_parts)
                         if content:
                             full_response.append(content)
-                            stream_data = StreamAdapter.text(content)
-                            logger.info(f"[AI SDK] YIELD text (stream): {stream_data[:100]}...")
+                            stream_data = adapter.text_delta(content)
+                            logger.info(f"[AI SDK] YIELD text_delta: {stream_data[:100]}...")
                             yield stream_data
 
                 elif event_type == "on_chat_model_end":
@@ -945,21 +946,17 @@ async def chat_aisdk(request: AISdkChatRequest):
                             logger.info(f"[AI SDK] END: No stream data, yielding from output.content")
                             if isinstance(content, str) and content:
                                 full_response.append(content)
-                                stream_data = StreamAdapter.text(content)
-                                logger.info(f"[AI SDK] YIELD text (end): {stream_data[:100]}...")
+                                stream_data = adapter.text_delta(content)
+                                logger.info(f"[AI SDK] YIELD text_delta (end): {stream_data[:100]}...")
                                 yield stream_data
                             elif isinstance(content, list):
                                 text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
                                 text = ''.join(text_parts)
                                 if text:
                                     full_response.append(text)
-                                    stream_data = StreamAdapter.text(text)
-                                    logger.info(f"[AI SDK] YIELD text (end, list): {stream_data[:100]}...")
+                                    stream_data = adapter.text_delta(text)
+                                    logger.info(f"[AI SDK] YIELD text_delta (end, list): {stream_data[:100]}...")
                                     yield stream_data
-
-            # Send browser tabs update as data
-            if tabs_context:
-                yield StreamAdapter.data([{"tabsContext": tabs_context}])
 
             # Send finish with usage
             usage = None
@@ -969,8 +966,8 @@ async def chat_aisdk(request: AISdkChatRequest):
                     "completionTokens": total_output_tokens,
                     "totalTokens": total_input_tokens + total_output_tokens
                 }
-            finish_data = StreamAdapter.finish("stop", usage)
-            logger.info(f"[AI SDK] YIELD finish: {finish_data}")
+            finish_data = adapter.finish("stop", usage)
+            logger.info(f"[AI SDK] YIELD finish: {finish_data[:100]}...")
             yield finish_data
 
             logger.info(f"[AI SDK] COMPLETE: full_response has {len(full_response)} parts, total chars: {sum(len(p) for p in full_response)}")
@@ -978,14 +975,15 @@ async def chat_aisdk(request: AISdkChatRequest):
 
         except Exception as e:
             logger.error(f"[AI SDK] Error: {e}", exc_info=True)
-            yield StreamAdapter.error(str(e))
-            yield StreamAdapter.finish("error")
+            adapter = StreamAdapter()
+            yield adapter.error(str(e))
+            yield adapter.finish("error")
 
     return StreamingResponse(
         generate(),
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
-            "x-vercel-ai-data-stream": "v1",
+            "x-vercel-ai-ui-message-stream": "v1",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Chat-Id": thread_id,
