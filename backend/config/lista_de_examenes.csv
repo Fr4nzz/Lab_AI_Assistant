@@ -1,0 +1,191 @@
+codigo,nombre,seccion,precio_particular,precio_descuento,tiempo,muestra,tecnica
+DENGIG,ANTI DENGUE IGG,Autoinmunes e Infecciosas,4.5,0.0,1 día,Suero,MEIA
+DENIM,ANTI DENGUE IGM,Autoinmunes e Infecciosas,6.0,0.0,4 horas,Suero,Electroquimioluminiscencia
+ATPO,ANTI MICROSOMALES (TPO) (PEROXIDASA TIROIDEA),Autoinmunes e Infecciosas,16.5,11.5,1 día,Suero,SCM-EIA Automatizado
+ACCP,ANTI-CCP (CITRULINA),Autoinmunes e Infecciosas,23.0,18.0,2 días,Suero,SCM-EIA Automatizado
+ATG,ANTI-TIROGLOBULINA,Autoinmunes e Infecciosas,16.5,11.5,1 día,Suero,Electroquimioluminiscencia
+CELULE,CELULAS LE,Autoinmunes e Infecciosas,3.0,3.0,1 día,Sangre Total EDTA,
+CMVIG,CITOMEGALOVIRUS (CMV) IGG,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
+CMVIM,CITOMEGALOVIRUS (CMV) IGM,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
+CRIOA,CRIOAGLUTININAS,Autoinmunes e Infecciosas,6.0,0.0,1 día,"Sangre Total EDTA,Suero",
+NS1,DENGUE NS1,Autoinmunes e Infecciosas,8.5,8.0,4 horas,Suero,Inmunofluorescencia
+HELIPR,HELICOBACTER PYLORI PRUEBA RÁPIDA,Autoinmunes e Infecciosas,6.0,0.0,2 horas,Suero,Inmunocromatografía
+HAVIGM,HEPATITIS A (HAV) ANTICUERPOS IgM,Autoinmunes e Infecciosas,6.5,0.0,2 días,Suero,SCM-EIA Automatizado
+HBSAGCL,HEPATITIS B ANTIGENO AUSTRALIA SUPERFICIE (HBsAg)CUALITATIVA,Autoinmunes e Infecciosas,5.5,5.5,2 horas,Suero,Inmunocromatografía
+HCVACCL,HEPATITIS C ANTICUERPOS TOTALES (HCV) CUALITATIVA,Autoinmunes e Infecciosas,6.0,6.0,2 horas,Suero,Inmunocromatografía
+HER1IG,HERPES SIMPLE TIPO 1 (IGG),Autoinmunes e Infecciosas,2.5,0.0,2 días,Suero,SCM-EIA Automatizado
+HER1IM,HERPES SIMPLE TIPO 1 (IGM),Autoinmunes e Infecciosas,2.5,0.0,2 días,Suero,SCM-EIA Automatizado
+HER2IG,HERPES SIMPLE TIPO 2 (IgG),Autoinmunes e Infecciosas,2.5,0.0,2 horas,Suero,SCM-EIA Automatizado
+HER2IM,HERPES SIMPLE TIPO 2 (IgM),Autoinmunes e Infecciosas,2.5,0.0,2 horas,Suero,SCM-EIA Automatizado
+PLASVI,PLASMODIUM VIVAX,Autoinmunes e Infecciosas,3.0,0.0,1 día,Sangre Total EDTA,MEIA
+RUBIG,RUBEOLA IGG CUANTITATIVA,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
+RUBIM,RUBEOLA IGM CUANTITATIVA,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
+TORCH,TORCH PRUEBA RÁPIDA,Autoinmunes e Infecciosas,38.0,0.0,1 hora,Suero,Inmunocromatografía
+TOXOIG,TOXOPLASMA IgG,Autoinmunes e Infecciosas,5.0,0.0,2 horas,Suero,Electroquimioluminiscencia
+TOXOIM,TOXOPLASMA IgM,Autoinmunes e Infecciosas,5.0,0.0,2 horas,Suero,Electroquimioluminiscencia
+TGP,ALANINO AMINOTRANSFERASA GPT (ALT),Bioquímica,3.5,0.0,3 horas,Suero,Fotometría Automatizada
+ALBU,ALBÚMINA,Bioquímica,3.0,0.0,3 horas,Suero,Fotometría Automatizada
+AMIL,AMILASA,Bioquímica,6.0,0.0,4 horas,Suero,Fotometría Automatizada
+TGO,ASPARTATO AMINOTRANSFERASA GOT (AST),Bioquímica,3.5,0.0,3 horas,Suero,Fotometría Automatizada
+BETA2,BETA 2 MICROGLOBULINA (SUERO),Bioquímica,20.0,0.0,1 día,Suero,Neflometría
+BILDI,BILIRRUBINA DIRECTA,Bioquímica,2.0,1.0,3 horas,Suero,Fotometría Automatizada
+BILIN,BILIRRUBINA INDIRECTA,Bioquímica,2.0,1.0,3 horas,Suero,Fotometría Automatizada
+BILTO,BILIRRUBINA TOTAL,Bioquímica,2.0,1.0,3 horas,Suero,Fotometría Automatizada
+BUN,BUN NITRÓGENO URÉICO EN SANGRE,Bioquímica,3.0,0.0,4 horas,Suero,Fotometría Automatizada
+CA,CALCIO,Bioquímica,3.0,0.0,5 horas,Suero,Fotometría Automatizada
+COL,COLESTEROL,Bioquímica,2.5,1.75,5 horas,Suero,Fotometría Automatizada
+HDL,COLESTEROL HDL,Bioquímica,2.5,0.0,5 horas,Suero,Fotometría Automatizada
+LDL,COLESTEROL LDL,Bioquímica,2.5,0.0,5 horas,Suero,Fotometría Automatizada
+CK,CREATIN KINASA TOTAL (CK/CPK),Bioquímica,10.0,0.0,2 horas,Suero,Fotometría Automatizada
+CRE,CREATININA,Bioquímica,2.0,0.0,5 horas,Suero,Fotometría Automatizada
+CULAMB,CULTIVO DE AMBIENTE,Bioquímica,10.0,8.0,3 días,Muestras Varias,
+CURV2H,CURVA DE GLUCOSA 2 HORAS,Bioquímica,7.5,0.0,5 horas,"Suero 1H,Suero 2H",Fotometría Automatizada
+CURV3H,CURVA DE GLUCOSA 3 HORAS,Bioquímica,9.5,0.0,7 horas,"Suero 1H,Suero 2H,Suero 3H",Fotometría Automatizada
+CINSUL,CURVA DE INSULINA 3 HORAS,Bioquímica,40.0,40.0,3 horas,"Suero,Suero 1H,Suero 2H,Suero 3H",Electroquimioluminiscencia
+LDH,DESHIDROGENASA LACTICA LDH,Bioquímica,3.5,0.0,1 día,Suero,Fotometría Automatizada
+FALK,FOSFATASA ALCALINA,Bioquímica,3.5,0.0,1 día,Suero,Fotometría Automatizada
+FOSFOR,FÓSFORO EN SUERO,Bioquímica,3.5,0.0,1 día,Suero,Fotometría Automatizada
+GGT,GAMMA GT,Bioquímica,3.5,0.0,1 día,Suero,Fotometría Automatizada
+GLOBU,GLOBULINA,Bioquímica,2.0,0.0,1 hora,Suero,Fotometría Automatizada
+GLU,GLUCOSA,Bioquímica,2.0,2.0,5 horas,Suero,Fotometría Automatizada
+GLU2PP,GLUCOSA POSTPRANDIAL 2H,Bioquímica,2.0,0.0,5 horas,Suero PP,Fotometría Automatizada
+HBGLI,HEMOGLOBINA GLICOSILADA TOTAL HBA1C,Bioquímica,8.0,8.0,1 día,Sangre Total EDTA,Turbidimetría Automatica
+FE,HIERRO SÉRICO,Bioquímica,8.0,3.0,1 día,Suero,Turbidimetría Automatica
+LIPASA,LIPASA,Bioquímica,6.0,0.0,1 día,Suero,Fotometría Automatizada
+MG,MAGNESIO EN SUERO,Bioquímica,5.0,0.0,1 día,Suero,Fotometría Automatizada
+MIALBC,MICROALBUMINURIA CUANTITATIVA,Bioquímica,5.0,0.0,1 día,Orina,
+PROTO,PROTEINAS TOTALES EN SUERO,Bioquímica,3.0,0.0,5 horas,Suero,Fotometría Automatizada
+TRI,TRIGLICÉRIDOS,Bioquímica,2.5,1.75,4 horas,Suero,Fotometría Automatizada
+U,UREA,Bioquímica,2.0,0.0,5 horas,Suero,Fotometría Automatizada
+AU,ÁCIDO ÚRICO,Bioquímica,2.5,0.0,3 horas,Suero,Fotometría Automatizada
+CITOLOG,CITOLOGICO,Citología,5.0,0.0,1 día,Líquidos Varios,
+DIMERO,DÍMERO D,Coagulación,23.0,0.0,1 día,Sangre Citrato,Inmunoensayo Heterogéneo
+TC,TIEMPO DE COAGULACIÓN,Coagulación,3.0,0.0,1 hora,Sangre Citrato,Coagulometría Automática
+TP,TIEMPO DE PROTROMBINA TP,Coagulación,3.0,0.0,1 hora,Sangre Citrato,Coagulometría Automática
+TS,TIEMPO DE SANGRIA,Coagulación,3.0,0.0,1 hora,Sangre Citrato,Coagulometría Automática
+TTP,TIEMPO PARCIAL DE TROMBOPLASTINA TTP,Coagulación,3.0,0.0,2 horas,Sangre Citrato,Coagulometría Automática
+ADENO,ADENOVIRUS,Coproanálisis,5.0,0.0,2 horas,Materia Fecal,Inmunocromatografía
+AMILOR,AMILASA EN ORINA,Coproanálisis,6.0,0.0,5 horas,Orina,
+CHLADE,CLAMYDIA TRACHOMATIS DNA DETECTOR,Coproanálisis,15.0,10.0,4 días,Cepillado Cervico-vaginal,
+COPRO,COPROPARASITARIO,Coproanálisis,2.5,2.0,1 hora,Materia Fecal,Microscopía
+COPRO2,COPROPARASITARIO DÍA 2,Coproanálisis,2.5,0.0,1 hora,Materia Fecal,Microscopía
+COPRO3,COPROPARASITARIO DÍA 3,Coproanálisis,2.5,0.0,1 hora,Materia Fecal,Microscopía
+FUNLEV,FUNGIGRAMA PARA LEVADURAS,Coproanálisis,10.0,8.0,3 días,Muestras Varias,
+GRAM,GRAM TINCION,Coproanálisis,3.0,2.0,4 horas,Muestras Varias,Coloración GRAM
+HPYHEC,HELICOBACTER PYLORI EN HECES,Coproanálisis,6.0,0.0,2 horas,Materia Fecal,Inmunocaptura
+IPMN,INVESTIGACIÓN DE POLIMORFONUCLEARES (CITOLOGIA MOCO FECAL),Coproanálisis,2.5,0.0,1 hora,Materia Fecal,Microscopía
+ROTA,ROTAVIRUS EN MATERIA FECAL,Coproanálisis,6.5,0.0,1 hora,Materia Fecal,Inmunocromatografía
+SAHEC,SANGRE OCULTA EN HECES,Coproanálisis,2.5,0.0,1 hora,Materia Fecal,Test de Guayaco
+UREA24,UREA EN ORINA DE 24 HORAS,Coproanálisis,2.0,0.0,1 día,Suero,
+PANELD,PANEL DROGAS EN ORINA,Drogas y Fármacos,13.0,0.0,1 día,Orina,Inmunocromatografía
+CL,CLORO,Electrolitos,3.0,0.0,2 horas,Suero,Fotometría Automatizada
+ELECTRO,ELECTROLITOS SODIO POTASIO CLORO,Electrolitos,9.0,0.0,2 horas,Suero,Fotometría Automatizada
+K,POTASIO,Electrolitos,3.0,0.0,2 horas,Suero,Fotometría Automatizada
+NA,SODIO EN SUERO,Electrolitos,3.0,0.0,2 horas,Suero,Fotometría Automatizada
+LEISH,LEISHMANIA,Especiales,5.0,0.0,3 horas,Muestras Varias,Microscopía
+B12,VITAMINA B12,Especiales,25.0,20.0,8 horas,Suero,Electroquimioluminiscencia
+25OH,VITAMINA D 25 HIDROXI,Especiales,25.0,20.0,1 hora,Suero,SCM-EIA Automatizado
+CORTAM,CORTISOL AM,Estudios Hormonales,12.5,7.5,1 día,Suero,MEIA
+CINS120,CURVA DE INSULINA 120 MINUTOS,Estudios Hormonales,30.0,30.0,3 horas,"Suero,Suero 1H,Suero 2H",Quimioluminiscencia
+E2,ESTRADIOL/ESTROGENOS / E2/17 Beta,Estudios Hormonales,12.0,6.75,4 horas,Suero,Electroquimioluminiscencia
+EMB-O,HCG BETA CUALITATIVO (TEST DE EMBARAZO EN ORINA),Estudios Hormonales,3.0,0.0,1 día,Orina,Inmunocromatografía
+EMB,HCG BETA CUALITATIVO (TEST DE EMBARAZO EN SANGRE),Estudios Hormonales,3.0,0.0,1 hora,Suero,Inmunocromatografía
+HCGCNT,HCG BETA CUANTITATIVO,Estudios Hormonales,8.0,8.0,1 hora,Suero,Electroquimioluminiscencia
+TSH,HORMONA ESTIMULANTE DEL TIROIDES (TSH),Estudios Hormonales,8.0,0.0,1 día,Suero,Inmunofluorescencia
+FSH,HORMONA FOLÍCULO ESTIMULANTE (FSH),Estudios Hormonales,12.0,6.75,1 día,Suero,Quimioluminiscencia
+LH,HORMONA LUTEINIZANTE (LH),Estudios Hormonales,10.0,6.75,1 día,Suero,Quimioluminiscencia
+INSUL,INSULINA BASAL,Estudios Hormonales,10.0,10.0,3 horas,Suero,Quimioluminiscencia
+INSUP,INSULINA POSTPRANDIAL,Estudios Hormonales,10.0,10.0,4 horas,Suero PP,Quimioluminiscencia
+PTH,PARATOHORMONA,Estudios Hormonales,16.0,11.0,1 día,Sangre Total EDTA 2,Electroquimioluminiscencia
+PROG,PROGESTERONA (P4),Estudios Hormonales,12.0,6.75,4 horas,Suero,Quimioluminiscencia
+PRL,PROLACTINA,Estudios Hormonales,14.0,7.0,4 horas,Suero,Electroquimioluminiscencia
+PEPC,PÉPTIDO C,Estudios Hormonales,16.5,10.5,3 horas,Suero,Electroquimioluminiscencia
+FT3,T3 LIBRE,Estudios Hormonales,8.0,0.0,1 día,Suero,Inmunofluorescencia
+T3,T3 TOTAL,Estudios Hormonales,8.0,0.0,2 horas,Suero,Inmunofluorescencia
+T4,T4 TIROXINA TOTAL,Estudios Hormonales,8.0,6.0,2 horas,Suero,Inmunofluorescencia
+TESTO,TESTOSTERONA TOTAL,Estudios Hormonales,12.5,7.2,1 día,Suero,Quimioluminiscencia
+FT4,TIROXINA T4 LIBRE,Estudios Hormonales,8.0,0.0,1 día,Suero,Inmunofluorescencia
+IGE,INMUNOGLOBULINA E (IGE),Estudios de Alergias,14.0,0.0,1 día,Suero,Quimioluminiscencia
+BHVSG,BIOMETRIA HEMATICA+VSG,Hematología,7.0,0.0,2 horas,Sangre Total EDTA 2,CBC-IMI Automatizado
+BH,BIOMETRÍA HEMÁTICA,Hematología,4.0,3.5,3 horas,Sangre Total EDTA,CBC-IMI Automatizado
+COOMDI,COOMBS DIRECTO,Hematología,3.0,0.0,2 horas,Sangre Total EDTA,Aglutinación
+COOMIN,COOMBS INDIRECTO,Hematología,3.0,0.0,1 hora,Suero,Aglutinación
+CULAB,CULTIVO ABDOMINAL,Hematología,10.0,8.0,3 días,Muestras Varias,
+VSG,ERITROSEDIMENTACIÓN,Hematología,3.0,0.0,1 hora,Sangre Total EDTA,Sedimentación Wintrobe
+FROTIS,FROTIS DE SANGRE PERIFERICA,Hematología,3.0,0.0,2 horas,Sangre Total EDTA,Coloración WRIGHT
+HCTO,HEMATOCRITO,Hematología,1.5,0.0,1 hora,Sangre Total EDTA,CBC-IMI Automatizado
+PALUDI,HEMATOZOARIOS (INVESTIGACIÓN DE MALARIA - PALUDISMO),Hematología,3.0,0.0,1 día,Sangre Total EDTA,Gota Gruesa
+HB,HEMOGLOBINA,Hematología,1.5,0.0,2 horas,Sangre Total EDTA,CBC-IMI Automatizado
+HEMOP,HEMOPARASITOS,Hematología,3.0,3.0,1 día,Sangre Total EDTA,Microscopía
+PLAQ,RECUENTO DE PLAQUETAS,Hematología,3.0,0.0,1 hora,Sangre Total EDTA,Microscopía
+RETI,RETICULOCITOS,Hematología,4.0,0.0,2 horas,Sangre Total EDTA,CBC-IMI Automatizado
+GRUPO,TIPIFICACION SANGUINEA RH (D),Hematología,3.0,0.0,1 hora,Sangre Total EDTA,Aglutinación
+FERRI,FERRITINA,Inmunoquímica Sanguínea,13.0,8.0,1 día,Suero,Electroquimioluminiscencia
+PCT,PROCALCITONINA,Inmunoquímica Sanguínea,20.0,12.0,3 horas,Suero,Electroquimioluminiscencia
+TRANSF,TRANSFERRINA,Inmunoquímica Sanguínea,12.5,7.5,1 día,Suero,Turbidimetría Automatica
+AFOL,ÁCIDO FÓLICO,Inmunoquímica Sanguínea,17.0,17.0,1 día,Suero,Electroquimioluminiscencia
+ESPERM,ESPERMATOGRAMA,Líquidos Biológicos,10.0,5.0,5 horas,Semen,Microscopía
+CKMB,CPK FRACCIÓN MB,Marcadores Coronarios,10.0,0.0,3 horas,Suero,Inmunoensayo Heterogéneo
+CK-NAC,CPK- NAC,Marcadores Coronarios,10.0,0.0,5 horas,Suero,Fotometría Automatizada
+BNP,NtproBNP (PEPTIDO NATRIURETICO CARDIACA),Marcadores Coronarios,25.0,15.0,3 horas,Sangre Total EDTA,
+TROPI,TROPONINA -I (Tn-I),Marcadores Coronarios,10.0,0.0,5 horas,Suero,Enzimoinmunoensayo
+AFP,ALFAFETOPROTEINA,Marcadores Tumorales,13.0,7.0,5 días,Suero,Quimioluminiscencia
+CEA,ANTIGENO CARCINOEMBRIONARIO (CEA),Marcadores Tumorales,13.0,7.5,1 día,Suero,Quimioluminiscencia
+PSA,ANTIGENO PROSTATICO ESPECIFICO (PSA TOTAL),Marcadores Tumorales,8.0,0.0,1 hora,Suero,Electroquimioluminiscencia
+FPSA,ANTÍGENO PROSTÁTICO LIBRE (FPSA),Marcadores Tumorales,8.0,8.0,5 horas,Suero,Electroquimioluminiscencia
+CA125,MARCADOR TUMORAL CA 125,Marcadores Tumorales,16.0,11.0,1 hora,Suero,Fotometría Automatizada
+CA153,MARCADOR TUMORAL CA 15-3,Marcadores Tumorales,20.0,15.0,1 día,Suero,Electroquimioluminiscencia
+CA199,MARCADOR TUMORAL CA 19-9,Marcadores Tumorales,21.0,16.0,1 día,Suero,Electroquimioluminiscencia
+TG,TIROGLOBULINA,Marcadores Tumorales,16.5,11.5,1 día,Suero,SCM-EIA Automatizado
+CITO,CITOBACTERIOLOGICO DE SECRECION VAGINAL,Microbiología,7.5,5.0,3 días,Secreción Vaginal,Cultivo
+CULTCO,COPROCULTIVO,Microbiología,12.0,12.0,3 horas,Materia Fecal Cultivo,
+CAGUA,CULTIVO DE AGUA,Microbiología,10.0,0.0,3 días,AGUA,
+CULESP,CULTIVO DE ESPUTO,Microbiología,10.0,8.0,2 días,Esputo,Cultivo
+cher,CULTIVO DE HERIDA,Microbiología,10.0,8.0,3 días,Herida,
+CULART,CULTIVO DE LIQUIDO ARTICULAR,Microbiología,10.0,8.0,3 días,Liquido Articular,
+clsem,CULTIVO DE LIQUIDO SEMINAL,Microbiología,10.0,8.0,3 días,Liquido Seminal,
+CUPLEU,CULTIVO DE LÍQUIDO PLEURAL,Microbiología,10.0,8.0,2 días,Líquido Pleural,Cultivo
+CSOC,CULTIVO DE SECRECION OCULAR,Microbiología,10.0,8.0,3 días,Secreción Ocular,
+CUOTICA,CULTIVO DE SECRECION OTICA,Microbiología,10.0,8.0,3 días,Secreción Otica,
+CULURET,CULTIVO DE SECRECION URETRAL,Microbiología,10.0,8.0,3 días,Secreción Uretral,Cultivo
+CULSV,CULTIVO DE SECRECION VAGINAL,Microbiología,10.0,8.0,3 días,Secreción Vaginal,Cultivo
+CUNAFA,CULTIVO DE SECRECIÓN FARÍNGEA,Microbiología,10.0,8.0,2 días,Secreción Faríngea,Cultivo
+CULTRA,CULTIVO DE SECRECIÓN TRAQUEAL,Microbiología,10.0,8.0,2 días,Secreción Traqueal,
+CULCERA,CULTIVO DE ULCERA,Microbiología,10.0,8.0,3 días,Lesión de Piel,
+CULABSC,CULTIVO Y ANTIBIOGRAMA DE ABSCESO,Microbiología,10.0,8.0,3 días,Secreción Purulenta,Cultivo
+CULTI,CULTIVO Y ANTIBIOGRAMA MUESTRAS VARIAS,Microbiología,10.0,8.0,3 días,Muestras Varias,
+EOSINO,EOSINOFILOS EN MOCO NASAL,Microbiología,2.0,0.0,1 día,Secreción Nasal,
+FRESCO,GRAM Y FRESCO DE LIQUIDO,Microbiología,3.0,0.0,4 horas,Muestras Varias,Coloración GRAM
+GRAMSE,GRAM Y FRESCO SECRECION,Microbiología,5.0,5.0,2 horas,Muestras Varias,Coloración GRAM
+HEMOCU,HEMOCULTIVO,Microbiología,14.0,14.0,7 días,Sangre Total EDTA 2,Cultivo
+HEMOC2,HEMOCULTIVO MUESTRA 2,Microbiología,14.0,14.0,2 días,Muestras Varias,Cultivo
+HEMOC3,HEMOCULTIVO MUESTRA 3,Microbiología,14.0,14.0,3 días,Muestras Varias,Cultivo
+KOH,INVESTIGACION DIRECTA DE HONGOS (KOH),Microbiología,3.0,0.0,3 horas,Muestras Varias,Microscopía
+UROC,UROCULTIVO,Microbiología,10.0,8.0,1 día,Orina Cultivo,Cultivo
+ZIEHLB,ZIEHL- BAAR,Microbiología,3.0,0.0,4 horas,Muestras Varias,
+ZIEHL2,ZIEHL- BAAR DIA 2,Microbiología,3.0,0.0,4 horas,Muestras Varias,
+CAOR,CALCIO EN ORINA,Química Clínica en Orina,3.0,0.0,1 día,Orina,Fotometría
+CLEACRE,CLEARANCE DE CREATININA,Química Clínica en Orina,5.0,0.0,5 horas,Orina 24 Horas,
+CLO,CLORO EN ORINA,Química Clínica en Orina,3.0,0.0,3 horas,Orina,ISE
+CREAOR,CREATININA EN ORINA,Química Clínica en Orina,2.5,0.0,5 horas,Orina,Fotometría Automatizada
+DEPCRE,DEPURACION DE CREATININA EN ORINA DE 24 HORAS,Química Clínica en Orina,5.0,0.0,5 horas,Orina 24 Horas,Fotometría
+MICROA,MICROALBUMINURIA EN ORINA PARCIAL (CUALITATIVA),Química Clínica en Orina,5.0,0.0,2 horas,Orina,Turbidimetría Automatica
+KO,POTASIO EN ORINA,Química Clínica en Orina,3.0,0.0,3 horas,Orina,ISE
+PROTEI,PROTEINURIA EN ORINA DE 24 HORAS,Química Clínica en Orina,2.5,0.0,1 día,Orina 24 Horas,Química Seca
+PROTOR,PROTEÍNAS EN ORINA,Química Clínica en Orina,3.0,2.0,1 día,Orina,Fotometría
+NAO,SODIO EN ORINA,Química Clínica en Orina,3.0,0.0,3 horas,Orina,ISE
+UOR,UREA EN ORINA,Química Clínica en Orina,2.0,0.0,1 día,Orina,Fotometría Automatizada
+AUO,ÁCIDO ÚRICO EN ORINA,Química Clínica en Orina,2.5,0.0,3 horas,Orina,Fotometría Automatizada
+WIDAL,AGLUTINACIONES FEBRILES (REACCIÓN DE WIDAL),Serología,6.0,0.0,5 horas,Suero,Aglutinación
+HUDDLE,AGLUTINACIONES FEBRILES (TEST DE HUDDLE),Serología,2.0,0.0,2 horas,Suero,Aglutinación
+WFELIX,AGLUTINACIONES FEBRILES (TEST DE WEIL-FELIX),Serología,2.0,0.0,2 horas,Suero,Aglutinación
+AGLU,AGLUTINACIONES FEBRILES COMPLETAS,Serología,6.0,0.0,3 horas,Suero,Aglutinación
+ASTO,ANTIESTREPTOLISINA (ASTO),Serología,3.0,0.0,4 horas,Suero,Aglutinación
+FR,FACTOR REUMATOIDEO- LÁTEX,Serología,3.0,0.0,2 horas,Suero,Aglutinación
+HIV4GCL,HIV 1+2 ANTICUERPOS Y ANTÍGENO P24 (4TA GEN.) CUALITATIVO,Serología,6.0,0.0,2 días,Suero,Inmunoquimioluminiscencia
+PCRCLT,PCR PROTEINA C REACTIVA CUALITATIVA,Serología,3.0,0.0,2 horas,Suero,Aglutinación
+PCRCNT,PCR PROTEINA C REACTIVA CUANTITATIVA,Serología,3.0,0.0,4 horas,Suero,Inmunofluorescencia
+PCRSCNT,PCR PROTEINA C REACTIVA SEMICUANTITATIVA,Serología,3.0,0.0,4 horas,Suero,Inmunofluorescencia
+VDRL,VDRL,Serología,3.0,3.0,1 hora,Suero,Aglutinación
+EMO,ELEMENTAL Y MICROSCÓPICO DE ORINA,Uroanálisis,3.0,2.0,2 horas,Orina,Microscopía
+GRAMOR,GRAM (GOTA FRESCA) ORINA,Uroanálisis,3.0,2.0,2 horas,Orina,Coloración GRAM
