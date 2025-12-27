@@ -56,12 +56,15 @@ cd /d "%SCRIPT_DIR%backend"
 python -m pip install -r requirements.txt -q
 cd /d "%SCRIPT_DIR%"
 
-:: Install frontend dependencies if needed (check for next binary, not just node_modules)
-if not exist "%SCRIPT_DIR%frontend\node_modules\.bin\next.cmd" (
+:: Install frontend dependencies if needed (check for essential packages)
+set "NEED_INSTALL="
+if not exist "%SCRIPT_DIR%frontend\node_modules\.bin\next.cmd" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend\node_modules\@ducanh2912\next-pwa" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend\node_modules\better-sqlite3" set "NEED_INSTALL=1"
+
+if defined NEED_INSTALL (
     echo Installing frontend dependencies...
     cd /d "%SCRIPT_DIR%frontend"
-    :: Remove old node_modules if it exists but is broken
-    if exist node_modules rmdir /s /q node_modules
     npm install --legacy-peer-deps
     cd /d "%SCRIPT_DIR%"
 )
@@ -79,17 +82,17 @@ start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && npm run d
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
 
-:: Handle Cloudflare Tunnel
+rem Handle Cloudflare Tunnel
 set "TUNNEL_URL="
 set "TUNNEL_STARTED="
 
 if not defined NO_TUNNEL (
-    :: Check if cloudflared is available
+    rem Check if cloudflared is available
     where cloudflared >nul 2>&1
-    if !errorlevel! equ 0 (
-        :: Check if tunnel is configured
+    if not errorlevel 1 (
+        rem Check if tunnel is configured
         if exist "%USERPROFILE%\.cloudflared\config.yml" (
-            :: Get tunnel info
+            rem Get tunnel info
             for /f "tokens=2" %%i in ('findstr /i "tunnel:" "%USERPROFILE%\.cloudflared\config.yml"') do set TUNNEL_NAME=%%i
             for /f "tokens=1" %%i in ('cloudflared tunnel list 2^>nul ^| findstr /i "!TUNNEL_NAME!"') do set TUNNEL_ID=%%i
 
@@ -105,7 +108,7 @@ if not defined NO_TUNNEL (
                     echo.
                     echo Cloudflare Tunnel is configured.
                     choice /c YN /m "Start tunnel for remote access"
-                    if !errorlevel! equ 1 (
+                    if not errorlevel 2 (
                         echo Starting Cloudflare Tunnel...
                         start "Lab Assistant - Tunnel" cmd /k "cloudflared tunnel run !TUNNEL_NAME!"
                         set "TUNNEL_STARTED=1"
