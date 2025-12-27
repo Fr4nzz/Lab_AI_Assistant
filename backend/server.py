@@ -67,6 +67,7 @@ from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
 from prompts import SYSTEM_PROMPT
+from stream_adapter import StreamAdapter
 
 
 def load_exams_from_csv() -> List[dict]:
@@ -754,6 +755,202 @@ async def get_exams():
     if not _cached_exams:
         _cached_exams = load_exams_from_csv()
     return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in _cached_exams]}
+
+
+# ============================================================
+# AI SDK DATA STREAM PROTOCOL ENDPOINT
+# ============================================================
+
+class AISdkChatRequest(BaseModel):
+    messages: List[dict]
+    chatId: Optional[str] = None
+    model: Optional[str] = None
+
+
+@app.post("/api/chat/aisdk")
+async def chat_aisdk(request: AISdkChatRequest):
+    """
+    AI SDK Data Stream Protocol v1 compatible endpoint.
+
+    This endpoint streams responses in the Vercel AI SDK format,
+    which can be consumed directly by useChat on the frontend.
+
+    Documentation: https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol
+    """
+    global orders_context_sent
+
+    thread_id = request.chatId or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Convert messages to LangChain format
+    conversation_messages = []
+    for msg in request.messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        # Handle multimodal content
+        if isinstance(content, list):
+            lc_content = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        lc_content.append({"type": "text", "text": part.get("text", "")})
+                    elif part.get("type") == "image_url":
+                        image_url = part.get("image_url", {})
+                        url = image_url.get("url", "") if isinstance(image_url, dict) else image_url
+                        lc_content.append({"type": "image_url", "image_url": {"url": url}})
+                    elif part.get("type") == "media":
+                        lc_content.append({
+                            "type": "media",
+                            "data": part.get("data", ""),
+                            "mime_type": part.get("mime_type", "audio/webm")
+                        })
+            content = lc_content if lc_content else ""
+
+        if role == "user":
+            conversation_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            conversation_messages.append(AIMessage(content=content))
+
+    if not conversation_messages:
+        logger.error("[AI SDK] No messages found in request")
+        async def error_stream():
+            yield StreamAdapter.error("No messages found")
+            yield StreamAdapter.finish("error")
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain",
+            headers={
+                "x-vercel-ai-data-stream": "v1",
+                "Cache-Control": "no-cache",
+                "X-Chat-Id": thread_id,
+            }
+        )
+
+    # Log request
+    last_user_msg = None
+    for msg in reversed(request.messages):
+        if msg.get("role") == "user":
+            last_user_msg = msg.get("content")
+            break
+
+    logger.info("=" * 60)
+    if isinstance(last_user_msg, list):
+        msg_parts = []
+        for part in last_user_msg:
+            if isinstance(part, dict):
+                if part.get('type') == 'text':
+                    msg_parts.append(part.get('text', '')[:100])
+                elif part.get('type') == 'image_url':
+                    msg_parts.append('[IMAGE]')
+                elif part.get('type') == 'media':
+                    msg_parts.append('[MEDIA]')
+        user_msg_display = ' + '.join(msg_parts)
+    else:
+        user_msg_display = str(last_user_msg)[:200] if last_user_msg else ""
+    logger.info(f"[AI SDK] USER: {user_msg_display}")
+    logger.info(f"[AI SDK] Thread: {thread_id}, Messages: {len(conversation_messages)}")
+
+    async def generate():
+        try:
+            # Check if first message and reset state
+            is_first_message = len(conversation_messages) <= 2
+            if is_first_message:
+                reset_tab_state()
+
+            # Get context
+            current_context = await get_orders_context()
+            tabs_context = await get_browser_tabs_context()
+
+            # Build initial state
+            initial_state = {"messages": conversation_messages}
+            context_parts = []
+
+            should_include_orders = is_first_message or not orders_context_sent
+            if should_include_orders and current_context:
+                context_parts.append(current_context)
+            if tabs_context:
+                context_parts.append(tabs_context)
+            if context_parts:
+                initial_state["current_page_context"] = "\n\n".join(context_parts)
+
+            # Stream events
+            full_response = []
+            total_input_tokens = 0
+            total_output_tokens = 0
+
+            async for event in graph.astream_events(
+                initial_state,
+                config,
+                version="v2"
+            ):
+                event_type = event.get("event", "")
+
+                if event_type == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    tool_input = event.get("data", {}).get("input", {})
+                    run_id = event.get("run_id", str(uuid.uuid4()))
+                    logger.info(f"[AI SDK] TOOL: {tool_name}")
+                    yield StreamAdapter.tool_call(run_id, tool_name, tool_input)
+
+                elif event_type == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    tool_output = event.get("data", {}).get("output", "")
+                    run_id = event.get("run_id", "")
+                    # Truncate large outputs for streaming
+                    output_str = str(tool_output)[:500] if tool_output else ""
+                    yield StreamAdapter.tool_result(run_id, output_str)
+
+                elif event_type == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk and hasattr(chunk, 'content') and chunk.content:
+                        content = chunk.content
+                        if isinstance(content, list):
+                            text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                            content = ''.join(text_parts)
+                        if content:
+                            full_response.append(content)
+                            yield StreamAdapter.text(content)
+
+                elif event_type == "on_chat_model_end":
+                    output = event.get("data", {}).get("output")
+                    if output:
+                        usage = getattr(output, 'usage_metadata', None)
+                        if usage and isinstance(usage, dict):
+                            total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
+                            total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
+
+            # Send browser tabs update as data
+            if tabs_context:
+                yield StreamAdapter.data([{"tabsContext": tabs_context}])
+
+            # Send finish with usage
+            usage = None
+            if total_input_tokens or total_output_tokens:
+                usage = {
+                    "promptTokens": total_input_tokens,
+                    "completionTokens": total_output_tokens,
+                    "totalTokens": total_input_tokens + total_output_tokens
+                }
+            yield StreamAdapter.finish("stop", usage)
+
+            logger.info(f"[AI SDK] Response: {''.join(full_response)[:200]}...")
+
+        except Exception as e:
+            logger.error(f"[AI SDK] Error: {e}", exc_info=True)
+            yield StreamAdapter.error(str(e))
+            yield StreamAdapter.finish("error")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain",
+        headers={
+            "x-vercel-ai-data-stream": "v1",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Chat-Id": thread_id,
+        }
+    )
 
 
 # ============================================================

@@ -2,10 +2,14 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Chat } from '@/components/chat';
-import { ChatSidebar, ChatItem } from '@/components/chat-sidebar';
+import { ChatItem } from '@/components/chat-sidebar';
+import { AppSidebar, MobileHeader } from '@/components/app-sidebar';
 import { ToolToggles, ALL_TOOL_IDS } from '@/components/tool-toggles';
 import { BrowserTabsPanel } from '@/components/browser-tabs-panel';
 import { TabEditor } from '@/components/tab-editor';
+import { ModelSelector } from '@/components/model-selector';
+import { useIsMobile } from '@/hooks/use-media-query';
+import { ModelId, DEFAULT_MODEL } from '@/lib/models';
 
 export default function Home() {
   const [chats, setChats] = useState<ChatItem[]>([]);
@@ -15,6 +19,15 @@ export default function Home() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [showTabEditor, setShowTabEditor] = useState(false);
   const [renderMarkdown, setRenderMarkdown] = useState(true);
+  const [selectedModel, setSelectedModel] = useState<ModelId>(DEFAULT_MODEL);
+  const isMobile = useIsMobile();
+
+  // Collapse right panel on mobile by default
+  useEffect(() => {
+    if (isMobile) {
+      setRightPanelCollapsed(true);
+    }
+  }, [isMobile]);
 
   // Load chats from database on mount (don't create new chat - wait for first message)
   useEffect(() => {
@@ -105,21 +118,25 @@ export default function Home() {
     );
   }, []);
 
+  // Get selected chat title for mobile header
+  const selectedChat = chats.find(c => c.id === selectedChatId);
+
   return (
-    <main className="h-screen flex">
-      {/* Left Sidebar - Chat List */}
-      <aside className="w-64 border-r flex-shrink-0 h-full overflow-hidden">
-        <ChatSidebar
-          chats={chats}
-          selectedId={selectedChatId}
-          onSelect={setSelectedChatId}
-          onNewChat={createNewChat}
-          onDelete={deleteChat}
-        />
-      </aside>
+    <main className="h-dvh flex overflow-hidden">
+      {/* Left Sidebar - Chat List (responsive) */}
+      <AppSidebar
+        chats={chats}
+        selectedId={selectedChatId}
+        onSelect={setSelectedChatId}
+        onNewChat={createNewChat}
+        onDelete={deleteChat}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile header */}
+        <MobileHeader title={selectedChat?.title} />
+
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-muted-foreground">Cargando...</div>
@@ -131,56 +148,90 @@ export default function Home() {
             onChatCreated={handleChatCreated}
             enabledTools={enabledTools}
             renderMarkdown={renderMarkdown}
+            model={selectedModel}
           />
         )}
       </div>
 
-      {/* Right Panel - Tools & Browser Tabs */}
-      <aside className={`border-l flex-shrink-0 flex flex-col transition-all duration-200 ${
-        rightPanelCollapsed ? 'w-12' : 'w-64'
-      }`}>
-        {/* Toggle button */}
-        <button
-          onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
-          className="p-2 border-b hover:bg-muted text-xs text-muted-foreground"
-          title={rightPanelCollapsed ? 'Expandir panel' : 'Colapsar panel'}
-        >
-          {rightPanelCollapsed ? '◀' : '▶ Colapsar'}
-        </button>
+      {/* Right Panel - Tools & Browser Tabs (hidden on mobile when collapsed) */}
+      {(!isMobile || !rightPanelCollapsed) && (
+        <aside className={`border-l flex-shrink-0 flex flex-col transition-all duration-200 ${
+          rightPanelCollapsed ? 'w-12' : isMobile ? 'fixed inset-y-0 right-0 w-64 bg-background z-40' : 'w-64'
+        }`}>
+          {/* Toggle button */}
+          <button
+            onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+            className="p-2 border-b hover:bg-muted text-xs text-muted-foreground"
+            title={rightPanelCollapsed ? 'Expandir panel' : 'Colapsar panel'}
+          >
+            {rightPanelCollapsed ? '◀' : '▶ Colapsar'}
+          </button>
 
-        {/* Tool Toggles */}
-        <div className="border-b">
-          <ToolToggles
-            enabledTools={enabledTools}
-            onToggle={handleToolToggle}
-            collapsed={rightPanelCollapsed}
-          />
-        </div>
-
-        {/* Settings */}
-        {!rightPanelCollapsed && (
-          <div className="border-b p-3">
-            <h3 className="font-semibold text-sm mb-2">Ajustes</h3>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={renderMarkdown}
-                onChange={(e) => setRenderMarkdown(e.target.checked)}
-                className="rounded"
-              />
-              Renderizar Markdown
-            </label>
+          {/* Tool Toggles */}
+          <div className="border-b">
+            <ToolToggles
+              enabledTools={enabledTools}
+              onToggle={handleToolToggle}
+              collapsed={rightPanelCollapsed}
+            />
           </div>
-        )}
 
-        {/* Browser Tabs */}
-        <div className="flex-1 overflow-hidden">
-          <BrowserTabsPanel
-            collapsed={rightPanelCollapsed}
-            onOpenEditor={() => setShowTabEditor(true)}
-          />
-        </div>
-      </aside>
+          {/* Settings */}
+          {!rightPanelCollapsed && (
+            <div className="border-b p-3 space-y-3">
+              <h3 className="font-semibold text-sm">Ajustes</h3>
+
+              {/* Model Selector */}
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Modelo</label>
+                <ModelSelector
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  className="w-full text-xs h-8"
+                />
+              </div>
+
+              {/* Markdown Toggle */}
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={renderMarkdown}
+                  onChange={(e) => setRenderMarkdown(e.target.checked)}
+                  className="rounded"
+                />
+                Renderizar Markdown
+              </label>
+            </div>
+          )}
+
+          {/* Browser Tabs */}
+          <div className="flex-1 overflow-hidden">
+            <BrowserTabsPanel
+              collapsed={rightPanelCollapsed}
+              onOpenEditor={() => setShowTabEditor(true)}
+            />
+          </div>
+        </aside>
+      )}
+
+      {/* Mobile: Backdrop when right panel is open */}
+      {isMobile && !rightPanelCollapsed && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30"
+          onClick={() => setRightPanelCollapsed(true)}
+        />
+      )}
+
+      {/* Mobile: Floating button to open right panel when collapsed */}
+      {isMobile && rightPanelCollapsed && (
+        <button
+          onClick={() => setRightPanelCollapsed(false)}
+          className="fixed bottom-20 right-3 z-40 h-10 w-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center"
+          title="Mostrar herramientas"
+        >
+          ⚙️
+        </button>
+      )}
 
       {/* Tab Editor Modal */}
       {showTabEditor && (

@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server';
-import { createUIMessageStream, createUIMessageStreamResponse, generateText } from 'ai';
+import { generateText } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { addMessage, saveFile, createChat, ChatAttachment, updateChatTitle } from '@/lib/db';
 
@@ -165,40 +165,6 @@ async function fetchWithRetry(
   throw lastError || new Error('Max retries exceeded');
 }
 
-// Parse OpenAI SSE stream
-async function* parseOpenAIStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (trimmedLine.startsWith('data: ')) {
-        const data = trimmedLine.slice(6).trim();
-        if (data === '[DONE]') {
-          return;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta;
-          if (delta?.content) {
-            yield delta.content;
-          }
-        } catch {
-          // Skip invalid JSON
-        }
-      }
-    }
-  }
-}
-
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools, chatId: providedChatId } = body;
@@ -252,21 +218,21 @@ export async function POST(req: NextRequest) {
   // Convert messages for backend
   const openaiMessages = convertMessages(messages);
 
-  // Build the backend request
+  // Build the backend request - use AI SDK endpoint
   const backendRequest = {
-    model: model || 'lab-assistant',
     messages: openaiMessages,
-    stream: true,
+    chatId: chatId,
+    model: model || 'lab-assistant',
     tools: enabledTools,
   };
 
-  console.log('[API/chat] Messages count:', messages.length);
+  console.log('[API/chat] Proxying to AI SDK endpoint, messages count:', messages.length);
 
   let backendResponse: Response;
   try {
-    // Use retry mechanism in case backend is still starting up
+    // Use the new AI SDK Data Stream Protocol endpoint
     backendResponse = await fetchWithRetry(
-      `${process.env.BACKEND_URL}/v1/chat/completions`,
+      `${process.env.BACKEND_URL}/api/chat/aisdk`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -293,54 +259,64 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Collect full response for storage while streaming
   const reader = backendResponse.body.getReader();
-  const messageId = `msg_${Date.now()}`;
-
-  // Collect full response for storage
+  const decoder = new TextDecoder();
   let fullResponse = '';
 
-  // Use AI SDK's createUIMessageStream for proper format
-  const stream = createUIMessageStream({
-    execute: async ({ writer }) => {
-      let chunkCount = 0;
+  // Create a new ReadableStream that collects the response while passing it through
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      // Send text-start
-      writer.write({ type: 'text-start', id: messageId });
+          // Pass through the chunk
+          controller.enqueue(value);
 
-      for await (const text of parseOpenAIStream(reader)) {
-        chunkCount++;
-        fullResponse += text;
-
-        if (chunkCount <= 3) {
-          console.log(`[API/chat] Chunk ${chunkCount}:`, text.slice(0, 50));
+          // Decode and collect text chunks for storage
+          const text = decoder.decode(value, { stream: true });
+          // Parse AI SDK format - text chunks are prefixed with "0:"
+          for (const line of text.split('\n')) {
+            if (line.startsWith('0:')) {
+              try {
+                const content = JSON.parse(line.slice(2));
+                if (typeof content === 'string') {
+                  fullResponse += content;
+                }
+              } catch {
+                // Skip invalid JSON
+              }
+            }
+          }
         }
-        // Send text-delta with correct format
-        writer.write({ type: 'text-delta', id: messageId, delta: text });
+
+        controller.close();
+
+        // Store assistant response in database after stream completes
+        if (fullResponse) {
+          console.log('[API/chat] Storing assistant response, length:', fullResponse.length);
+          await addMessage(chatId, 'assistant', fullResponse);
+        }
+      } catch (error) {
+        console.error('[API/chat] Stream error:', error);
+        controller.error(error);
       }
-
-      // Send text-end
-      writer.write({ type: 'text-end', id: messageId });
-
-      console.log('[API/chat] Stream complete, total chunks:', chunkCount);
-
-      // Store assistant response in database
-      if (fullResponse) {
-        await addMessage(chatId, 'assistant', fullResponse);
-      }
-    },
-    onError: (error) => {
-      console.error('[API/chat] Stream error:', error);
-      return 'An error occurred';
     },
   });
 
-  console.log('[API/chat] Returning response with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
+  console.log('[API/chat] Returning AI SDK stream with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
 
-  return createUIMessageStreamResponse({
-    stream,
+  // Return the stream directly with AI SDK headers
+  return new Response(stream, {
     headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'x-vercel-ai-data-stream': 'v1',
       'X-Chat-Id': chatId,
-      'Access-Control-Expose-Headers': 'X-Chat-Id',  // Ensure browser can read this header
+      'Access-Control-Expose-Headers': 'X-Chat-Id, x-vercel-ai-data-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
     },
   });
 }
