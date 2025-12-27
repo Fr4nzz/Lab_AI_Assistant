@@ -82,6 +82,10 @@ start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && npm run d
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
 
+:: Auto-open browser to the chat UI
+echo Opening browser to http://localhost:3000...
+start "" "http://localhost:3000"
+
 rem Handle Cloudflare Tunnel
 set "TUNNEL_URL="
 set "TUNNEL_STARTED="
