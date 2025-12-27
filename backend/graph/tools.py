@@ -676,6 +676,18 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
     """Edit exam result fields. Finds tabs by order_num or creates new ones."""
     logger.info(f"[edit_results] Editing {len(data)} fields")
 
+    # Validate input - ensure all required fields are present
+    required_fields = ["orden", "e", "f", "v"]
+    for i, item in enumerate(data):
+        missing = [f for f in required_fields if f not in item]
+        if missing:
+            return {
+                "error": f"Item {i} missing required fields: {missing}",
+                "hint": "Each item needs: orden (order number), e (exam name), f (field name), v (value)",
+                "suggestion": "Use get_order_results(order_nums) first to open the results tab and get the correct field names",
+                "received": item
+            }
+
     results = []
     results_by_order = {}
 

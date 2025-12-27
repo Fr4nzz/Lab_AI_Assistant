@@ -193,9 +193,12 @@ async def get_browser_tabs_context() -> str:
         tabs_info = await _get_browser_tabs_impl()
 
         if not tabs_info.get("tabs"):
-            return ""
+            return "# Pestañas del Navegador\nNo hay pestañas abiertas. Para editar resultados, primero usa get_order_results(order_nums) para abrir la pestaña de resultados."
 
         lines = ["# Pestañas del Navegador"]
+
+        # Track if there are any results tabs
+        has_results_tabs = any(t.get("type") == "resultados" for t in tabs_info.get("tabs", []))
 
         type_display = {
             "ordenes_list": "Lista de Órdenes",
@@ -269,6 +272,11 @@ async def get_browser_tabs_context() -> str:
                     lines.append(f"    - Exámenes: {', '.join(changes['exams'][:5])}")
                 if "total" in changes:
                     lines.append(f"    - Total: {changes['total']}")
+
+        # Add guidance if no results tabs are open
+        if not has_results_tabs:
+            lines.append("")
+            lines.append("⚠️ No hay pestañas de resultados abiertas. Para editar resultados, usa get_order_results(order_nums) primero.")
 
         return "\n".join(lines)
 
