@@ -892,8 +892,7 @@ async def _edit_order_exams_impl(
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     """Create a new order with exams. Optimized for fast batch adding."""
     is_cotizacion = not cedula or cedula.strip() == ""
-    logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams")
-    logger.info(f"[create_order] Requested exams: {exams}")
+    logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams: {exams}")
 
     page = await _browser.ensure_page()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
@@ -909,15 +908,12 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     # Extract ALL available exams at once (no need to search individually)
     available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-    logger.info(f"[create_order] Found {len(available)} available exams on page")
 
     # Build a map from exam code (uppercase) to button_id for fast lookup
     code_to_button = {}
     for exam in available:
         if exam.get('codigo'):
             code_to_button[exam['codigo'].upper()] = exam['button_id']
-
-    logger.info(f"[create_order] Available exam codes: {list(code_to_button.keys())[:20]}..." if len(code_to_button) > 20 else f"[create_order] Available exam codes: {list(code_to_button.keys())}")
 
     added_codes = []
     failed_exams = []
@@ -931,36 +927,36 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         exam_code_upper = exam_code.upper().strip()
         button_id = code_to_button.get(exam_code_upper)
         if button_id:
-            # Extract the numeric index from button_id (e.g., "examen-50" -> 50)
             try:
                 btn_index = int(button_id.replace('examen-', ''))
                 exams_to_click.append((exam_code_upper, button_id, btn_index))
             except ValueError:
                 exams_to_click.append((exam_code_upper, button_id, 0))
         else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match in available exams'})
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
 
     # Sort by button index DESCENDING (highest first to avoid row shift issues)
     exams_to_click.sort(key=lambda x: x[2], reverse=True)
-    logger.info(f"[create_order] Click order (highest index first): {[(e[0], e[1]) for e in exams_to_click]}")
 
-    # Click buttons in descending index order
+    # Click buttons in descending index order (but track in original order)
+    clicked_set = set()
     for exam_code_upper, button_id, _ in exams_to_click:
         btn = page.locator(f'#{button_id}')
         if await btn.count() > 0:
             await btn.click()
-            added_codes.append(exam_code_upper)
-            # Minimal delay between clicks (100ms) - just enough for UI to respond
+            clicked_set.add(exam_code_upper)
             await page.wait_for_timeout(100)
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
+
+    # Preserve original order from AI request
+    added_codes = [e.upper().strip() for e in exams if e.upper().strip() in clicked_set]
 
     # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
 
     # Get the final list of added exams
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-    logger.info(f"[create_order] Exams now in order (extracted from page): {[e.get('codigo') for e in added_exams]}")
 
     totals = await page.evaluate(r"""
         () => {
@@ -973,9 +969,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         }
     """)
 
-    logger.info(f"[create_order] Summary: requested={len(exams)}, clicked={len(added_codes)}, failed={len(failed_exams)}, extracted={len(added_exams)}")
-    if failed_exams:
-        logger.info(f"[create_order] Failed exams: {failed_exams}")
+    logger.info(f"[create_order] Added {len(added_codes)}/{len(exams)} exams{f', {len(failed_exams)} failed' if failed_exams else ''}")
 
     return {
         "cedula": cedula if not is_cotizacion else None,
