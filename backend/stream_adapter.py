@@ -4,16 +4,14 @@ AI SDK UI Message Stream Protocol v1 Adapter.
 Converts LangGraph events to AI SDK v6 UI Message Stream Protocol format.
 Documentation: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 
-Stream Format (SSE):
-- data: {"type":"start","messageId":"xxx"}
+Stream Format (SSE) - Only these types are supported by useChat:
 - data: {"type":"text-start","id":"xxx"}
 - data: {"type":"text-delta","id":"xxx","delta":"content"}
 - data: {"type":"text-end","id":"xxx"}
-- data: {"type":"tool-input-start","id":"xxx","toolName":"xxx"}
-- data: {"type":"tool-input-available","id":"xxx","input":{}}
-- data: {"type":"tool-output-available","id":"xxx","output":"xxx"}
-- data: {"type":"finish","finishReason":"stop","usage":{}}
 - data: [DONE]
+
+Note: tool events and finish events are NOT supported by the basic
+UI Message Stream Protocol. Tool status is shown as text content instead.
 """
 import json
 import uuid
@@ -35,12 +33,10 @@ class StreamAdapter:
         return f"data: {json.dumps(data)}\n\n"
 
     def start_message(self) -> str:
-        """Start a new assistant message"""
+        """Start a new assistant message - returns empty since 'start' isn't supported"""
         self.message_started = True
-        return self._sse({
-            "type": "start",
-            "messageId": self.message_id
-        })
+        # The 'start' event type is not supported by useChat, so we skip it
+        return ""
 
     def text_start(self) -> str:
         """Start a text block"""
@@ -78,36 +74,31 @@ class StreamAdapter:
         self.text_id = None
         return result
 
-    def tool_start(self, tool_call_id: str, tool_name: str) -> str:
-        """Stream tool call start"""
-        return self._sse({
-            "type": "tool-input-start",
-            "id": tool_call_id,
-            "toolName": tool_name
-        })
+    def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None) -> str:
+        """
+        Stream tool status as text content.
+        Since AI SDK v6 doesn't support tool events, we show them as styled text.
+        """
+        if status == "start":
+            # Show tool being called with args
+            params = []
+            if args:
+                for k, v in args.items():
+                    if isinstance(v, str) and len(v) < 50:
+                        params.append(f"{k}={v}")
+                    elif isinstance(v, list) and len(v) < 5:
+                        params.append(f"{k}={v}")
+            param_str = f" ({', '.join(params[:3])})" if params else ""
+            text = f"🔧 **{tool_name}**{param_str}\n"
+        else:  # end
+            text = f"✓ {tool_name} completado\n\n"
 
-    def tool_input(self, tool_call_id: str, args: dict) -> str:
-        """Stream tool input available"""
-        return self._sse({
-            "type": "tool-input-available",
-            "id": tool_call_id,
-            "input": args
-        })
-
-    def tool_output(self, tool_call_id: str, output: Any) -> str:
-        """Stream tool output"""
-        return self._sse({
-            "type": "tool-output-available",
-            "id": tool_call_id,
-            "output": str(output)[:500] if output else ""
-        })
+        return self.text_delta(text)
 
     def error(self, message: str) -> str:
-        """Stream an error"""
-        return self._sse({
-            "type": "error",
-            "error": message
-        })
+        """Stream an error as text (error type not well supported)"""
+        # Stream error as text since 'error' type may not be fully supported
+        return self.text_delta(f"❌ Error: {message}\n")
 
     def finish(self, reason: str = "stop", usage: Optional[dict] = None) -> str:
         """Stream finish signal and close stream"""
@@ -116,16 +107,8 @@ class StreamAdapter:
         if self.text_id:
             result += self.text_end()
 
-        # Send finish
-        payload = {
-            "type": "finish",
-            "finishReason": reason
-        }
-        if usage:
-            payload["usage"] = usage
-        result += self._sse(payload)
-
-        # Send DONE marker
+        # Note: 'finish' type is not supported by useChat, so we just send DONE
+        # Send DONE marker to signal end of stream
         result += "data: [DONE]\n\n"
         return result
 
