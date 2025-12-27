@@ -172,7 +172,10 @@ defineShortcuts({
               </span>
             </UButton>
             <template #content>
-              <SidebarToolToggles v-model="enabledTools" />
+              <SidebarToolToggles
+                :model-value="enabledTools"
+                @update:model-value="enabledTools = $event"
+              />
             </template>
           </UCollapsible>
 
