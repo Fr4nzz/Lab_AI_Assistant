@@ -323,6 +323,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   // Track the active chat ID (can be different from prop if we just created one)
   const [activeChatId, setActiveChatId] = useState<string | undefined>(chatId);
+  // Effective chatId for transport - combines prop + received chatId from header
+  // This ensures subsequent messages use the correct chatId even before parent updates
+  const [effectiveChatId, setEffectiveChatId] = useState<string | undefined>(chatId);
   // Use a ref for the database chatId (to avoid recreating transport mid-stream)
   const dbChatIdRef = useRef<string | undefined>(chatId);
 
@@ -348,15 +351,22 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Store pending message for title generation (used in onResponse callback)
   const pendingTitleMessageRef = useRef<string | null>(null);
 
-  // Create transport - recreates when chatId, enabledTools, model, or showStats changes
-  // This ensures messages are sent to the correct chat when switching
+  // Sync effectiveChatId with prop when prop changes (e.g., switching chats)
+  useEffect(() => {
+    if (chatId !== undefined) {
+      setEffectiveChatId(chatId);
+    }
+  }, [chatId]);
+
+  // Create transport - uses effectiveChatId which updates immediately from X-Chat-Id header
+  // This prevents race condition where second message is sent before parent updates chatId prop
   const transport = useMemo(() => {
-    console.log('[Chat] Creating transport with chatId:', chatId, 'model:', model, 'showStats:', showStats);
+    console.log('[Chat] Creating transport with effectiveChatId:', effectiveChatId, 'model:', model, 'showStats:', showStats);
     return new DefaultChatTransport({
       api: '/api/chat',
-      body: { enabledTools, chatId, model, showStats },
+      body: { enabledTools, chatId: effectiveChatId, model, showStats },
     });
-  }, [enabledTools, chatId, model, showStats]);
+  }, [enabledTools, effectiveChatId, model, showStats]);
 
   // Use stable sessionId for useChat's id prop - this prevents message cache clearing
   // when we update the database chatId (activeChatId) after creating a new chat
@@ -367,71 +377,54 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       console.error('[Chat] onError:', err);
     },
     onResponse: (response) => {
-      console.log('[Chat] onResponse:', {
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries()),
-      });
+      console.log('[Chat] onResponse:', response.status);
+
+      // Capture chatId from X-Chat-Id header IMMEDIATELY for new chats
+      // This ensures subsequent messages use the correct chatId before parent updates
+      const headerChatId = response.headers.get('X-Chat-Id');
+      if (headerChatId && !effectiveChatId) {
+        console.log('[Chat] onResponse: New chat detected, chatId:', headerChatId);
+        // Update effectiveChatId immediately - this triggers transport recreation
+        setEffectiveChatId(headerChatId);
+        // Also update refs
+        dbChatIdRef.current = headerChatId;
+        justCreatedChatRef.current = headerChatId;
+        setActiveChatId(headerChatId);
+        // Notify parent about the new chat (title will be updated in onFinish)
+        if (onChatCreated) {
+          onChatCreated(headerChatId, 'Nuevo Chat');
+        }
+      }
     },
     onFinish: async (message) => {
       console.log('[Chat] onFinish:', message?.id, 'parts:', message?.parts?.length);
       const pendingMessage = pendingTitleMessageRef.current;
 
-      // If this was a new chat (no chatId when we started), refresh chats to get the new one
-      if (pendingMessage && !chatId) {
-        console.log('[Chat] onFinish: New chat detected, refreshing chat list');
+      // If this was a new chat, poll for the title (chatId was already set in onResponse)
+      if (pendingMessage && dbChatIdRef.current && !chatId) {
+        console.log('[Chat] onFinish: New chat, polling for title in 3 seconds');
         pendingTitleMessageRef.current = null;
 
-        try {
-          // Fetch the updated chat list from the database
-          const response = await fetch('/api/db/chats');
-          if (response.ok) {
-            const chats = await response.json();
-            // The newest chat should be first (they're sorted by creation time)
-            if (chats.length > 0) {
-              const newChat = chats[0];
-              console.log('[Chat] onFinish: Found new chat:', newChat.id, 'title:', newChat.title);
+        // Poll for title after a delay (title is generated async on backend)
+        setTimeout(async () => {
+          try {
+            const chatIdToFetch = dbChatIdRef.current;
+            if (!chatIdToFetch) return;
 
-              // Update our refs BEFORE notifying parent
-              dbChatIdRef.current = newChat.id;
-              justCreatedChatRef.current = newChat.id;
-              setActiveChatId(newChat.id);
-              console.log('[Chat] onFinish: Updated refs, now calling onChatCreated');
-
-              // Notify parent about the new chat
-              if (onChatCreated) {
-                onChatCreated(newChat.id, newChat.title);
-              }
-
-              // If title was generated (not "Nuevo Chat"), also notify parent
-              if (newChat.title && newChat.title !== 'Nuevo Chat' && onTitleGenerated) {
-                console.log('[Chat] onFinish: Title already available, calling onTitleGenerated:', newChat.title);
+            console.log('[Chat] Polling for title, chatId:', chatIdToFetch);
+            const res = await fetch(`/api/db/chats/${chatIdToFetch}`);
+            if (res.ok) {
+              const chat = await res.json();
+              console.log('[Chat] Polled title:', chat.title);
+              if (chat.title && chat.title !== 'Nuevo Chat' && onTitleGenerated) {
                 setTitleGenerated(true);
-                onTitleGenerated(newChat.title, newChat.id);
-              } else {
-                // Title might still be generating, poll for it
-                console.log('[Chat] onFinish: Title not ready yet, polling in 3 seconds');
-                setTimeout(async () => {
-                  try {
-                    console.log('[Chat] Polling for title...');
-                    const res = await fetch(`/api/db/chats/${newChat.id}`);
-                    if (res.ok) {
-                      const updatedChat = await res.json();
-                      console.log('[Chat] Polled title:', updatedChat.title);
-                      if (updatedChat.title && updatedChat.title !== 'Nuevo Chat' && onTitleGenerated) {
-                        setTitleGenerated(true);
-                        onTitleGenerated(updatedChat.title, newChat.id);
-                      }
-                    }
-                  } catch (err) {
-                    console.error('[Chat] Failed to poll for title:', err);
-                  }
-                }, 3000); // Wait 3 seconds for title generation
+                onTitleGenerated(chat.title, chatIdToFetch);
               }
             }
+          } catch (err) {
+            console.error('[Chat] Failed to poll for title:', err);
           }
-        } catch (err) {
-          console.error('[Chat] Failed to refresh chat list:', err);
-        }
+        }, 3000);
       }
     },
   });
@@ -464,6 +457,10 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       setSelectedFiles([]);
       setInput('');
       loadedChatIdRef.current = null;
+      // Reset effectiveChatId when starting a new chat (chatId becomes undefined)
+      if (chatId === undefined) {
+        setEffectiveChatId(undefined);
+      }
     } else if (chatChanged && isOurNewChat) {
       console.log('[Chat] Chat changed to our newly created chat - NOT clearing messages');
       // Mark as loaded to prevent loading empty messages
