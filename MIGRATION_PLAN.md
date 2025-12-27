@@ -9,12 +9,109 @@ This plan outlines migrating from the current **Next.js + React** frontend to th
 | Aspect | Current (Next.js) | Target (Nuxt) |
 |--------|-------------------|---------------|
 | Framework | Next.js 16 + React 19 | Nuxt 3 + Vue 3 |
-| UI Library | shadcn/ui + Radix UI | Nuxt UI (built-in chat components) |
-| AI SDK | `@ai-sdk/react` v3 + `ai` v6 | `@ai-sdk/vue` + AI SDK v5 |
-| Database | SQLite + Drizzle ORM | SQLite (dev) / Turso (prod) + Drizzle ORM |
-| Auth | NextAuth v5 (Google OAuth) | nuxt-auth-utils (GitHub OAuth) |
+| UI Library | shadcn/ui + Radix UI | Nuxt UI v4 (built-in chat components) |
+| AI SDK | `@ai-sdk/react` v3 + `ai` v6 | `@ai-sdk/vue` v2 + `ai` v5 |
+| Database | SQLite + Drizzle ORM | SQLite (better-sqlite3) + Drizzle ORM |
+| Auth | NextAuth v5 (Google OAuth) | nuxt-auth-utils (Google OAuth) |
 | Styling | Tailwind CSS v4 | Tailwind CSS (via Nuxt UI) |
 | PWA | next-pwa | @vite-pwa/nuxt (optional) |
+
+---
+
+## 🆕 Template Analysis (After Installation)
+
+The Nuxt AI Chatbot template has been installed at `frontend-nuxt/`. Key findings:
+
+### Template Directory Structure
+```
+frontend-nuxt/
+├── app/                          # Frontend application
+│   ├── assets/css/main.css       # TailwindCSS + Nuxt UI theme
+│   ├── components/
+│   │   ├── DashboardNavbar.vue   # Top navigation bar
+│   │   ├── DragDropOverlay.vue   # Drag-drop file indicator
+│   │   ├── FileAvatar.vue        # File preview with status
+│   │   ├── FileUploadButton.vue  # Upload trigger button
+│   │   ├── ModelSelect.vue       # AI model selector
+│   │   ├── Reasoning.vue         # Collapsible thinking display
+│   │   ├── UserMenu.vue          # User profile dropdown
+│   │   ├── prose/PreStream.vue   # Streaming code highlighter
+│   │   └── tool/
+│   │       ├── Chart.vue         # Chart visualization
+│   │       └── Weather.vue       # Weather tool display
+│   ├── composables/
+│   │   ├── useChats.ts           # Chat grouping by date
+│   │   ├── useFileUpload.ts      # File upload with status
+│   │   ├── useHighlighter.ts     # Shiki code highlighting
+│   │   └── useModels.ts          # Model selection
+│   ├── layouts/default.vue       # Main layout with sidebar
+│   ├── pages/
+│   │   ├── index.vue             # Home/chat creation
+│   │   └── chat/[id].vue         # Chat detail page
+│   └── app.config.ts             # Color theme config
+├── server/
+│   ├── api/
+│   │   ├── chats.get.ts          # List chats
+│   │   ├── chats.post.ts         # Create chat
+│   │   └── chats/[id]/
+│   │       ├── index.get.ts      # Get chat
+│   │       ├── index.post.ts     # Send message (stream)
+│   │       └── index.delete.ts   # Delete chat
+│   ├── routes/auth/github.get.ts # OAuth handler
+│   └── db/schema.ts              # Drizzle schema
+├── shared/
+│   ├── types/                    # TypeScript types
+│   └── utils/
+│       └── tools/                # Tool definitions
+├── nuxt.config.ts                # Nuxt configuration
+└── package.json                  # Dependencies
+```
+
+### Key Template Features to Leverage
+
+1. **UChatMessages Component** - Built-in message list with:
+   - Auto-scroll on streaming
+   - Message status indicators
+   - User/assistant styling variants
+   - Parts-based rendering (text, reasoning, tools, files)
+
+2. **UChatPrompt Component** - Input area with:
+   - Auto-resize textarea
+   - File upload slots (header/footer)
+   - Loading/disabled states
+   - Submit/stop/reload buttons
+
+3. **UDashboardSidebar** - Collapsible sidebar with:
+   - Chat history grouped by date (Today, Yesterday, Last week, etc.)
+   - Search functionality
+   - Delete buttons on hover
+   - User menu with theme settings
+
+4. **Built-in Composables**:
+   - `useChats()` - Groups chats by date
+   - `useFileUpload()` - Handles file uploads with status tracking
+   - `useModels()` - Model selection with cookie persistence
+   - `useHighlighter()` - Shiki syntax highlighting
+
+### Backend Integration Points
+
+The Python backend already has `/api/chat/aisdk` endpoint that:
+- Streams in AI SDK Data Stream Protocol v1 format
+- Sends tool calls with parameters: `tool_status(tool_name, "start", tool_input)`
+- Sends tool results: `tool_status(tool_name, "end")`
+- Includes usage stats in the stream
+
+**No backend changes needed** - just proxy from Nuxt to Python backend.
+
+### Key Differences from Current Frontend
+
+| Feature | Current (Next.js) | Template (Nuxt) |
+|---------|-------------------|-----------------|
+| Tool display | Console logs only | UI display via UChatMessage parts |
+| File upload | Custom implementation | Built-in useFileUpload composable |
+| Chat grouping | Manual | useChats() composable (Today, Yesterday, etc.) |
+| Code highlighting | react-markdown | Shiki with streaming support |
+| Theme switching | Manual | Built-in UserMenu with color picker |
 
 ---
 
@@ -248,38 +345,163 @@ server/
 Create `server/api/chats/[id].post.ts`:
 
 ```typescript
-import { streamText, createUIMessageStreamResponse } from 'ai'
-
 export default defineEventHandler(async (event) => {
   const chatId = getRouterParam(event, 'id')
-  const { messages, model, tools } = await readBody(event)
+  const { messages, model, enabledTools, showStats = true } = await readBody(event)
 
   // Get session for user context
   const session = await getUserSession(event)
 
-  // Proxy to Python backend (same as current implementation)
-  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
+  // Get chat to verify ownership
+  const chat = await getChat(chatId)
+  if (!chat) {
+    throw createError({ statusCode: 404, message: 'Chat not found' })
+  }
 
-  const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
+  // Save user message to database BEFORE streaming
+  const lastMessage = messages[messages.length - 1]
+  if (lastMessage?.role === 'user') {
+    const textContent = extractTextContent(lastMessage)
+    await addMessage({
+      id: generateId(),
+      chatId,
+      role: 'user',
+      content: textContent,
+      parts: JSON.stringify(lastMessage.parts || []),
+      createdAt: new Date().toISOString()
+    })
+
+    // Generate title for new chats (fire and forget)
+    if (!chat.title || chat.title === 'Nuevo Chat') {
+      generateTitle(chatId, textContent).catch(console.error)
+    }
+  }
+
+  // Convert messages to backend format (multimodal support)
+  const backendMessages = convertMessagesForBackend(messages)
+
+  // Proxy to Python backend
+  const backendUrl = useRuntimeConfig().backendUrl || 'http://localhost:8000'
+
+  const response = await $fetch.raw(`${backendUrl}/api/chat/aisdk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages,
-      model,
-      tools,
+    body: {
+      messages: backendMessages,
       chatId,
-      userId: session?.user?.id
-    })
+      model: model || 'lab-assistant',
+      tools: enabledTools,
+      showStats
+    },
+    responseType: 'stream'
   })
 
-  // Stream response back to client
-  return new Response(response.body, {
+  // Collect response while streaming for database storage
+  const reader = response.body?.getReader()
+  if (!reader) throw createError({ statusCode: 500, message: 'No response body' })
+
+  let fullResponse = ''
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        controller.enqueue(value)
+
+        // Parse stream to collect text for storage
+        const text = decoder.decode(value, { stream: true })
+        for (const line of text.split('\n')) {
+          if (line.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(line.slice(6))
+              if (parsed.type === 'text-delta' && parsed.delta) {
+                fullResponse += parsed.delta
+              }
+            } catch {}
+          }
+        }
+      }
+
+      controller.close()
+
+      // Save assistant response to database
+      if (fullResponse) {
+        await addMessage({
+          id: generateId(),
+          chatId,
+          role: 'assistant',
+          content: fullResponse,
+          createdAt: new Date().toISOString()
+        })
+      }
+    }
+  })
+
+  // Return stream with AI SDK headers
+  return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
-      'X-Chat-Id': chatId
+      'x-vercel-ai-ui-message-stream': 'v1',
+      'X-Chat-Id': chatId,
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
     }
   })
 })
+
+// Helper: Extract text content from message
+function extractTextContent(message: any): string {
+  if (typeof message.content === 'string') return message.content
+  if (message.parts) {
+    return message.parts
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text)
+      .join('')
+  }
+  return ''
+}
+
+// Helper: Convert messages for backend (handle multimodal)
+function convertMessagesForBackend(messages: any[]) {
+  return messages.map(msg => {
+    if (typeof msg.content === 'string') {
+      return { role: msg.role, content: msg.content }
+    }
+
+    if (msg.parts) {
+      const hasMedia = msg.parts.some((p: any) =>
+        ['file', 'image', 'audio'].includes(p.type)
+      )
+
+      if (hasMedia) {
+        const content = msg.parts.map((part: any) => {
+          if (part.type === 'text') return { type: 'text', text: part.text }
+          if (part.mimeType?.startsWith('audio/') || part.mimeType?.startsWith('video/')) {
+            return { type: 'media', data: part.data, mime_type: part.mimeType }
+          }
+          if (part.url) {
+            return { type: 'image_url', image_url: { url: part.url } }
+          }
+          return null
+        }).filter(Boolean)
+
+        return { role: msg.role, content }
+      }
+
+      const textContent = msg.parts
+        .filter((p: any) => p.type === 'text')
+        .map((p: any) => p.text)
+        .join('')
+      return { role: msg.role, content: textContent }
+    }
+
+    return { role: msg.role, content: '' }
+  })
+}
 ```
 
 ### 4.3 Database Operations
@@ -505,6 +727,94 @@ defineExpose({ enabledTools })
     </div>
   </div>
 </template>
+```
+
+### 5.6 🆕 Tool Display in Chat UI
+
+The backend already sends tool calls in the stream. Create custom tool components:
+
+Create `app/components/tool/LabTool.vue`:
+
+```vue
+<script setup lang="ts">
+defineProps<{
+  name: string
+  args: Record<string, unknown>
+  result?: string
+  status: 'pending' | 'running' | 'completed' | 'error'
+}>()
+
+// Map tool names to display names and icons
+const toolInfo: Record<string, { label: string; icon: string }> = {
+  search_orders: { label: 'Buscando órdenes', icon: 'i-lucide-search' },
+  get_order_results: { label: 'Obteniendo resultados', icon: 'i-lucide-file-text' },
+  get_order_info: { label: 'Info de orden', icon: 'i-lucide-info' },
+  edit_results: { label: 'Editando resultados', icon: 'i-lucide-edit' },
+  edit_order_exams: { label: 'Editando exámenes', icon: 'i-lucide-list-checks' },
+  create_new_order: { label: 'Creando orden', icon: 'i-lucide-plus-circle' },
+  get_available_exams: { label: 'Exámenes disponibles', icon: 'i-lucide-list' },
+  ask_user: { label: 'Preguntando al usuario', icon: 'i-lucide-message-circle' }
+}
+</script>
+
+<template>
+  <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 my-2">
+    <div class="flex-shrink-0">
+      <UIcon
+        :name="status === 'running' ? 'i-lucide-loader-2' : (toolInfo[name]?.icon || 'i-lucide-wrench')"
+        :class="{ 'animate-spin': status === 'running' }"
+        class="w-5 h-5 text-primary"
+      />
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-sm">
+          {{ toolInfo[name]?.label || name }}
+        </span>
+        <UBadge
+          :color="status === 'completed' ? 'success' : status === 'error' ? 'error' : 'info'"
+          size="xs"
+        >
+          {{ status === 'running' ? 'Ejecutando...' : status === 'completed' ? '✓' : status }}
+        </UBadge>
+      </div>
+
+      <!-- Show tool arguments -->
+      <div v-if="Object.keys(args).length > 0" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <div v-for="(value, key) in args" :key="key" class="truncate">
+          <span class="font-mono">{{ key }}:</span>
+          <span v-if="Array.isArray(value)">{{ value.join(', ') }}</span>
+          <span v-else>{{ String(value).slice(0, 50) }}{{ String(value).length > 50 ? '...' : '' }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+```
+
+Then integrate in `chat/[id].vue`:
+
+```vue
+<UChatMessages :messages="messages" :status="status">
+  <template #message="{ message }">
+    <!-- Handle tool invocation parts -->
+    <template v-for="(part, index) in message.parts" :key="index">
+      <ToolLabTool
+        v-if="part.type === 'tool-invocation'"
+        :name="part.toolName"
+        :args="part.args"
+        :result="part.result"
+        :status="part.state"
+      />
+
+      <!-- Handle text parts with MDC -->
+      <MDC v-else-if="part.type === 'text'" :value="part.text" />
+
+      <!-- Handle reasoning parts -->
+      <Reasoning v-else-if="part.type === 'reasoning'" :text="part.text" />
+    </template>
+  </template>
+</UChatMessages>
 ```
 
 ---
