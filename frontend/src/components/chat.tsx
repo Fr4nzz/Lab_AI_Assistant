@@ -343,14 +343,15 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Track if we just created a chat (to skip loading empty messages)
   const justCreatedChatRef = useRef<string | null>(null);
 
-  // Create transport - uses enabledTools only (chatId passed via ref to avoid recreating transport)
-  // The body function reads from dbChatIdRef at call time
-  const transport = useMemo(() => new DefaultChatTransport({
-    api: '/api/chat',
-    // Note: DefaultChatTransport doesn't support dynamic body, so we pass the current value
-    // The API will create a chat if chatId is undefined and return it via X-Chat-Id header
-    body: { enabledTools, chatId: dbChatIdRef.current },
-  }), [enabledTools]);
+  // Create transport - recreates when chatId or enabledTools changes
+  // This ensures messages are sent to the correct chat when switching
+  const transport = useMemo(() => {
+    console.log('[Chat] Creating transport with chatId:', chatId);
+    return new DefaultChatTransport({
+      api: '/api/chat',
+      body: { enabledTools, chatId },
+    });
+  }, [enabledTools, chatId]);
 
   // Use stable sessionId for useChat's id prop - this prevents message cache clearing
   // when we update the database chatId (activeChatId) after creating a new chat
