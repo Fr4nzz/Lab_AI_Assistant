@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools, chatId: providedChatId } = body;
 
-  console.log('[API/chat] Received request with', messages?.length, 'messages, providedChatId:', providedChatId);
+  console.log('[API/chat] Request:', messages?.length, 'messages, chatId:', providedChatId || 'new');
 
   // Get or create chat for storage
   let chatId = providedChatId;
@@ -178,7 +178,6 @@ export async function POST(req: NextRequest) {
     const chat = await createChat('Nuevo Chat');
     chatId = chat.id;
     isNewChat = true;
-    console.log('[API/chat] Created new chat:', chatId);
 
     // Generate title for new chat in the background
     const lastUserMessage = messages[messages.length - 1];
@@ -226,7 +225,6 @@ export async function POST(req: NextRequest) {
     tools: enabledTools,
   };
 
-  console.log('[API/chat] Proxying to AI SDK endpoint, messages count:', messages.length);
 
   let backendResponse: Response;
   try {
@@ -250,7 +248,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  console.log('[API/chat] Backend response status:', backendResponse.status);
 
   if (!backendResponse.ok || !backendResponse.body) {
     return new Response(JSON.stringify({ error: 'Backend error' }), {
@@ -265,66 +262,101 @@ export async function POST(req: NextRequest) {
   let fullResponse = '';
   let chunkCount = 0;
 
+  // Track if controller is still open
+  let controllerClosed = false;
+  let hasError = false;
+
   // Create a new ReadableStream that collects the response while passing it through
   const stream = new ReadableStream({
     async start(controller) {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) {
-            console.log('[API/chat] Stream done, total chunks:', chunkCount);
-            break;
-          }
+          if (done) break;
 
           chunkCount++;
-          // Pass through the chunk
-          controller.enqueue(value);
 
           // Decode and collect text chunks for storage
           const text = decoder.decode(value, { stream: true });
-          console.log(`[API/chat] Chunk ${chunkCount} raw:`, text.slice(0, 200));
 
-          // Parse AI SDK v6 SSE format - look for text-delta events
+          // Check for error events from backend (rate limit, etc.)
+          let errorMessage = '';
           for (const line of text.split('\n')) {
             if (line.startsWith('data: ')) {
-              const data = line.slice(6); // Remove 'data: ' prefix
+              const data = line.slice(6);
               if (data === '[DONE]') {
-                console.log('[API/chat] Found DONE marker');
                 continue;
               }
               try {
                 const parsed = JSON.parse(data);
-                console.log('[API/chat] SSE event type:', parsed.type);
                 if (parsed.type === 'text-delta' && parsed.delta) {
                   fullResponse += parsed.delta;
-                  console.log('[API/chat] Text delta:', parsed.delta.slice(0, 50));
                 } else if (parsed.type === 'finish') {
-                  console.log('[API/chat] Finish event:', parsed.finishReason);
+                  if (parsed.finishReason === 'error') {
+                    hasError = true;
+                  }
+                } else if (parsed.type === 'error') {
+                  console.error('[API/chat] Error event:', parsed.error);
+                  errorMessage = parsed.error || 'Unknown error';
+                  hasError = true;
                 }
               } catch {
                 // Skip non-JSON lines
               }
             }
           }
+
+          // Pass through the chunk (only if controller is still open)
+          if (!controllerClosed) {
+            try {
+              controller.enqueue(value);
+            } catch (enqueueError) {
+              console.warn('[API/chat] Could not enqueue chunk (controller may be closed):', enqueueError);
+              controllerClosed = true;
+            }
+          }
+
+          // If we got an error, break out of the loop
+          if (errorMessage) {
+            console.error('[API/chat] Backend error:', errorMessage);
+            break;
+          }
         }
 
-        controller.close();
+        // Close controller if not already closed
+        if (!controllerClosed) {
+          try {
+            controller.close();
+            controllerClosed = true;
+          } catch {
+            // Controller already closed
+          }
+        }
 
         // Store assistant response in database after stream completes
-        if (fullResponse) {
-          console.log('[API/chat] Storing assistant response, length:', fullResponse.length);
+        if (fullResponse && !hasError) {
           await addMessage(chatId, 'assistant', fullResponse);
-        } else {
-          console.log('[API/chat] WARNING: No response content collected!');
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error);
-        controller.error(error);
+        // Only call controller.error if the controller is still open
+        if (!controllerClosed) {
+          try {
+            controller.error(error);
+            controllerClosed = true;
+          } catch {
+            // Controller already closed
+          }
+        }
       }
     },
+    cancel() {
+      // Clean up when the client disconnects
+      console.log('[API/chat] Stream cancelled by client');
+      controllerClosed = true;
+      reader.cancel().catch(() => {});
+    }
   });
-
-  console.log('[API/chat] Returning AI SDK v6 stream with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
 
   // Return the stream directly with AI SDK v6 headers
   return new Response(stream, {

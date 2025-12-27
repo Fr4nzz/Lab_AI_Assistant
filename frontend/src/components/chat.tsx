@@ -372,24 +372,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       });
     },
     onFinish: async (message) => {
-      // Log full message structure to understand the format
-      console.log('[Chat] onFinish message FULL:', JSON.stringify(message, null, 2));
-      console.log('[Chat] onFinish message keys:', message ? Object.keys(message) : 'null');
-      console.log('[Chat] onFinish message:', {
-        id: message?.id,
-        role: message?.role,
-        partsCount: message?.parts?.length,
-        content: (message as unknown as { content?: string })?.content?.slice?.(0, 100),
-        parts: message?.parts?.map(p => ({ type: p.type, text: 'text' in p ? (p.text as string).slice(0, 50) : undefined })),
-      });
+      console.log('[Chat] onFinish:', message?.id, 'parts:', message?.parts?.length);
       const pendingMessage = pendingTitleMessageRef.current;
-      console.log('[Chat] onFinish:', {
-        pendingMessage: pendingMessage?.slice(0, 30),
-        chatId,
-        dbChatIdRef: dbChatIdRef.current,
-        messagesCount: messages.length,
-        titleGenerated
-      });
 
       // If this was a new chat (no chatId when we started), refresh chats to get the new one
       if (pendingMessage && !chatId) {
@@ -541,28 +525,11 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // DEBUG: Log messages changes
+  // Log messages changes (minimal)
   useEffect(() => {
-    console.log('[Chat] messages changed FULL:', JSON.stringify(messages.map(m => ({
-      id: m.id,
-      role: m.role,
-      keys: Object.keys(m),
-      parts: m.parts,
-      content: (m as unknown as { content?: string }).content,
-    })), null, 2));
-    console.log('[Chat] messages changed summary:', {
-      count: messages.length,
-      status,
-      messages: messages.map(m => ({
-        id: m.id,
-        role: m.role,
-        partsCount: m.parts?.length,
-        hasContent: !!(m as unknown as { content?: string }).content,
-        firstPartType: m.parts?.[0]?.type,
-        textPreview: m.parts?.find(p => p.type === 'text') ?
-          ((m.parts.find(p => p.type === 'text') as { type: 'text'; text: string })?.text?.slice(0, 50)) : undefined
-      }))
-    });
+    if (messages.length > 0) {
+      console.log('[Chat] Messages:', messages.length, 'status:', status);
+    }
   }, [messages, status]);
 
   // Cleanup recording on unmount
@@ -930,7 +897,35 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
           {error && (
             <Card className="p-4 bg-destructive/10 border-destructive">
-              <div className="text-destructive">Error: {error.message}</div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-destructive">
+                  {error.message.includes('rate') || error.message.includes('429') || error.message.includes('quota')
+                    ? '⚠️ Límite de API alcanzado. Cambiando a otra clave...'
+                    : error.message.includes('fetch') || error.message.includes('network')
+                    ? '🔌 Error de conexión. Verifica tu internet.'
+                    : `Error: ${error.message}`
+                  }
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Clear error and retry the last message by resubmitting
+                    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+                    if (lastUserMessage) {
+                      const textContent = lastUserMessage.parts
+                        .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+                        .map(p => p.text)
+                        .join('');
+                      if (textContent) {
+                        setInput(textContent);
+                      }
+                    }
+                  }}
+                >
+                  Reintentar
+                </Button>
+              </div>
             </Card>
           )}
 

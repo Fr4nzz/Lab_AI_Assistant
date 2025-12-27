@@ -98,8 +98,44 @@ def _init_exhausted_keys(model_name: str):
 
 
 def _is_daily_rate_limit(error_str: str) -> bool:
-    """Check if error is a daily rate limit (not per-minute)."""
-    return "PerDay" in error_str or "per_day" in error_str.lower()
+    """Check if error is a daily rate limit (not per-minute).
+
+    Daily limits have quotaId containing 'PerDay':
+    - GenerateRequestsPerDayPerProjectPerModel-FreeTier
+
+    Per-minute limits have quotaId containing 'PerMinute':
+    - GenerateContentInputTokensPerModelPerMinute-FreeTier
+    """
+    # Check quotaId pattern (most reliable)
+    if "PerDay" in error_str:
+        return True
+    # Check quota metric pattern
+    if "per_day" in error_str.lower():
+        return True
+    # Check for daily quota message
+    if "daily" in error_str.lower() and "limit" in error_str.lower():
+        return True
+    return False
+
+
+def _is_per_minute_rate_limit(error_str: str) -> bool:
+    """Check if error is a per-minute rate limit (retryable after short wait)."""
+    if "PerMinute" in error_str:
+        return True
+    if "per_minute" in error_str.lower():
+        return True
+    return False
+
+
+def _parse_retry_delay_from_error(error_str: str) -> float:
+    """Parse the retry delay from the error message.
+
+    Example: 'Please retry in 39.019830042s.'
+    """
+    match = re.search(r'retry\s+in\s+(\d+(?:\.\d+)?)\s*s', error_str.lower())
+    if match:
+        return float(match.group(1))
+    return 5.0  # Default 5 second wait
 
 
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
@@ -158,8 +194,11 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "google_api_key": key,
             "temperature": self.temperature,
             "convert_system_message_to_human": True,
-            "max_retries": 0,  # Disable internal retry
-            "timeout": 60,  # Fail faster on slow/stuck requests
+            "max_retries": 1,  # Minimal internal retry (0 can cause issues)
+            "timeout": 30,  # Shorter timeout to fail faster
+            "request_options": {
+                "retry": None,  # Disable google client retries
+            },
         }
 
         # Enable thinking for supported models
