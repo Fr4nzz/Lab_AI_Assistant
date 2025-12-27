@@ -284,23 +284,26 @@ export async function POST(req: NextRequest) {
           const text = decoder.decode(value, { stream: true });
           console.log(`[API/chat] Chunk ${chunkCount} raw:`, text.slice(0, 200));
 
-          // Parse AI SDK format - text chunks are prefixed with "0:"
+          // Parse AI SDK v6 SSE format - look for text-delta events
           for (const line of text.split('\n')) {
-            if (line.startsWith('0:')) {
-              console.log('[API/chat] Found text line:', line.slice(0, 100));
-              try {
-                const content = JSON.parse(line.slice(2));
-                if (typeof content === 'string') {
-                  fullResponse += content;
-                  console.log('[API/chat] Parsed content:', content.slice(0, 50));
-                }
-              } catch (e) {
-                console.log('[API/chat] JSON parse error:', e);
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6); // Remove 'data: ' prefix
+              if (data === '[DONE]') {
+                console.log('[API/chat] Found DONE marker');
+                continue;
               }
-            } else if (line.startsWith('d:')) {
-              console.log('[API/chat] Found finish line:', line);
-            } else if (line.trim()) {
-              console.log('[API/chat] Other line:', line.slice(0, 100));
+              try {
+                const parsed = JSON.parse(data);
+                console.log('[API/chat] SSE event type:', parsed.type);
+                if (parsed.type === 'text-delta' && parsed.delta) {
+                  fullResponse += parsed.delta;
+                  console.log('[API/chat] Text delta:', parsed.delta.slice(0, 50));
+                } else if (parsed.type === 'finish') {
+                  console.log('[API/chat] Finish event:', parsed.finishReason);
+                }
+              } catch {
+                // Skip non-JSON lines
+              }
             }
           }
         }
@@ -321,15 +324,15 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  console.log('[API/chat] Returning AI SDK stream with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
+  console.log('[API/chat] Returning AI SDK v6 stream with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
 
-  // Return the stream directly with AI SDK headers
+  // Return the stream directly with AI SDK v6 headers
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'x-vercel-ai-data-stream': 'v1',
+      'Content-Type': 'text/event-stream',
+      'x-vercel-ai-ui-message-stream': 'v1',
       'X-Chat-Id': chatId,
-      'Access-Control-Expose-Headers': 'X-Chat-Id, x-vercel-ai-data-stream',
+      'Access-Control-Expose-Headers': 'X-Chat-Id, x-vercel-ai-ui-message-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     },
