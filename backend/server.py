@@ -887,6 +887,12 @@ async def chat_aisdk(request: AISdkChatRequest):
             full_response = []
             total_input_tokens = 0
             total_output_tokens = 0
+            step_counter = 0  # Track LLM calls
+
+            # Gemini pricing (per 1M tokens)
+            # Gemini Flash: $0.075 input, $0.30 output
+            INPUT_PRICE_PER_1M = 0.075
+            OUTPUT_PRICE_PER_1M = 0.30
 
             # Start the message
             yield adapter.start_message()
@@ -902,7 +908,11 @@ async def chat_aisdk(request: AISdkChatRequest):
                 if event_type.startswith("on_chat_model") or event_type.startswith("on_tool"):
                     logger.info(f"[AI SDK] EVENT: {event_type}")
 
-                if event_type == "on_tool_start":
+                if event_type == "on_chat_model_start":
+                    step_counter += 1
+                    logger.info(f"[AI SDK] LLM call #{step_counter}")
+
+                elif event_type == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
                     run_id = event.get("run_id", str(uuid.uuid4()))
@@ -965,6 +975,21 @@ async def chat_aisdk(request: AISdkChatRequest):
                                     stream_data = adapter.text_delta(text)
                                     logger.info(f"[AI SDK] YIELD text_delta (end, list): {stream_data[:100]}...")
                                     yield stream_data
+
+            # Calculate and send usage summary as text
+            total_tokens = total_input_tokens + total_output_tokens
+            input_cost = (total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+            output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+            total_cost = input_cost + output_cost
+
+            # Send usage summary at the end
+            usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+            if total_tokens > 0:
+                usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
+                usage_summary += f" | Est. cost: ${total_cost:.6f}"
+            usage_summary += "\n"
+
+            yield adapter.text_delta(usage_summary)
 
             # Send finish with usage
             usage = None
