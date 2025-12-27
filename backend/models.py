@@ -26,7 +26,42 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
+# Disable google-genai SDK internal retries by setting retry attempts to 0
+# This allows our key rotation logic to handle rate limits immediately
+os.environ.setdefault("GOOGLE_API_PYTHON_CLIENT_RETRIES", "0")
+
 logger = logging.getLogger(__name__)
+
+
+def _disable_genai_sdk_retry():
+    """
+    Disable the google-genai SDK's internal tenacity retry.
+    The SDK retries 429 errors with exponential backoff which conflicts with our key rotation.
+    """
+    try:
+        from google.genai import _api_client
+        from tenacity import stop_after_attempt
+
+        # Check if already patched
+        if hasattr(_api_client.BaseApiClient, '_retry_patched'):
+            return
+
+        # Get the retry-decorated method
+        method = _api_client.BaseApiClient._request_once
+
+        # Modify the retry configuration to stop immediately (after 1 attempt = no retries)
+        if hasattr(method, 'retry'):
+            method.retry.stop = stop_after_attempt(1)
+            _api_client.BaseApiClient._retry_patched = True
+            logger.info("[Model] Disabled google-genai SDK internal retry (set stop_after_attempt=1)")
+        else:
+            logger.debug("[Model] SDK method doesn't have retry attribute")
+    except Exception as e:
+        logger.debug(f"[Model] Could not disable SDK retry: {e}")
+
+
+# Try to disable SDK retry on module load
+_disable_genai_sdk_retry()
 
 # Rate limit tracking file
 RATE_LIMIT_FILE = Path(__file__).parent / "data" / "rate_limits.json"
@@ -158,8 +193,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "google_api_key": key,
             "temperature": self.temperature,
             "convert_system_message_to_human": True,
-            "max_retries": 0,  # Disable internal retry
-            "timeout": 60,  # Fail faster on slow/stuck requests
+            "max_retries": 0,  # Disable LangChain's internal retry
+            "timeout": 30,  # Short timeout to fail faster on rate limits
         }
 
         # Enable thinking for supported models
