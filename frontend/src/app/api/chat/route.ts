@@ -200,13 +200,16 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { messages, model, enabledTools, chatId: providedChatId } = body;
 
-  console.log('[API/chat] Received request with', messages?.length, 'messages');
+  console.log('[API/chat] Received request with', messages?.length, 'messages, providedChatId:', providedChatId);
 
   // Get or create chat for storage
   let chatId = providedChatId;
+  let isNewChat = false;
   if (!chatId) {
     const chat = await createChat('New Chat');
     chatId = chat.id;
+    isNewChat = true;
+    console.log('[API/chat] Created new chat:', chatId);
   }
 
   // Get the last user message for storage
@@ -336,10 +339,13 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  console.log('[API/chat] Returning response with X-Chat-Id:', chatId, 'isNewChat:', isNewChat);
+
   return createUIMessageStreamResponse({
     stream,
     headers: {
       'X-Chat-Id': chatId,
+      'Access-Control-Expose-Headers': 'X-Chat-Id',  // Ensure browser can read this header
     },
   });
 }
