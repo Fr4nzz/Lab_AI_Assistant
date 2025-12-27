@@ -475,14 +475,28 @@ async def lifespan(app: FastAPI):
     await browser.navigate(settings.target_url)
     set_browser(browser)
 
-    # Skip initial orders extraction for fast startup
-    # Orders context will be fetched lazily on first chat message
+    # Check if we ended up at the welcome page (session redirect) and navigate to orders
+    if browser.page and "/bienvenida" in browser.page.url:
+        logger.info("[Startup] Redirected to welcome page, navigating to orders...")
+        await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
+
+    # Check login status and extract orders on startup for faster first response
     if browser.page and "/login" in browser.page.url:
         logger.warning("[Startup] Not logged in - waiting for user to login")
         initial_orders_context = "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login."
     else:
-        logger.info("[Startup] Skipping initial orders extraction (will be done lazily)")
-        initial_orders_context = ""
+        logger.info("[Startup] Extracting orders context on startup...")
+        try:
+            orders_context = await extract_initial_context()
+            if orders_context:
+                initial_orders_context = orders_context
+                logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
+            else:
+                initial_orders_context = ""
+                logger.info("[Startup] No orders found")
+        except Exception as e:
+            logger.error(f"[Startup] Failed to extract orders: {e}")
+            initial_orders_context = ""
 
     # Initialize checkpointer for conversation persistence
     # Using MemorySaver for development (in-memory, not persistent across restarts)

@@ -40,25 +40,9 @@ export default function Home() {
     loadChats();
   }, []);
 
-  const createNewChat = useCallback(async () => {
-    try {
-      const response = await fetch('/api/db/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Nuevo Chat' }),
-      });
-      if (response.ok) {
-        const newChat = await response.json();
-        setChats((prev) => [{
-          id: newChat.id,
-          title: newChat.title,
-          createdAt: new Date(newChat.createdAt),
-        }, ...prev]);
-        setSelectedChatId(newChat.id);
-      }
-    } catch (error) {
-      console.error('Failed to create chat:', error);
-    }
+  // Start a new chat - just clear selection, chat will be created on first message
+  const createNewChat = useCallback(() => {
+    setSelectedChatId(null);
   }, []);
 
   // Called when a new chat is created (on first message)
