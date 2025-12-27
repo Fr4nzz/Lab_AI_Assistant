@@ -14,6 +14,7 @@ export default function Home() {
   const [enabledTools, setEnabledTools] = useState<string[]>(ALL_TOOL_IDS);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [showTabEditor, setShowTabEditor] = useState(false);
+  const [renderMarkdown, setRenderMarkdown] = useState(true);
 
   // Load chats from database on mount, always start with a new chat
   useEffect(() => {
@@ -151,6 +152,7 @@ export default function Home() {
             chatId={selectedChatId}
             onTitleGenerated={handleTitleGenerated}
             enabledTools={enabledTools}
+            renderMarkdown={renderMarkdown}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -186,6 +188,22 @@ export default function Home() {
             collapsed={rightPanelCollapsed}
           />
         </div>
+
+        {/* Settings */}
+        {!rightPanelCollapsed && (
+          <div className="border-b p-3">
+            <h3 className="font-semibold text-sm mb-2">Ajustes</h3>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={renderMarkdown}
+                onChange={(e) => setRenderMarkdown(e.target.checked)}
+                className="rounded"
+              />
+              Renderizar Markdown
+            </label>
+          </div>
+        )}
 
         {/* Browser Tabs */}
         <div className="flex-1 overflow-hidden">

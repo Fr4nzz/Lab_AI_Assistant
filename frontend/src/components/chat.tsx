@@ -7,11 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import Markdown from 'react-markdown';
 
 interface ChatProps {
   chatId?: string;
   onTitleGenerated?: (title: string) => void;
   enabledTools?: string[];
+  renderMarkdown?: boolean;
 }
 
 interface FilePreview {
@@ -19,6 +21,47 @@ interface FilePreview {
   file: File;
   preview: string;
   type: 'image' | 'pdf' | 'audio' | 'video' | 'other';
+}
+
+// Database message format
+interface DbMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  rawContent?: unknown;
+  attachments?: Array<{ path: string; mimeType: string; filename: string }>;
+}
+
+// Convert database message to useChat format (with parts)
+function dbMessageToUiMessage(dbMsg: DbMessage): {
+  id: string;
+  role: 'user' | 'assistant';
+  parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: string; mimeType: string }>;
+} {
+  const parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: string; mimeType: string }> = [];
+
+  // Add text content
+  if (dbMsg.content) {
+    parts.push({ type: 'text', text: dbMsg.content });
+  }
+
+  // Add attachments as file references (for display only, not base64)
+  if (dbMsg.attachments) {
+    for (const att of dbMsg.attachments) {
+      // We'll handle these as URLs for display
+      parts.push({
+        type: 'file',
+        data: `/api/files/${att.path}`,
+        mimeType: att.mimeType
+      });
+    }
+  }
+
+  return {
+    id: dbMsg.id,
+    role: dbMsg.role,
+    parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+  };
 }
 
 // Lightbox component for viewing images full size
@@ -264,7 +307,7 @@ const DEFAULT_TOOLS = [
   'get_available_exams', 'ask_user'
 ];
 
-export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }: ChatProps) {
+export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -272,6 +315,8 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const loadedChatIdRef = useRef<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -288,34 +333,76 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
     body: { enabledTools, chatId },
   }), [enabledTools, chatId]);
 
-  const { messages, sendMessage, status, error } = useChat({
+  const { messages, sendMessage, status, error, setMessages } = useChat({
     transport,
     id: chatId,
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onFinish: async () => {
-      if (messages.length === 1 && !titleGenerated && onTitleGenerated) {
-        setTitleGenerated(true);
-        try {
-          const res = await fetch('/api/chat/title', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: messages[0]?.parts
-                ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-                .map(p => p.text)
-                .join('') ?? ''
-            }),
-          });
-          const { title } = await res.json();
-          onTitleGenerated(title);
-        } catch (e) {
-          console.error('Failed to generate title:', e);
+    onFinish: async (message) => {
+      // Generate title only for the first user message (not initial loaded messages)
+      if (!titleGenerated && onTitleGenerated && message.role === 'assistant') {
+        const userMessage = messages.find(m => m.role === 'user');
+        if (userMessage) {
+          setTitleGenerated(true);
+          try {
+            const textContent = userMessage.parts
+              ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+              .map(p => p.text)
+              .join('') ?? '';
+            if (textContent) {
+              const res = await fetch('/api/chat/title', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: textContent }),
+              });
+              const { title } = await res.json();
+              onTitleGenerated(title);
+            }
+          } catch (e) {
+            console.error('Failed to generate title:', e);
+          }
         }
       }
     },
   });
+
+  // Load historical messages when chatId changes
+  useEffect(() => {
+    async function loadMessages() {
+      if (!chatId) {
+        return;
+      }
+
+      // Skip if we already loaded this chat
+      if (loadedChatIdRef.current === chatId) {
+        return;
+      }
+
+      setIsLoadingHistory(true);
+      try {
+        const response = await fetch(`/api/db/chats/${chatId}/messages`);
+        if (response.ok) {
+          const dbMessages: DbMessage[] = await response.json();
+          const converted = dbMessages.map(dbMessageToUiMessage);
+
+          // Mark this chat as loaded
+          loadedChatIdRef.current = chatId;
+
+          // If there are existing messages, set them and mark title as generated
+          if (converted.length > 0) {
+            setMessages(converted);
+            setTitleGenerated(true);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    }
+    loadMessages();
+  }, [chatId, setMessages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -668,7 +755,13 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS }:
                   {getMessageFiles(message).map((file, idx) => renderAttachment(file, idx))}
                 </div>
               )}
-              <div className="whitespace-pre-wrap">{getMessageContent(message)}</div>
+              {renderMarkdown && message.role === 'assistant' ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <Markdown>{getMessageContent(message)}</Markdown>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap">{getMessageContent(message)}</div>
+              )}
             </Card>
           ))}
 
