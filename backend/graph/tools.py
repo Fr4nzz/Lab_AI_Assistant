@@ -274,10 +274,12 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={order_num}"
     await page.goto(url, timeout=30000)
 
+    # Wait for exam rows instead of full networkidle (much faster)
     try:
-        await page.wait_for_load_state('networkidle', timeout=10000)
+        await page.wait_for_selector('tr.examen, .result-field, table', timeout=5000)
     except Exception:
-        await page.wait_for_timeout(1000)
+        # Fallback to brief wait if selector not found
+        await page.wait_for_timeout(500)
 
     await _inject_highlight_styles(page)
     _results_tabs[order_num] = page
@@ -328,10 +330,12 @@ async def _find_or_create_order_tab(order_id: int) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
     await page.goto(url, timeout=30000)
 
+    # Wait for key form elements instead of full networkidle (much faster)
     try:
-        await page.wait_for_load_state('networkidle', timeout=10000)
+        await page.wait_for_selector('form, .examenes-list, input[name="cedula"]', timeout=5000)
     except Exception:
-        await page.wait_for_timeout(1000)
+        # Fallback to brief wait if selector not found
+        await page.wait_for_timeout(500)
 
     _order_tabs[order_id] = page
     return page
