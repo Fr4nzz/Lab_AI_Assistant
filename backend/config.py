@@ -30,8 +30,8 @@ class Settings:
         self.openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
         self.openrouter_model: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
 
-        # Target website
-        self.target_url: str = os.getenv("TARGET_URL", "https://laboratoriofranz.orion-labs.com/ordenes")
+        # Target website - start at orders page 1 for faster context extraction
+        self.target_url: str = os.getenv("TARGET_URL", "https://laboratoriofranz.orion-labs.com/ordenes?page=1")
 
         # Browser data uses absolute path by default
         browser_data = os.getenv("BROWSER_DATA_DIR", "browser_data")

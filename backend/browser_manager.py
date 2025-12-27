@@ -122,11 +122,19 @@ class BrowserManager:
 
         return self.page
 
-    async def navigate(self, url: str, wait_for: str = "networkidle"):
-        """Navigate to a URL and wait for the page to load."""
+    async def navigate(self, url: str, wait_for: str = "domcontentloaded"):
+        """Navigate to a URL and wait for the page to load.
+
+        Uses 'domcontentloaded' by default instead of 'networkidle' for faster startup.
+        """
         await self.ensure_page()
         await self.page.goto(url, timeout=60000)
-        await self.page.wait_for_load_state(wait_for, timeout=30000)
+        # Use faster wait strategy - don't wait for networkidle which can timeout
+        try:
+            await self.page.wait_for_load_state(wait_for, timeout=10000)
+        except Exception:
+            # If wait times out, just continue - page is likely usable
+            pass
     
     async def get_state(self) -> Dict[str, Any]:
         """Extract current browser state for AI context."""
