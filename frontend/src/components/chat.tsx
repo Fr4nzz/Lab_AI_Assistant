@@ -3,6 +3,7 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
@@ -398,7 +399,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       }
     }
     loadMessages();
-  }, [activeChatId, setMessages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId]);  // Don't include setMessages - it can change when transport changes, causing double-runs
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -609,7 +611,11 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
           // Mark this chat as just created to skip loading empty messages
           justCreatedChatRef.current = targetChatId;
           activeChatIdRef.current = targetChatId;
-          setActiveChatId(targetChatId);
+          // Use flushSync to force React to re-render synchronously
+          // This ensures the transport is recreated with the new chatId before sendMessage
+          flushSync(() => {
+            setActiveChatId(targetChatId);
+          });
           if (onChatCreated) {
             onChatCreated(newChat.id, newChat.title);
           }
