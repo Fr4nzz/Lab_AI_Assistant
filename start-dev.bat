@@ -58,14 +58,14 @@ cd /d "%SCRIPT_DIR%"
 
 :: Install frontend dependencies if needed (check for essential packages)
 set "NEED_INSTALL="
-if not exist "%SCRIPT_DIR%frontend\node_modules\.bin\next.cmd" set "NEED_INSTALL=1"
-if not exist "%SCRIPT_DIR%frontend\node_modules\@ducanh2912\next-pwa" set "NEED_INSTALL=1"
-if not exist "%SCRIPT_DIR%frontend\node_modules\better-sqlite3" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@nuxt\ui" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_INSTALL=1"
 
 if defined NEED_INSTALL (
     echo Installing frontend dependencies...
-    cd /d "%SCRIPT_DIR%frontend"
-    npm install --legacy-peer-deps
+    cd /d "%SCRIPT_DIR%frontend-nuxt"
+    npm install
     cd /d "%SCRIPT_DIR%"
 )
 
@@ -76,8 +76,8 @@ start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python serv
 :: Wait a moment for backend to start
 timeout /t 3 /nobreak >nul
 
-echo Starting Frontend (Next.js on port 3000)...
-start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend && npm run dev"
+echo Starting Frontend (Nuxt on port 3000)...
+start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
