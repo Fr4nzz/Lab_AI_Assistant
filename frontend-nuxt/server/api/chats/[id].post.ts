@@ -10,7 +10,7 @@ defineRouteMeta({
   }
 })
 
-// Generate title for a chat
+// Generate title for a chat using best practices for prompt engineering
 async function generateTitle(chatId: string, messageContent: string): Promise<void> {
   const config = useRuntimeConfig()
 
@@ -24,13 +24,60 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
       apiKey: config.openrouterApiKey
     })
 
+    // Improved prompt with:
+    // - Clear role assignment
+    // - Specific format constraints
+    // - Few-shot examples
+    // - Explicit prohibition of markdown/formatting
+    const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
+
+REGLAS ESTRICTAS:
+- Genera SOLO el título, sin explicaciones
+- El título debe tener entre 2-5 palabras en español
+- NO uses markdown (**, ##, etc.)
+- NO uses comillas ni puntuación especial
+- NO empieces con "Título:" ni similar
+- El título debe describir el tema principal del mensaje
+
+EJEMPLOS:
+Mensaje: "Busca la orden del paciente Juan Pérez"
+Título: Búsqueda orden Juan Pérez
+
+Mensaje: "Quiero ver los resultados del hemograma de la orden 12345"
+Título: Resultados hemograma
+
+Mensaje: "Necesito agregar un examen de glucosa a la orden existente"
+Título: Agregar examen glucosa
+
+Mensaje: "¿Cuáles son los exámenes disponibles para perfil lipídico?"
+Título: Exámenes perfil lipídico
+
+Ahora genera un título para este mensaje:
+"${messageContent.slice(0, 300)}"
+
+Título:`
+
     const { text } = await generateText({
-      model: openrouter('nvidia/nemotron-3-nano-30b-a3b:free'),
-      prompt: `Generate a very short title (3-5 words, in Spanish) for a conversation that starts with: "${messageContent.slice(0, 200)}"`
+      model: openrouter('nvidia/llama-3.1-nemotron-70b-instruct:free'),
+      prompt,
+      temperature: 0.3
     })
 
-    const title = text.trim()
-    if (title && title !== 'Nuevo Chat') {
+    // Clean up the title - remove any markdown or unwanted formatting
+    let title = text.trim()
+      .replace(/^\*\*|\*\*$/g, '') // Remove bold markdown
+      .replace(/^#+\s*/, '') // Remove heading markdown
+      .replace(/^["']|["']$/g, '') // Remove quotes
+      .replace(/^Título:\s*/i, '') // Remove "Título:" prefix
+      .replace(/\n.*/g, '') // Take only first line
+      .trim()
+
+    // Limit length
+    if (title.length > 50) {
+      title = title.substring(0, 47) + '...'
+    }
+
+    if (title && title !== 'Nuevo Chat' && title.length > 0) {
       await updateChatTitle(chatId, title)
       console.log('[API/chat] Generated title:', title)
     }
