@@ -66,8 +66,8 @@ def _disable_genai_sdk_retry():
         logger.info(f"[Model] Could not disable SDK retry: {type(e).__name__}: {e}")
 
 
-# Try to disable SDK retry on module load
-_disable_genai_sdk_retry()
+# Flag to track if we've tried to patch
+_sdk_retry_patch_attempted = False
 
 # Rate limit tracking file
 RATE_LIMIT_FILE = Path(__file__).parent / "data" / "rate_limits.json"
@@ -188,7 +188,13 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
     def _configure_model(self):
         """Creates a new model with the current API key. Re-binds tools if previously bound."""
-        global _shared_key_index
+        global _shared_key_index, _sdk_retry_patch_attempted
+
+        # Try to disable SDK retry on first model creation (when SDK is fully loaded)
+        if not _sdk_retry_patch_attempted:
+            _sdk_retry_patch_attempted = True
+            _disable_genai_sdk_retry()
+
         key = self.api_keys[_shared_key_index]
 
         # Detect if using Gemini 3.x (supports thinking_level)
