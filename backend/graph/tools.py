@@ -274,12 +274,12 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={order_num}"
     await page.goto(url, timeout=30000)
 
-    # Wait for exam rows instead of full networkidle (much faster)
+    # Wait for network to settle (AJAX data loading)
     try:
-        await page.wait_for_selector('tr.examen, .result-field, table', timeout=5000)
+        await page.wait_for_load_state('networkidle', timeout=10000)
     except Exception:
-        # Fallback to brief wait if selector not found
-        await page.wait_for_timeout(500)
+        # Fallback to brief wait if networkidle times out
+        await page.wait_for_timeout(1000)
 
     await _inject_highlight_styles(page)
     _results_tabs[order_num] = page
