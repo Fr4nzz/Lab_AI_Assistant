@@ -9,7 +9,7 @@ echo.
 
 :: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
 set "NETWORK_IPS="
-for /f "tokens=*" %%i in ('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|^Ethernet' -and $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL' } | ForEach-Object { $type = if($_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN'){'Wi-Fi'}else{'Ethernet'}; \"[$type] $($_.IPAddress)\" }"') do (
+for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|Ethernet' -and $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL' }; foreach($ip in $ips) { if($ip.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN') { Write-Host '[Wi-Fi]' $ip.IPAddress } else { Write-Host '[Ethernet]' $ip.IPAddress } }"`) do (
     if "!NETWORK_IPS!"=="" (
         set "NETWORK_IPS=%%i"
     ) else (
