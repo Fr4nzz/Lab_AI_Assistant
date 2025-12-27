@@ -36,34 +36,36 @@ logger = logging.getLogger(__name__)
 def _disable_genai_sdk_retry():
     """
     Disable the google-genai SDK's internal tenacity retry.
-    The SDK retries 429 errors with exponential backoff which conflicts with our key rotation.
+    The SDK uses Retrying class internally (not decorator), so we patch that.
     """
     try:
-        from google.genai import _api_client
+        import tenacity
         from tenacity import stop_after_attempt
 
         # Check if already patched
-        if hasattr(_api_client.BaseApiClient, '_retry_patched'):
-            logger.info("[Model] SDK retry already patched")
+        if hasattr(tenacity.Retrying, '_patched_for_genai'):
+            logger.info("[Model] Tenacity Retrying already patched")
             return
 
-        # Get the retry-decorated method
-        method = _api_client.BaseApiClient._request_once
-        logger.info(f"[Model] Found SDK method, type: {type(method)}, has retry: {hasattr(method, 'retry')}")
+        # Store original __init__
+        original_init = tenacity.Retrying.__init__
 
-        # Modify the retry configuration to stop immediately (after 1 attempt = no retries)
-        if hasattr(method, 'retry'):
-            original_stop = method.retry.stop
-            method.retry.stop = stop_after_attempt(1)
-            _api_client.BaseApiClient._retry_patched = True
-            logger.info(f"[Model] Disabled SDK internal retry (was: {original_stop}, now: stop_after_attempt(1))")
-        else:
-            # Try alternative: the method might be wrapped differently
-            logger.info(f"[Model] SDK method attrs: {[a for a in dir(method) if not a.startswith('_')]}")
+        def patched_init(self, *args, **kwargs):
+            # Force stop after 1 attempt (no retries) for all Retrying instances
+            kwargs['stop'] = stop_after_attempt(1)
+            # Also disable wait time
+            kwargs['wait'] = tenacity.wait_none()
+            original_init(self, *args, **kwargs)
+
+        # Apply patch
+        tenacity.Retrying.__init__ = patched_init
+        tenacity.Retrying._patched_for_genai = True
+        logger.info("[Model] Patched tenacity.Retrying to stop after 1 attempt (no retries)")
+
     except ImportError as e:
-        logger.info(f"[Model] google.genai SDK not found: {e}")
+        logger.info(f"[Model] tenacity not found: {e}")
     except Exception as e:
-        logger.info(f"[Model] Could not disable SDK retry: {type(e).__name__}: {e}")
+        logger.info(f"[Model] Could not patch tenacity: {type(e).__name__}: {e}")
 
 
 # Flag to track if we've tried to patch
