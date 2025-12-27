@@ -1,10 +1,21 @@
 @echo off
+setlocal enabledelayedexpansion
 title Lab Assistant Launcher
 echo.
 echo ========================================
 echo    Lab Assistant - Development Mode
 echo ========================================
 echo.
+
+:: Get network IPs (Wi-Fi and Ethernet only, filter out virtual adapters)
+set "NETWORK_IPS="
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|^Ethernet' -and $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL' } | ForEach-Object { $_.IPAddress }"') do (
+    if "!NETWORK_IPS!"=="" (
+        set "NETWORK_IPS=%%i"
+    ) else (
+        set "NETWORK_IPS=!NETWORK_IPS!,%%i"
+    )
+)
 
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
@@ -61,8 +72,18 @@ echo ========================================
 echo    Lab Assistant Started!
 echo ========================================
 echo.
-echo Backend:  http://localhost:8000
-echo Frontend: http://localhost:3000
+echo Local access:
+echo   Frontend: http://localhost:3000
+echo   Backend:  http://localhost:8000
+echo.
+echo Network access (other devices):
+if not "!NETWORK_IPS!"=="" (
+    for %%a in (!NETWORK_IPS!) do (
+        echo   http://%%a:3000
+    )
+) else (
+    echo   [No Wi-Fi/Ethernet adapter found]
+)
 echo.
 echo Opening browser...
 start http://localhost:3000
