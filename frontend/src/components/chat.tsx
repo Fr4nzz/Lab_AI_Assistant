@@ -372,10 +372,14 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       });
     },
     onFinish: async (message) => {
+      // Log full message structure to understand the format
+      console.log('[Chat] onFinish message FULL:', JSON.stringify(message, null, 2));
+      console.log('[Chat] onFinish message keys:', message ? Object.keys(message) : 'null');
       console.log('[Chat] onFinish message:', {
         id: message?.id,
         role: message?.role,
         partsCount: message?.parts?.length,
+        content: (message as unknown as { content?: string })?.content?.slice?.(0, 100),
         parts: message?.parts?.map(p => ({ type: p.type, text: 'text' in p ? (p.text as string).slice(0, 50) : undefined })),
       });
       const pendingMessage = pendingTitleMessageRef.current;
@@ -539,13 +543,21 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   // DEBUG: Log messages changes
   useEffect(() => {
-    console.log('[Chat] messages changed:', {
+    console.log('[Chat] messages changed FULL:', JSON.stringify(messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      keys: Object.keys(m),
+      parts: m.parts,
+      content: (m as unknown as { content?: string }).content,
+    })), null, 2));
+    console.log('[Chat] messages changed summary:', {
       count: messages.length,
       status,
       messages: messages.map(m => ({
         id: m.id,
         role: m.role,
         partsCount: m.parts?.length,
+        hasContent: !!(m as unknown as { content?: string }).content,
         firstPartType: m.parts?.[0]?.type,
         textPreview: m.parts?.find(p => p.type === 'text') ?
           ((m.parts.find(p => p.type === 'text') as { type: 'text'; text: string })?.text?.slice(0, 50)) : undefined
