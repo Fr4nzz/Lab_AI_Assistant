@@ -15,6 +15,7 @@ interface ChatProps {
   onChatCreated?: (chatId: string, title: string) => void;
   enabledTools?: string[];
   renderMarkdown?: boolean;
+  showStats?: boolean;
   model?: string;
 }
 
@@ -309,7 +310,7 @@ const DEFAULT_TOOLS = [
   'get_available_exams', 'ask_user'
 ];
 
-export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true, model }: ChatProps) {
+export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true, showStats = true, model }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -347,15 +348,15 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Store pending message for title generation (used in onResponse callback)
   const pendingTitleMessageRef = useRef<string | null>(null);
 
-  // Create transport - recreates when chatId, enabledTools, or model changes
+  // Create transport - recreates when chatId, enabledTools, model, or showStats changes
   // This ensures messages are sent to the correct chat when switching
   const transport = useMemo(() => {
-    console.log('[Chat] Creating transport with chatId:', chatId, 'model:', model);
+    console.log('[Chat] Creating transport with chatId:', chatId, 'model:', model, 'showStats:', showStats);
     return new DefaultChatTransport({
       api: '/api/chat',
-      body: { enabledTools, chatId, model },
+      body: { enabledTools, chatId, model, showStats },
     });
-  }, [enabledTools, chatId, model]);
+  }, [enabledTools, chatId, model, showStats]);
 
   // Use stable sessionId for useChat's id prop - this prevents message cache clearing
   // when we update the database chatId (activeChatId) after creating a new chat

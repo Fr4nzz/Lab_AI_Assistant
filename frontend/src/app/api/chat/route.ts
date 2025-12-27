@@ -167,7 +167,7 @@ async function fetchWithRetry(
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { messages, model, enabledTools, chatId: providedChatId } = body;
+  const { messages, model, enabledTools, chatId: providedChatId, showStats = true } = body;
 
   console.log('[API/chat] Received request with', messages?.length, 'messages, providedChatId:', providedChatId);
 
@@ -224,6 +224,7 @@ export async function POST(req: NextRequest) {
     chatId: chatId,
     model: model || 'lab-assistant',
     tools: enabledTools,
+    showStats: showStats,
   };
 
   console.log('[API/chat] Proxying to AI SDK endpoint, messages count:', messages.length);
