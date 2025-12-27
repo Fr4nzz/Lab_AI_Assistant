@@ -3,19 +3,20 @@ export interface FileWithStatus {
   id: string
   previewUrl: string
   status: 'uploading' | 'uploaded' | 'error'
-  uploadedUrl?: string
-  uploadedPathname?: string
+  base64Data?: string
   error?: string
 }
 
 export const FILE_UPLOAD_CONFIG = {
-  maxSize: '8MB',
-  types: ['image', 'application/pdf', 'text/csv'],
-  acceptPattern: 'image/*,application/pdf,.csv,text/csv'
+  maxSize: 8 * 1024 * 1024, // 8MB
+  types: ['image', 'audio', 'video', 'application/pdf', 'text/csv'],
+  acceptPattern: 'image/*,audio/*,video/*,application/pdf,.csv,text/csv'
 } as const
 
 export function getFileIcon(mimeType: string, fileName?: string): string {
   if (mimeType.startsWith('image/')) return 'i-lucide-image'
+  if (mimeType.startsWith('audio/')) return 'i-lucide-music'
+  if (mimeType.startsWith('video/')) return 'i-lucide-video'
   if (mimeType === 'application/pdf') return 'i-lucide-file-text'
   if (mimeType === 'text/csv' || fileName?.endsWith('.csv')) return 'i-lucide-file-spreadsheet'
   return 'i-lucide-file'

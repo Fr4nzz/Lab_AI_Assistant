@@ -4,9 +4,7 @@ export default defineNuxtConfig({
     '@nuxt/eslint',
     '@nuxt/ui',
     '@nuxtjs/mdc',
-    '@nuxthub/core',
-    'nuxt-auth-utils',
-    'nuxt-charts'
+    'nuxt-auth-utils'
   ],
 
   devtools: {
@@ -20,7 +18,6 @@ export default defineNuxtConfig({
       anchorLinks: false
     },
     highlight: {
-      // noApiRoute: true
       shikiEngine: 'javascript'
     }
   },
@@ -37,9 +34,26 @@ export default defineNuxtConfig({
     }
   },
 
-  hub: {
-    db: 'sqlite',
-    blob: true
+  // Runtime configuration
+  runtimeConfig: {
+    // Server-side only
+    backendUrl: process.env.BACKEND_URL || 'http://localhost:8000',
+    openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+    allowedEmails: process.env.ALLOWED_EMAILS || '',
+    databasePath: process.env.DATABASE_PATH || './data/lab-assistant.db',
+
+    // OAuth configuration
+    oauth: {
+      google: {
+        clientId: process.env.NUXT_OAUTH_GOOGLE_CLIENT_ID || '',
+        clientSecret: process.env.NUXT_OAUTH_GOOGLE_CLIENT_SECRET || ''
+      }
+    },
+
+    // Public (exposed to client)
+    public: {
+      appName: 'Lab Assistant'
+    }
   },
 
   eslint: {

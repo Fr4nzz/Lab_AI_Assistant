@@ -1,26 +1,37 @@
-import { db, schema } from 'hub:db'
-import { and, asc, eq } from 'drizzle-orm'
+import { z } from 'zod'
+import { getChat } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
-  const session = await getUserSession(event)
+  const { id: chatId } = await getValidatedRouterParams(event, z.object({
+    id: z.string()
+  }).parse)
 
-  const { id } = getRouterParams(event)
-
-  const chat = await db.query.chats.findFirst({
-    where: () => and(
-      eq(schema.chats.id, id as string),
-      eq(schema.chats.userId, session.user?.id || session.id)
-    ),
-    with: {
-      messages: {
-        orderBy: () => asc(schema.messages.createdAt)
-      }
-    }
-  })
+  const chat = await getChat(chatId)
 
   if (!chat) {
-    throw createError({ statusCode: 404, statusMessage: 'Chat not found' })
+    throw createError({ statusCode: 404, message: 'Chat not found' })
   }
 
-  return chat
+  // Convert messages to AI SDK format
+  const formattedMessages = chat.messages?.map((msg: {
+    id: string
+    role: string
+    content: string | null
+    parts: unknown
+    createdAt: Date
+  }) => ({
+    id: msg.id,
+    role: msg.role,
+    content: msg.content,
+    parts: msg.parts ? (typeof msg.parts === 'string' ? JSON.parse(msg.parts) : msg.parts) : undefined,
+    createdAt: msg.createdAt
+  })) || []
+
+  return {
+    id: chat.id,
+    title: chat.title,
+    userId: chat.userId,
+    createdAt: chat.createdAt,
+    messages: formattedMessages
+  }
 })

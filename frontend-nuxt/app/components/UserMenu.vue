@@ -14,10 +14,10 @@ const neutrals = ['slate', 'gray', 'zinc', 'neutral', 'stone']
 
 const items = computed<DropdownMenuItem[][]>(() => ([[{
   type: 'label',
-  label: user.value?.name || user.value?.username,
+  label: user.value?.name || user.value?.email,
   avatar: {
     src: user.value?.avatar,
-    alt: user.value?.name || user.value?.username
+    alt: user.value?.name || user.value?.email
   }
 }], [{
   label: 'Theme',
@@ -149,12 +149,12 @@ const items = computed<DropdownMenuItem[][]>(() => ([[{
   >
     <UButton
       v-bind="{
-        label: collapsed ? undefined : (user?.name || user?.username),
+        label: collapsed ? undefined : (user?.name || user?.email),
         trailingIcon: collapsed ? undefined : 'i-lucide-chevrons-up-down'
       }"
       :avatar="{
         src: user?.avatar || undefined,
-        alt: user?.name || user?.username
+        alt: user?.name || user?.email
       }"
       color="neutral"
       variant="ghost"

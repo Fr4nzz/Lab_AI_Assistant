@@ -10,8 +10,8 @@ const open = ref(false)
 
 const deleteModal = overlay.create(LazyModalConfirm, {
   props: {
-    title: 'Delete chat',
-    description: 'Are you sure you want to delete this chat? This cannot be undone.'
+    title: 'Eliminar chat',
+    description: '¿Estás seguro que deseas eliminar este chat? Esta acción no se puede deshacer.'
   }
 })
 
@@ -64,8 +64,8 @@ async function deleteChat(id: string) {
   await $fetch(`/api/chats/${id}`, { method: 'DELETE' })
 
   toast.add({
-    title: 'Chat deleted',
-    description: 'Your chat has been deleted',
+    title: 'Chat eliminado',
+    description: 'El chat ha sido eliminado',
     icon: 'i-lucide-trash'
   })
 
@@ -96,7 +96,7 @@ defineShortcuts({
       <template #header="{ collapsed }">
         <NuxtLink to="/" class="flex items-end gap-0.5">
           <Logo class="h-8 w-auto shrink-0" />
-          <span v-if="!collapsed" class="text-xl font-bold text-highlighted">Chat</span>
+          <span v-if="!collapsed" class="text-xl font-bold text-highlighted">Lab Assistant</span>
         </NuxtLink>
 
         <div v-if="!collapsed" class="flex items-center gap-1.5 ms-auto">
@@ -108,7 +108,7 @@ defineShortcuts({
       <template #default="{ collapsed }">
         <div class="flex flex-col gap-1.5">
           <UButton
-            v-bind="collapsed ? { icon: 'i-lucide-plus' } : { label: 'New chat' }"
+            v-bind="collapsed ? { icon: 'i-lucide-plus' } : { label: 'Nuevo chat' }"
             variant="soft"
             block
             to="/"
@@ -148,22 +148,22 @@ defineShortcuts({
         <UserMenu v-if="loggedIn" :collapsed="collapsed" />
         <UButton
           v-else
-          :label="collapsed ? '' : 'Login with GitHub'"
-          icon="i-simple-icons-github"
+          :label="collapsed ? '' : 'Iniciar sesión'"
+          icon="i-simple-icons-google"
           color="neutral"
           variant="ghost"
           class="w-full"
-          @click="openInPopup('/auth/github')"
+          @click="openInPopup('/auth/google')"
         />
       </template>
     </UDashboardSidebar>
 
     <UDashboardSearch
-      placeholder="Search chats..."
+      placeholder="Buscar chats..."
       :groups="[{
         id: 'links',
         items: [{
-          label: 'New chat',
+          label: 'Nuevo chat',
           to: '/',
           icon: 'i-lucide-square-pen'
         }]
