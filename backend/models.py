@@ -228,11 +228,12 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "timeout": 30,  # Short timeout to fail faster on rate limits
         }
 
-        # Enable thinking for supported models
+        # Enable thinking and high-resolution image processing for supported models
         if is_gemini_3:
             model_kwargs["include_thoughts"] = True
             model_kwargs["thinking_level"] = "high"  # Maximum reasoning capability
-            logger.info(f"[Model] Enabling thinking (HIGH) for Gemini 3 model")
+            model_kwargs["media_resolution"] = "high"  # Better image understanding (more tokens per image)
+            logger.info(f"[Model] Enabling thinking (HIGH) + media_resolution (HIGH) for Gemini 3 model")
 
         base_model = ChatGoogleGenerativeAI(**model_kwargs)
 
