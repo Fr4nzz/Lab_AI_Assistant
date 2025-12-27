@@ -15,6 +15,8 @@ interface ChatProps {
   onChatCreated?: (chatId: string, title: string) => void;
   enabledTools?: string[];
   renderMarkdown?: boolean;
+  showStats?: boolean;
+  model?: string;
 }
 
 interface FilePreview {
@@ -308,7 +310,7 @@ const DEFAULT_TOOLS = [
   'get_available_exams', 'ask_user'
 ];
 
-export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true }: ChatProps) {
+export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true, showStats = true, model }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -321,6 +323,11 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   // Track the active chat ID (can be different from prop if we just created one)
   const [activeChatId, setActiveChatId] = useState<string | undefined>(chatId);
+  // Effective chatId for transport - combines prop + received chatId from header
+  // This ensures subsequent messages use the correct chatId even before parent updates
+  const [effectiveChatId, setEffectiveChatId] = useState<string | undefined>(chatId);
+  // Ref to track effectiveChatId for use in callbacks (avoids stale closures)
+  const effectiveChatIdRef = useRef<string | undefined>(chatId);
   // Use a ref for the database chatId (to avoid recreating transport mid-stream)
   const dbChatIdRef = useRef<string | undefined>(chatId);
 
@@ -346,15 +353,28 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Store pending message for title generation (used in onResponse callback)
   const pendingTitleMessageRef = useRef<string | null>(null);
 
-  // Create transport - recreates when chatId or enabledTools changes
-  // This ensures messages are sent to the correct chat when switching
+  // Sync effectiveChatId with prop when prop changes (e.g., switching chats)
+  useEffect(() => {
+    if (chatId !== undefined) {
+      setEffectiveChatId(chatId);
+      effectiveChatIdRef.current = chatId;
+    }
+  }, [chatId]);
+
+  // Keep ref in sync with state (for use in callbacks)
+  useEffect(() => {
+    effectiveChatIdRef.current = effectiveChatId;
+  }, [effectiveChatId]);
+
+  // Create transport - uses effectiveChatId which updates immediately from X-Chat-Id header
+  // This prevents race condition where second message is sent before parent updates chatId prop
   const transport = useMemo(() => {
-    console.log('[Chat] Creating transport with chatId:', chatId);
+    console.log('[Chat] Creating transport with effectiveChatId:', effectiveChatId, 'model:', model, 'showStats:', showStats);
     return new DefaultChatTransport({
       api: '/api/chat',
-      body: { enabledTools, chatId },
+      body: { enabledTools, chatId: effectiveChatId, model, showStats },
     });
-  }, [enabledTools, chatId]);
+  }, [enabledTools, effectiveChatId, model, showStats]);
 
   // Use stable sessionId for useChat's id prop - this prevents message cache clearing
   // when we update the database chatId (activeChatId) after creating a new chat
@@ -364,75 +384,77 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onFinish: async () => {
+    onFinish: async (message) => {
+      console.log('[Chat] onFinish:', message?.id, 'parts:', message?.parts?.length);
       const pendingMessage = pendingTitleMessageRef.current;
-      console.log('[Chat] onFinish:', {
-        pendingMessage: pendingMessage?.slice(0, 30),
-        chatId,
-        dbChatIdRef: dbChatIdRef.current,
-        messagesCount: messages.length,
-        titleGenerated
-      });
 
-      // If this was a new chat (no chatId when we started), refresh chats to get the new one
-      if (pendingMessage && !chatId) {
-        console.log('[Chat] onFinish: New chat detected, refreshing chat list');
+      // If this was a new chat, poll for the title (chatId was set when streaming started)
+      if (pendingMessage && dbChatIdRef.current && !chatId) {
+        console.log('[Chat] onFinish: New chat, polling for title in 3 seconds');
         pendingTitleMessageRef.current = null;
 
-        try {
-          // Fetch the updated chat list from the database
-          const response = await fetch('/api/db/chats');
-          if (response.ok) {
-            const chats = await response.json();
-            // The newest chat should be first (they're sorted by creation time)
-            if (chats.length > 0) {
-              const newChat = chats[0];
-              console.log('[Chat] onFinish: Found new chat:', newChat.id, 'title:', newChat.title);
+        // Poll for title after a delay (title is generated async on backend)
+        setTimeout(async () => {
+          try {
+            const chatIdToFetch = dbChatIdRef.current;
+            if (!chatIdToFetch) return;
 
-              // Update our refs BEFORE notifying parent
-              dbChatIdRef.current = newChat.id;
-              justCreatedChatRef.current = newChat.id;
-              setActiveChatId(newChat.id);
-              console.log('[Chat] onFinish: Updated refs, now calling onChatCreated');
-
-              // Notify parent about the new chat
-              if (onChatCreated) {
-                onChatCreated(newChat.id, newChat.title);
-              }
-
-              // If title was generated (not "Nuevo Chat"), also notify parent
-              if (newChat.title && newChat.title !== 'Nuevo Chat' && onTitleGenerated) {
-                console.log('[Chat] onFinish: Title already available, calling onTitleGenerated:', newChat.title);
+            console.log('[Chat] Polling for title, chatId:', chatIdToFetch);
+            const res = await fetch(`/api/db/chats/${chatIdToFetch}`);
+            if (res.ok) {
+              const chat = await res.json();
+              console.log('[Chat] Polled title:', chat.title);
+              if (chat.title && chat.title !== 'Nuevo Chat' && onTitleGenerated) {
                 setTitleGenerated(true);
-                onTitleGenerated(newChat.title, newChat.id);
-              } else {
-                // Title might still be generating, poll for it
-                console.log('[Chat] onFinish: Title not ready yet, polling in 3 seconds');
-                setTimeout(async () => {
-                  try {
-                    console.log('[Chat] Polling for title...');
-                    const res = await fetch(`/api/db/chats/${newChat.id}`);
-                    if (res.ok) {
-                      const updatedChat = await res.json();
-                      console.log('[Chat] Polled title:', updatedChat.title);
-                      if (updatedChat.title && updatedChat.title !== 'Nuevo Chat' && onTitleGenerated) {
-                        setTitleGenerated(true);
-                        onTitleGenerated(updatedChat.title, newChat.id);
-                      }
-                    }
-                  } catch (err) {
-                    console.error('[Chat] Failed to poll for title:', err);
-                  }
-                }, 3000); // Wait 3 seconds for title generation
+                onTitleGenerated(chat.title, chatIdToFetch);
               }
             }
+          } catch (err) {
+            console.error('[Chat] Failed to poll for title:', err);
           }
-        } catch (err) {
-          console.error('[Chat] Failed to refresh chat list:', err);
-        }
+        }, 3000);
       }
     },
   });
+
+  // Poll for new chat when streaming starts (since onResponse doesn't work with DefaultChatTransport)
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const wasSubmitting = prevStatusRef.current === 'submitted';
+    const isNowStreaming = status === 'streaming';
+    prevStatusRef.current = status;
+
+    // If we just started streaming and this is a new chat (no effectiveChatId)
+    if (wasSubmitting && isNowStreaming && !effectiveChatIdRef.current && pendingTitleMessageRef.current) {
+      console.log('[Chat] Streaming started for new chat, polling for chatId...');
+
+      // Poll for the most recent chat
+      fetch('/api/db/chats')
+        .then(res => res.json())
+        .then((chats: Array<{ id: string; title: string; createdAt: string }>) => {
+          if (chats && chats.length > 0) {
+            // Get the most recent chat (should be first in the list, sorted by createdAt desc)
+            const newestChat = chats[0];
+            console.log('[Chat] Found newest chat:', newestChat.id, newestChat.title);
+
+            // Update all refs and state
+            setEffectiveChatId(newestChat.id);
+            effectiveChatIdRef.current = newestChat.id;
+            dbChatIdRef.current = newestChat.id;
+            justCreatedChatRef.current = newestChat.id;
+            setActiveChatId(newestChat.id);
+
+            // Notify parent about the new chat
+            if (onChatCreated) {
+              onChatCreated(newestChat.id, newestChat.title);
+            }
+          }
+        })
+        .catch(err => {
+          console.error('[Chat] Failed to poll for new chat:', err);
+        });
+    }
+  }, [status, onChatCreated]);
 
   // Update refs when prop changes (but not sessionId - it stays stable)
   // This effect MUST be after useChat because it uses setMessages
@@ -462,6 +484,11 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       setSelectedFiles([]);
       setInput('');
       loadedChatIdRef.current = null;
+      // Reset effectiveChatId when starting a new chat (chatId becomes undefined)
+      if (chatId === undefined) {
+        setEffectiveChatId(undefined);
+        effectiveChatIdRef.current = undefined;
+      }
     } else if (chatChanged && isOurNewChat) {
       console.log('[Chat] Chat changed to our newly created chat - NOT clearing messages');
       // Mark as loaded to prevent loading empty messages
@@ -523,6 +550,13 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Log messages changes (minimal)
+  useEffect(() => {
+    if (messages.length > 0) {
+      console.log('[Chat] Messages:', messages.length, 'status:', status);
+    }
+  }, [messages, status]);
 
   // Cleanup recording on unmount
   useEffect(() => {
@@ -841,7 +875,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 min-h-0 p-4">
         <div className="space-y-4 max-w-4xl mx-auto">
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground py-12">
@@ -889,7 +923,35 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
           {error && (
             <Card className="p-4 bg-destructive/10 border-destructive">
-              <div className="text-destructive">Error: {error.message}</div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-destructive">
+                  {error.message.includes('rate') || error.message.includes('429') || error.message.includes('quota')
+                    ? '⚠️ Límite de API alcanzado. Cambiando a otra clave...'
+                    : error.message.includes('fetch') || error.message.includes('network')
+                    ? '🔌 Error de conexión. Verifica tu internet.'
+                    : `Error: ${error.message}`
+                  }
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Clear error and retry the last message by resubmitting
+                    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+                    if (lastUserMessage) {
+                      const textContent = lastUserMessage.parts
+                        .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+                        .map(p => p.text)
+                        .join('');
+                      if (textContent) {
+                        setInput(textContent);
+                      }
+                    }
+                  }}
+                >
+                  Reintentar
+                </Button>
+              </div>
             </Card>
           )}
 
@@ -945,8 +1007,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t p-4">
+      {/* Input - fixed at bottom with safe area support */}
+      <div className="sticky bottom-0 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background">
         <form onSubmit={handleFormSubmit} className="max-w-4xl mx-auto">
           {/* Hidden file input */}
           <input
@@ -964,6 +1026,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant="outline"
               size="icon"
+              className="h-11 w-11 flex-shrink-0"
               onClick={() => fileInputRef.current?.click()}
               disabled={isRecording}
               title="Adjuntar archivo"
@@ -976,6 +1039,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant="outline"
               size="icon"
+              className="h-11 w-11 flex-shrink-0 hidden sm:flex"
               onClick={() => setShowCamera(true)}
               disabled={isRecording}
               title="Tomar foto con cámara"
@@ -988,6 +1052,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant={isRecording ? "destructive" : "outline"}
               size="icon"
+              className="h-11 w-11 flex-shrink-0"
               onClick={isRecording ? stopRecording : startRecording}
               disabled={status === 'streaming'}
               title={isRecording ? "Detener grabación" : "Grabar audio"}
@@ -1014,6 +1079,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
             {/* Send button - greyed out while streaming */}
             <Button
               type="submit"
+              className="h-11 px-6 flex-shrink-0"
               disabled={!canSend}
             >
               Enviar

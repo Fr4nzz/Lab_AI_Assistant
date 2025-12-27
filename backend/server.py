@@ -67,6 +67,7 @@ from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
 from prompts import SYSTEM_PROMPT
+from stream_adapter import StreamAdapter
 
 
 def load_exams_from_csv() -> List[dict]:
@@ -192,9 +193,12 @@ async def get_browser_tabs_context() -> str:
         tabs_info = await _get_browser_tabs_impl()
 
         if not tabs_info.get("tabs"):
-            return ""
+            return "# Pestañas del Navegador\nNo hay pestañas abiertas. Para editar resultados, primero usa get_order_results(order_nums) para abrir la pestaña de resultados."
 
         lines = ["# Pestañas del Navegador"]
+
+        # Track if there are any results tabs
+        has_results_tabs = any(t.get("type") == "resultados" for t in tabs_info.get("tabs", []))
 
         type_display = {
             "ordenes_list": "Lista de Órdenes",
@@ -268,6 +272,11 @@ async def get_browser_tabs_context() -> str:
                     lines.append(f"    - Exámenes: {', '.join(changes['exams'][:5])}")
                 if "total" in changes:
                     lines.append(f"    - Total: {changes['total']}")
+
+        # Add guidance if no results tabs are open
+        if not has_results_tabs:
+            lines.append("")
+            lines.append("⚠️ No hay pestañas de resultados abiertas. Para editar resultados, usa get_order_results(order_nums) primero.")
 
         return "\n".join(lines)
 
@@ -754,6 +763,240 @@ async def get_exams():
     if not _cached_exams:
         _cached_exams = load_exams_from_csv()
     return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in _cached_exams]}
+
+
+# ============================================================
+# AI SDK DATA STREAM PROTOCOL ENDPOINT
+# ============================================================
+
+class AISdkChatRequest(BaseModel):
+    messages: List[dict]
+    chatId: Optional[str] = None
+    model: Optional[str] = None
+    showStats: bool = True
+
+
+@app.post("/api/chat/aisdk")
+async def chat_aisdk(request: AISdkChatRequest):
+    """
+    AI SDK Data Stream Protocol v1 compatible endpoint.
+
+    This endpoint streams responses in the Vercel AI SDK format,
+    which can be consumed directly by useChat on the frontend.
+
+    Documentation: https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol
+    """
+    global orders_context_sent
+
+    thread_id = request.chatId or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Convert messages to LangChain format
+    conversation_messages = []
+    for msg in request.messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        # Handle multimodal content
+        if isinstance(content, list):
+            lc_content = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        lc_content.append({"type": "text", "text": part.get("text", "")})
+                    elif part.get("type") == "image_url":
+                        image_url = part.get("image_url", {})
+                        url = image_url.get("url", "") if isinstance(image_url, dict) else image_url
+                        lc_content.append({"type": "image_url", "image_url": {"url": url}})
+                    elif part.get("type") == "media":
+                        lc_content.append({
+                            "type": "media",
+                            "data": part.get("data", ""),
+                            "mime_type": part.get("mime_type", "audio/webm")
+                        })
+            content = lc_content if lc_content else ""
+
+        if role == "user":
+            conversation_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            conversation_messages.append(AIMessage(content=content))
+
+    if not conversation_messages:
+        logger.error("[AI SDK] No messages found in request")
+        async def error_stream():
+            yield StreamAdapter.error("No messages found")
+            yield StreamAdapter.finish("error")
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain",
+            headers={
+                "x-vercel-ai-data-stream": "v1",
+                "Cache-Control": "no-cache",
+                "X-Chat-Id": thread_id,
+            }
+        )
+
+    # Log request
+    last_user_msg = None
+    for msg in reversed(request.messages):
+        if msg.get("role") == "user":
+            last_user_msg = msg.get("content")
+            break
+
+    logger.info("=" * 60)
+    if isinstance(last_user_msg, list):
+        msg_parts = []
+        for part in last_user_msg:
+            if isinstance(part, dict):
+                if part.get('type') == 'text':
+                    msg_parts.append(part.get('text', '')[:100])
+                elif part.get('type') == 'image_url':
+                    msg_parts.append('[IMAGE]')
+                elif part.get('type') == 'media':
+                    msg_parts.append('[MEDIA]')
+        user_msg_display = ' + '.join(msg_parts)
+    else:
+        user_msg_display = str(last_user_msg)[:200] if last_user_msg else ""
+    logger.info(f"[AI SDK] USER: {user_msg_display}")
+    logger.info(f"[AI SDK] Thread: {thread_id}, Messages: {len(conversation_messages)}")
+
+    async def generate():
+        try:
+            # Check if first message and reset state
+            is_first_message = len(conversation_messages) <= 2
+            if is_first_message:
+                reset_tab_state()
+
+            # Get context
+            current_context = await get_orders_context()
+            tabs_context = await get_browser_tabs_context()
+
+            # Build initial state
+            initial_state = {"messages": conversation_messages}
+            context_parts = []
+
+            should_include_orders = is_first_message or not orders_context_sent
+            if should_include_orders and current_context:
+                context_parts.append(current_context)
+            if tabs_context:
+                context_parts.append(tabs_context)
+            if context_parts:
+                initial_state["current_page_context"] = "\n\n".join(context_parts)
+
+            # Stream events using new AI SDK v6 protocol
+            adapter = StreamAdapter()
+            full_response = []
+            total_input_tokens = 0
+            total_output_tokens = 0
+            step_counter = 0  # Track LLM calls
+
+            # Gemini pricing (per 1M tokens)
+            # Gemini Flash: $0.075 input, $0.30 output
+            INPUT_PRICE_PER_1M = 0.075
+            OUTPUT_PRICE_PER_1M = 0.30
+
+            # Start the message
+            yield adapter.start_message()
+
+            async for event in graph.astream_events(
+                initial_state,
+                config,
+                version="v2"
+            ):
+                event_type = event.get("event", "")
+
+                if event_type == "on_chat_model_start":
+                    step_counter += 1
+
+                elif event_type == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    tool_input = event.get("data", {}).get("input", {})
+                    logger.info(f"[AI SDK] Tool: {tool_name}")
+                    yield adapter.tool_status(tool_name, "start", tool_input)
+
+                elif event_type == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    yield adapter.tool_status(tool_name, "end")
+
+                elif event_type == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk and hasattr(chunk, 'content') and chunk.content:
+                        content = chunk.content
+                        if isinstance(content, list):
+                            text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                            content = ''.join(text_parts)
+                        if content:
+                            full_response.append(content)
+                            yield adapter.text_delta(content)
+
+                elif event_type == "on_chat_model_end":
+                    output = event.get("data", {}).get("output")
+                    if output:
+                        # Handle usage metadata
+                        usage = getattr(output, 'usage_metadata', None)
+                        if usage and isinstance(usage, dict):
+                            total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
+                            total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
+
+                        # If streaming didn't happen, yield the full content here
+                        if not full_response and hasattr(output, 'content') and output.content:
+                            content = output.content
+                            if isinstance(content, str) and content:
+                                full_response.append(content)
+                                yield adapter.text_delta(content)
+                            elif isinstance(content, list):
+                                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                text = ''.join(text_parts)
+                                if text:
+                                    full_response.append(text)
+                                    yield adapter.text_delta(text)
+
+            # Calculate and send usage summary as text (if enabled)
+            total_tokens = total_input_tokens + total_output_tokens
+            input_cost = (total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+            output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+            total_cost = input_cost + output_cost
+
+            if request.showStats:
+                # Send usage summary at the end
+                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                if total_tokens > 0:
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
+                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                usage_summary += "\n"
+
+                yield adapter.text_delta(usage_summary)
+
+            # Send finish with usage
+            usage = None
+            if total_input_tokens or total_output_tokens:
+                usage = {
+                    "promptTokens": total_input_tokens,
+                    "completionTokens": total_output_tokens,
+                    "totalTokens": total_input_tokens + total_output_tokens
+                }
+            yield adapter.finish("stop", usage)
+
+            # Log summary
+            response_preview = ''.join(full_response)[:100]
+            logger.info(f"[AI SDK] Done: {step_counter} LLM calls, {total_tokens} tokens, response: {response_preview}...")
+
+        except Exception as e:
+            logger.error(f"[AI SDK] Error: {e}", exc_info=True)
+            adapter = StreamAdapter()
+            yield adapter.error(str(e))
+            yield adapter.finish("error")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "x-vercel-ai-ui-message-stream": "v1",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Chat-Id": thread_id,
+        }
+    )
 
 
 # ============================================================

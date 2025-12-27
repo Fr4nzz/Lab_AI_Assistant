@@ -1,40 +1,45 @@
 /**
- * Simple file-based database for chat messages and attachments.
- * Stores data as JSON files with file attachments in a separate directory.
+ * Database operations for Lab Assistant AI
  *
- * Structure:
- * - data/chats.json - List of all chats
- * - data/messages/{chatId}.json - Messages for each chat
- * - data/files/{fileId}.{ext} - Uploaded files
+ * Uses Drizzle ORM with SQLite for local development.
+ * Maintains backward compatibility with existing API.
  */
 
 import { promises as fs } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { eq, desc, asc } from 'drizzle-orm';
+import { db, chats, messages, files } from './drizzle';
+
+// Data directory for file storage
+const DATA_DIR = path.join(process.cwd(), 'data');
+const FILES_DIR = path.join(DATA_DIR, 'files');
 
 // Generate timestamped ID: YYYYMMDD_HHMMSS_randomchars
 function generateId(prefix?: string): string {
   const now = new Date();
   const timestamp = now.toISOString()
     .replace(/[-:T]/g, '')
-    .replace(/\.\d{3}Z$/, '');  // 20251226183000
+    .replace(/\.\d{3}Z$/, '');
   const random = randomUUID().slice(0, 8);
   return prefix ? `${prefix}_${timestamp}_${random}` : `${timestamp}_${random}`;
 }
 
-// Data directory (relative to project root)
-const DATA_DIR = path.join(process.cwd(), 'data');
-const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
-const MESSAGES_DIR = path.join(DATA_DIR, 'messages');
-const FILES_DIR = path.join(DATA_DIR, 'files');
+// Ensure files directory exists
+async function ensureFilesDirectory() {
+  await fs.mkdir(FILES_DIR, { recursive: true });
+}
 
-// Types
+// ============================================================
+// TYPES (Backward compatible)
+// ============================================================
+
 export interface ChatAttachment {
   id: string;
   filename: string;
   mimeType: string;
   size: number;
-  path: string;  // Relative path in files directory
+  path: string;
   createdAt: string;
 }
 
@@ -42,8 +47,8 @@ export interface ChatMessage {
   id: string;
   chatId: string;
   role: 'user' | 'assistant';
-  content: string;  // Text content
-  rawContent?: unknown;  // Full raw content including parts (for debugging)
+  content: string;
+  rawContent?: unknown;
   attachments: ChatAttachment[];
   createdAt: string;
   metadata?: {
@@ -59,76 +64,91 @@ export interface Chat {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
-}
-
-// Initialize directories
-async function ensureDirectories() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.mkdir(MESSAGES_DIR, { recursive: true });
-  await fs.mkdir(FILES_DIR, { recursive: true });
-}
-
-// Read JSON file safely
-async function readJsonFile<T>(filePath: string, defaultValue: T): Promise<T> {
-  try {
-    const data = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return defaultValue;
-  }
-}
-
-// Write JSON file
-async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  userId?: string;
 }
 
 // ============================================================
 // CHATS
 // ============================================================
 
-export async function getChats(): Promise<Chat[]> {
-  await ensureDirectories();
-  return readJsonFile<Chat[]>(CHATS_FILE, []);
+export async function getChats(userId?: string): Promise<Chat[]> {
+  const query = userId
+    ? db.select().from(chats).where(eq(chats.userId, userId)).orderBy(desc(chats.createdAt))
+    : db.select().from(chats).orderBy(desc(chats.createdAt));
+
+  const results = await query;
+
+  // Get message counts for each chat
+  const chatList = await Promise.all(
+    results.map(async (chat) => {
+      const msgs = await db.select().from(messages).where(eq(messages.chatId, chat.id));
+      return {
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        messageCount: msgs.length,
+        userId: chat.userId || undefined,
+      };
+    })
+  );
+
+  return chatList;
 }
 
 export async function getChat(id: string): Promise<Chat | null> {
-  const chats = await getChats();
-  return chats.find(c => c.id === id) || null;
+  const result = await db.select().from(chats).where(eq(chats.id, id)).limit(1);
+
+  if (result.length === 0) return null;
+
+  const chat = result[0];
+  const msgs = await db.select().from(messages).where(eq(messages.chatId, id));
+
+  return {
+    id: chat.id,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
+    messageCount: msgs.length,
+    userId: chat.userId || undefined,
+  };
 }
 
-export async function createChat(title: string = 'New Chat'): Promise<Chat> {
-  await ensureDirectories();
-  const chats = await getChats();
+export async function createChat(title: string = 'Nuevo Chat', userId?: string): Promise<Chat> {
+  const id = generateId('chat');
+  const now = new Date().toISOString();
 
-  const chat: Chat = {
-    id: generateId('chat'),
+  await db.insert(chats).values({
+    id,
     title,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    userId: userId || null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return {
+    id,
+    title,
+    createdAt: now,
+    updatedAt: now,
     messageCount: 0,
+    userId,
   };
-
-  chats.unshift(chat);
-  await writeJsonFile(CHATS_FILE, chats);
-
-  return chat;
 }
 
 export async function updateChat(id: string, updates: Partial<Chat>): Promise<Chat | null> {
-  const chats = await getChats();
-  const index = chats.findIndex(c => c.id === id);
+  const now = new Date().toISOString();
 
-  if (index === -1) return null;
+  await db
+    .update(chats)
+    .set({
+      ...(updates.title !== undefined && { title: updates.title }),
+      ...(updates.userId !== undefined && { userId: updates.userId }),
+      updatedAt: now,
+    })
+    .where(eq(chats.id, id));
 
-  chats[index] = {
-    ...chats[index],
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await writeJsonFile(CHATS_FILE, chats);
-  return chats[index];
+  return getChat(id);
 }
 
 export async function updateChatTitle(id: string, title: string): Promise<Chat | null> {
@@ -136,21 +156,8 @@ export async function updateChatTitle(id: string, title: string): Promise<Chat |
 }
 
 export async function deleteChat(id: string): Promise<boolean> {
-  const chats = await getChats();
-  const filtered = chats.filter(c => c.id !== id);
-
-  if (filtered.length === chats.length) return false;
-
-  await writeJsonFile(CHATS_FILE, filtered);
-
-  // Also delete messages file
-  try {
-    await fs.unlink(path.join(MESSAGES_DIR, `${id}.json`));
-  } catch {
-    // Ignore if file doesn't exist
-  }
-
-  return true;
+  const result = await db.delete(chats).where(eq(chats.id, id));
+  return (result.changes ?? 0) > 0;
 }
 
 // ============================================================
@@ -158,14 +165,43 @@ export async function deleteChat(id: string): Promise<boolean> {
 // ============================================================
 
 export async function getMessages(chatId: string): Promise<ChatMessage[]> {
-  await ensureDirectories();
-  const messagesFile = path.join(MESSAGES_DIR, `${chatId}.json`);
-  return readJsonFile<ChatMessage[]>(messagesFile, []);
+  const results = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.chatId, chatId))
+    .orderBy(asc(messages.orderIndex), asc(messages.createdAt));
+
+  // Get attachments for each message
+  const messageList = await Promise.all(
+    results.map(async (msg) => {
+      const attachments = await db.select().from(files).where(eq(files.messageId, msg.id));
+
+      return {
+        id: msg.id,
+        chatId: msg.chatId,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        rawContent: msg.rawContent,
+        attachments: attachments.map((f) => ({
+          id: f.id,
+          filename: f.filename,
+          mimeType: f.mimeType,
+          size: f.size,
+          path: f.path,
+          createdAt: f.createdAt,
+        })),
+        createdAt: msg.createdAt,
+        metadata: msg.metadata as ChatMessage['metadata'],
+      };
+    })
+  );
+
+  return messageList;
 }
 
 export async function getMessage(chatId: string, messageId: string): Promise<ChatMessage | null> {
-  const messages = await getMessages(chatId);
-  return messages.find(m => m.id === messageId) || null;
+  const msgs = await getMessages(chatId);
+  return msgs.find((m) => m.id === messageId) || null;
 }
 
 export async function addMessage(
@@ -176,30 +212,54 @@ export async function addMessage(
   attachments: ChatAttachment[] = [],
   metadata?: ChatMessage['metadata']
 ): Promise<ChatMessage> {
-  await ensureDirectories();
+  const id = generateId('msg');
+  const now = new Date().toISOString();
 
-  const messages = await getMessages(chatId);
+  // Get current message count for order index
+  const existingMessages = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.chatId, chatId));
+  const orderIndex = existingMessages.length;
 
-  const message: ChatMessage = {
-    id: generateId('msg'),
+  // Insert message
+  await db.insert(messages).values({
+    id,
+    chatId,
+    role,
+    content,
+    rawContent: rawContent ? JSON.stringify(rawContent) : null,
+    orderIndex,
+    metadata: metadata ? JSON.stringify(metadata) : null,
+    createdAt: now,
+  });
+
+  // Insert attachments
+  for (const attachment of attachments) {
+    await db.insert(files).values({
+      id: attachment.id,
+      messageId: id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      path: attachment.path,
+      size: attachment.size,
+      createdAt: attachment.createdAt,
+    });
+  }
+
+  // Update chat's updatedAt
+  await db.update(chats).set({ updatedAt: now }).where(eq(chats.id, chatId));
+
+  return {
+    id,
     chatId,
     role,
     content,
     rawContent,
     attachments,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     metadata,
   };
-
-  messages.push(message);
-
-  const messagesFile = path.join(MESSAGES_DIR, `${chatId}.json`);
-  await writeJsonFile(messagesFile, messages);
-
-  // Update chat message count
-  await updateChat(chatId, { messageCount: messages.length });
-
-  return message;
 }
 
 // ============================================================
@@ -211,7 +271,7 @@ export async function saveFile(
   filename: string,
   mimeType: string
 ): Promise<ChatAttachment> {
-  await ensureDirectories();
+  await ensureFilesDirectory();
 
   const id = generateId('file');
   const ext = path.extname(filename) || getExtensionFromMime(mimeType);
@@ -260,4 +320,3 @@ function getExtensionFromMime(mimeType: string): string {
   };
   return map[mimeType] || '';
 }
-

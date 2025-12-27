@@ -37,3 +37,13 @@ frontend/data/
 # Debug logs (contain potentially sensitive info)
 data/debug/
 data/requests/
+
+# Drizzle migrations
+frontend/drizzle/
+
+# Cloudflare Tunnel credentials (stored in user profile, not in repo)
+# Note: config is in %USERPROFILE%\.cloudflared\, not in repo
+
+# PWA generated files
+frontend/public/sw.js
+frontend/public/workbox-*.js
