@@ -142,7 +142,24 @@ def _init_exhausted_keys(model_name: str):
 
 def _is_daily_rate_limit(error_str: str) -> bool:
     """Check if error is a daily rate limit (not per-minute)."""
-    return "PerDay" in error_str or "per_day" in error_str.lower()
+    error_lower = error_str.lower()
+
+    # Explicit daily indicators
+    if "PerDay" in error_str or "per_day" in error_lower or "daily" in error_lower:
+        return True
+
+    # Free tier limits are typically daily
+    if "free_tier" in error_lower or "freetier" in error_lower:
+        return True
+
+    # If it's a quota error but does NOT mention per-minute/rpm, assume daily
+    is_quota_error = "quota" in error_lower or "resource_exhausted" in error_lower
+    is_per_minute = "per minute" in error_lower or "per_minute" in error_lower or "rpm" in error_lower
+
+    if is_quota_error and not is_per_minute:
+        return True
+
+    return False
 
 
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):

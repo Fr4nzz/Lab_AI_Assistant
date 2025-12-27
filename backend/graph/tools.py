@@ -330,12 +330,12 @@ async def _find_or_create_order_tab(order_id: int) -> Any:
     url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
     await page.goto(url, timeout=30000)
 
-    # Wait for key form elements instead of full networkidle (much faster)
+    # Wait for network to settle (AJAX data loading for exams list)
     try:
-        await page.wait_for_selector('form, .examenes-list, input[name="cedula"]', timeout=5000)
+        await page.wait_for_load_state('networkidle', timeout=10000)
     except Exception:
-        # Fallback to brief wait if selector not found
-        await page.wait_for_timeout(500)
+        # Fallback to brief wait if networkidle times out
+        await page.wait_for_timeout(1000)
 
     _order_tabs[order_id] = page
     return page
