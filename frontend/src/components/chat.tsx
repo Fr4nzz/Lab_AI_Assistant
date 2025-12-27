@@ -387,7 +387,13 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     onResponse: (response) => {
       // Capture chatId from X-Chat-Id header IMMEDIATELY for new chats
       // Use ref to avoid stale closure (effectiveChatId would be stale in this callback)
-      const headerChatId = response.headers.get('X-Chat-Id');
+      // Try both cases - HTTP/2 uses lowercase headers
+      const headerChatId = response.headers.get('X-Chat-Id') || response.headers.get('x-chat-id');
+      console.log('[Chat] onResponse:', {
+        headerChatId,
+        effectiveChatIdRef: effectiveChatIdRef.current,
+        allHeaders: Object.fromEntries(response.headers.entries())
+      });
       if (headerChatId && !effectiveChatIdRef.current) {
         console.log('[Chat] onResponse: New chat created, chatId:', headerChatId);
         // Update both state and ref immediately
