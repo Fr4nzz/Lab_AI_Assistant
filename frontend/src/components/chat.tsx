@@ -365,7 +365,19 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onFinish: async () => {
+    onResponse: (response) => {
+      console.log('[Chat] onResponse:', {
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+    },
+    onFinish: async (message) => {
+      console.log('[Chat] onFinish message:', {
+        id: message?.id,
+        role: message?.role,
+        partsCount: message?.parts?.length,
+        parts: message?.parts?.map(p => ({ type: p.type, text: 'text' in p ? (p.text as string).slice(0, 50) : undefined })),
+      });
       const pendingMessage = pendingTitleMessageRef.current;
       console.log('[Chat] onFinish:', {
         pendingMessage: pendingMessage?.slice(0, 30),
@@ -524,6 +536,22 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // DEBUG: Log messages changes
+  useEffect(() => {
+    console.log('[Chat] messages changed:', {
+      count: messages.length,
+      status,
+      messages: messages.map(m => ({
+        id: m.id,
+        role: m.role,
+        partsCount: m.parts?.length,
+        firstPartType: m.parts?.[0]?.type,
+        textPreview: m.parts?.find(p => p.type === 'text') ?
+          ((m.parts.find(p => p.type === 'text') as { type: 'text'; text: string })?.text?.slice(0, 50)) : undefined
+      }))
+    });
+  }, [messages, status]);
 
   // Cleanup recording on unmount
   useEffect(() => {
