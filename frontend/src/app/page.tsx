@@ -47,6 +47,7 @@ export default function Home() {
 
   // Called when a new chat is created (on first message)
   const handleChatCreated = useCallback((chatId: string, title: string) => {
+    console.log('[Page] handleChatCreated:', { chatId, title, currentSelectedChatId: selectedChatId });
     const newChatItem = {
       id: chatId,
       title,
@@ -54,10 +55,11 @@ export default function Home() {
     };
     setChats((prev) => [newChatItem, ...prev]);
     setSelectedChatId(chatId);
-  }, []);
+  }, [selectedChatId]);
 
   const handleTitleGenerated = useCallback(async (title: string, chatId?: string) => {
     const targetChatId = chatId || selectedChatId;
+    console.log('[Page] handleTitleGenerated:', { title, chatId, targetChatId, selectedChatId });
     if (targetChatId) {
       // Update local state
       setChats((prev) =>
@@ -72,6 +74,7 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title }),
         });
+        console.log('[Page] Title updated in database for chat:', targetChatId);
       } catch (error) {
         console.error('Failed to update chat title:', error);
       }

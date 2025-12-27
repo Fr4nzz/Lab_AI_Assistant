@@ -365,12 +365,18 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       console.error('[Chat] onError:', err);
     },
     onFinish: async () => {
-      console.log('[Chat] onFinish - checking for new chat and title updates');
+      const pendingMessage = pendingTitleMessageRef.current;
+      console.log('[Chat] onFinish:', {
+        pendingMessage: pendingMessage?.slice(0, 30),
+        chatId,
+        dbChatIdRef: dbChatIdRef.current,
+        messagesCount: messages.length,
+        titleGenerated
+      });
 
       // If this was a new chat (no chatId when we started), refresh chats to get the new one
-      const pendingMessage = pendingTitleMessageRef.current;
       if (pendingMessage && !chatId) {
-        console.log('[Chat] New chat created, refreshing chat list');
+        console.log('[Chat] onFinish: New chat detected, refreshing chat list');
         pendingTitleMessageRef.current = null;
 
         try {
@@ -381,11 +387,13 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
             // The newest chat should be first (they're sorted by creation time)
             if (chats.length > 0) {
               const newChat = chats[0];
-              console.log('[Chat] Found new chat:', newChat.id, 'title:', newChat.title);
+              console.log('[Chat] onFinish: Found new chat:', newChat.id, 'title:', newChat.title);
 
+              // Update our refs BEFORE notifying parent
               dbChatIdRef.current = newChat.id;
               justCreatedChatRef.current = newChat.id;
               setActiveChatId(newChat.id);
+              console.log('[Chat] onFinish: Updated refs, now calling onChatCreated');
 
               // Notify parent about the new chat
               if (onChatCreated) {
@@ -394,15 +402,19 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
               // If title was generated (not "Nuevo Chat"), also notify parent
               if (newChat.title && newChat.title !== 'Nuevo Chat' && onTitleGenerated) {
+                console.log('[Chat] onFinish: Title already available, calling onTitleGenerated:', newChat.title);
                 setTitleGenerated(true);
                 onTitleGenerated(newChat.title, newChat.id);
               } else {
                 // Title might still be generating, poll for it
+                console.log('[Chat] onFinish: Title not ready yet, polling in 3 seconds');
                 setTimeout(async () => {
                   try {
+                    console.log('[Chat] Polling for title...');
                     const res = await fetch(`/api/db/chats/${newChat.id}`);
                     if (res.ok) {
                       const updatedChat = await res.json();
+                      console.log('[Chat] Polled title:', updatedChat.title);
                       if (updatedChat.title && updatedChat.title !== 'Nuevo Chat' && onTitleGenerated) {
                         setTitleGenerated(true);
                         onTitleGenerated(updatedChat.title, newChat.id);
@@ -428,21 +440,39 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     const prevChatId = prevChatIdRef.current;
     const chatChanged = prevChatId !== chatId;
 
-    // Clear all state when switching to a different chat (including new chat)
-    if (chatChanged) {
-      console.log('[Chat] Chat changed, clearing messages. Old:', prevChatId, 'New:', chatId);
+    // Check if this is the chat we just created (don't clear messages in this case)
+    const isOurNewChat = justCreatedChatRef.current === chatId;
+
+    console.log('[Chat] useEffect[chatId]:', {
+      prevChatId,
+      chatId,
+      chatChanged,
+      isOurNewChat,
+      justCreatedChatRef: justCreatedChatRef.current,
+      dbChatIdRef: dbChatIdRef.current,
+      messagesCount: messages.length
+    });
+
+    // Clear all state when switching to a different chat
+    // BUT NOT when we're updating to the chat we just created (that would clear our streamed messages)
+    if (chatChanged && !isOurNewChat) {
+      console.log('[Chat] Chat changed to different chat, clearing messages. Old:', prevChatId, 'New:', chatId);
       setMessages([]);
       setTitleGenerated(false);
       setSelectedFiles([]);
       setInput('');
       loadedChatIdRef.current = null;
+    } else if (chatChanged && isOurNewChat) {
+      console.log('[Chat] Chat changed to our newly created chat - NOT clearing messages');
+      // Mark as loaded to prevent loading empty messages
+      loadedChatIdRef.current = chatId;
     }
 
-    // Update refs after clearing
+    // Update refs after handling
     prevChatIdRef.current = chatId;
     setActiveChatId(chatId);
     dbChatIdRef.current = chatId;
-  }, [chatId, setMessages]);
+  }, [chatId, setMessages, messages.length]);
 
   // Load historical messages when activeChatId changes
   useEffect(() => {
