@@ -263,6 +263,7 @@ export async function POST(req: NextRequest) {
   const reader = backendResponse.body.getReader();
   const decoder = new TextDecoder();
   let fullResponse = '';
+  let chunkCount = 0;
 
   // Create a new ReadableStream that collects the response while passing it through
   const stream = new ReadableStream({
@@ -270,24 +271,36 @@ export async function POST(req: NextRequest) {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log('[API/chat] Stream done, total chunks:', chunkCount);
+            break;
+          }
 
+          chunkCount++;
           // Pass through the chunk
           controller.enqueue(value);
 
           // Decode and collect text chunks for storage
           const text = decoder.decode(value, { stream: true });
+          console.log(`[API/chat] Chunk ${chunkCount} raw:`, text.slice(0, 200));
+
           // Parse AI SDK format - text chunks are prefixed with "0:"
           for (const line of text.split('\n')) {
             if (line.startsWith('0:')) {
+              console.log('[API/chat] Found text line:', line.slice(0, 100));
               try {
                 const content = JSON.parse(line.slice(2));
                 if (typeof content === 'string') {
                   fullResponse += content;
+                  console.log('[API/chat] Parsed content:', content.slice(0, 50));
                 }
-              } catch {
-                // Skip invalid JSON
+              } catch (e) {
+                console.log('[API/chat] JSON parse error:', e);
               }
+            } else if (line.startsWith('d:')) {
+              console.log('[API/chat] Found finish line:', line);
+            } else if (line.trim()) {
+              console.log('[API/chat] Other line:', line.slice(0, 100));
             }
           }
         }
@@ -298,6 +311,8 @@ export async function POST(req: NextRequest) {
         if (fullResponse) {
           console.log('[API/chat] Storing assistant response, length:', fullResponse.length);
           await addMessage(chatId, 'assistant', fullResponse);
+        } else {
+          console.log('[API/chat] WARNING: No response content collected!');
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error);
