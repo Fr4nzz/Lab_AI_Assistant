@@ -384,36 +384,11 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onResponse: (response) => {
-      // Capture chatId from X-Chat-Id header IMMEDIATELY for new chats
-      // Use ref to avoid stale closure (effectiveChatId would be stale in this callback)
-      // Try both cases - HTTP/2 uses lowercase headers
-      const headerChatId = response.headers.get('X-Chat-Id') || response.headers.get('x-chat-id');
-      console.log('[Chat] onResponse:', {
-        headerChatId,
-        effectiveChatIdRef: effectiveChatIdRef.current,
-        allHeaders: Object.fromEntries(response.headers.entries())
-      });
-      if (headerChatId && !effectiveChatIdRef.current) {
-        console.log('[Chat] onResponse: New chat created, chatId:', headerChatId);
-        // Update both state and ref immediately
-        setEffectiveChatId(headerChatId);
-        effectiveChatIdRef.current = headerChatId;
-        // Also update other refs
-        dbChatIdRef.current = headerChatId;
-        justCreatedChatRef.current = headerChatId;
-        setActiveChatId(headerChatId);
-        // Notify parent about the new chat (title will be updated in onFinish)
-        if (onChatCreated) {
-          onChatCreated(headerChatId, 'Nuevo Chat');
-        }
-      }
-    },
     onFinish: async (message) => {
       console.log('[Chat] onFinish:', message?.id, 'parts:', message?.parts?.length);
       const pendingMessage = pendingTitleMessageRef.current;
 
-      // If this was a new chat, poll for the title (chatId was already set in onResponse)
+      // If this was a new chat, poll for the title (chatId was set when streaming started)
       if (pendingMessage && dbChatIdRef.current && !chatId) {
         console.log('[Chat] onFinish: New chat, polling for title in 3 seconds');
         pendingTitleMessageRef.current = null;
@@ -441,6 +416,45 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       }
     },
   });
+
+  // Poll for new chat when streaming starts (since onResponse doesn't work with DefaultChatTransport)
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const wasSubmitting = prevStatusRef.current === 'submitted';
+    const isNowStreaming = status === 'streaming';
+    prevStatusRef.current = status;
+
+    // If we just started streaming and this is a new chat (no effectiveChatId)
+    if (wasSubmitting && isNowStreaming && !effectiveChatIdRef.current && pendingTitleMessageRef.current) {
+      console.log('[Chat] Streaming started for new chat, polling for chatId...');
+
+      // Poll for the most recent chat
+      fetch('/api/db/chats')
+        .then(res => res.json())
+        .then((chats: Array<{ id: string; title: string; createdAt: string }>) => {
+          if (chats && chats.length > 0) {
+            // Get the most recent chat (should be first in the list, sorted by createdAt desc)
+            const newestChat = chats[0];
+            console.log('[Chat] Found newest chat:', newestChat.id, newestChat.title);
+
+            // Update all refs and state
+            setEffectiveChatId(newestChat.id);
+            effectiveChatIdRef.current = newestChat.id;
+            dbChatIdRef.current = newestChat.id;
+            justCreatedChatRef.current = newestChat.id;
+            setActiveChatId(newestChat.id);
+
+            // Notify parent about the new chat
+            if (onChatCreated) {
+              onChatCreated(newestChat.id, newestChat.title);
+            }
+          }
+        })
+        .catch(err => {
+          console.error('[Chat] Failed to poll for new chat:', err);
+        });
+    }
+  }, [status, onChatCreated]);
 
   // Update refs when prop changes (but not sessionId - it stays stable)
   // This effect MUST be after useChat because it uses setMessages
