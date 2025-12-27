@@ -801,9 +801,11 @@ async def execute_tool(request: ManualToolRequest):
 
 @app.get("/api/exams")
 async def get_exams():
-    """Get list of available exams from CSV."""
-    exams = load_exams_from_csv()
-    return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in exams]}
+    """Get list of available exams from CSV (cached)."""
+    global _cached_exams
+    if not _cached_exams:
+        _cached_exams = load_exams_from_csv()
+    return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in _cached_exams]}
 
 
 # ============================================================

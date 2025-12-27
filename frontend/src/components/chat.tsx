@@ -11,7 +11,8 @@ import Markdown from 'react-markdown';
 
 interface ChatProps {
   chatId?: string;
-  onTitleGenerated?: (title: string) => void;
+  onTitleGenerated?: (title: string, chatId?: string) => void;
+  onChatCreated?: (chatId: string, title: string) => void;
   enabledTools?: string[];
   renderMarkdown?: boolean;
 }
@@ -307,7 +308,7 @@ const DEFAULT_TOOLS = [
   'get_available_exams', 'ask_user'
 ];
 
-export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true }: ChatProps) {
+export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -318,6 +319,9 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const loadedChatIdRef = useRef<string | null>(null);
 
+  // Track the active chat ID (can be different from prop if we just created one)
+  const [activeChatId, setActiveChatId] = useState<string | undefined>(chatId);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -327,67 +331,46 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
 
   const [titleGenerated, setTitleGenerated] = useState(false);
 
+  // Update activeChatId when prop changes
+  useEffect(() => {
+    setActiveChatId(chatId);
+  }, [chatId]);
+
   // Create transport with custom body
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
-    body: { enabledTools, chatId },
-  }), [enabledTools, chatId]);
+    body: { enabledTools, chatId: activeChatId },
+  }), [enabledTools, activeChatId]);
 
   const { messages, sendMessage, status, error, setMessages } = useChat({
     transport,
-    id: chatId,
+    id: activeChatId,
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onFinish: async (message) => {
-      // Generate title only for the first user message (not initial loaded messages)
-      if (!titleGenerated && onTitleGenerated && message.role === 'assistant') {
-        const userMessage = messages.find(m => m.role === 'user');
-        if (userMessage) {
-          setTitleGenerated(true);
-          try {
-            const textContent = userMessage.parts
-              ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-              .map(p => p.text)
-              .join('') ?? '';
-            if (textContent) {
-              const res = await fetch('/api/chat/title', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: textContent }),
-              });
-              const { title } = await res.json();
-              onTitleGenerated(title);
-            }
-          } catch (e) {
-            console.error('Failed to generate title:', e);
-          }
-        }
-      }
-    },
   });
 
-  // Load historical messages when chatId changes
+  // Load historical messages when activeChatId changes
   useEffect(() => {
     async function loadMessages() {
-      if (!chatId) {
+      if (!activeChatId) {
         return;
       }
 
       // Skip if we already loaded this chat
-      if (loadedChatIdRef.current === chatId) {
+      if (loadedChatIdRef.current === activeChatId) {
         return;
       }
 
       setIsLoadingHistory(true);
       try {
-        const response = await fetch(`/api/db/chats/${chatId}/messages`);
+        const response = await fetch(`/api/db/chats/${activeChatId}/messages`);
         if (response.ok) {
           const dbMessages: DbMessage[] = await response.json();
           const converted = dbMessages.map(dbMessageToUiMessage);
 
           // Mark this chat as loaded
-          loadedChatIdRef.current = chatId;
+          loadedChatIdRef.current = activeChatId;
 
           // If there are existing messages, set them and mark title as generated
           if (converted.length > 0) {
@@ -402,7 +385,7 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
       }
     }
     loadMessages();
-  }, [chatId, setMessages]);
+  }, [activeChatId, setMessages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -414,6 +397,7 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
     setTitleGenerated(false);
     setSelectedFiles([]);
     setInput('');
+    loadedChatIdRef.current = null;
   }, [chatId]);
 
   // Cleanup recording on unmount
@@ -597,6 +581,45 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
     setInput('');
     setSelectedFiles([]);
 
+    // Create chat on first message if no chatId exists
+    let targetChatId = activeChatId;
+    if (!targetChatId) {
+      try {
+        const createResponse = await fetch('/api/db/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Nuevo Chat' }),
+        });
+        if (createResponse.ok) {
+          const newChat = await createResponse.json();
+          targetChatId = newChat.id;
+          setActiveChatId(targetChatId);
+          if (onChatCreated) {
+            onChatCreated(newChat.id, newChat.title);
+          }
+          // Generate title immediately from first message
+          if (textToSend && onTitleGenerated) {
+            setTitleGenerated(true);
+            fetch('/api/chat/title', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: textToSend }),
+            })
+              .then(res => res.json())
+              .then(({ title }) => {
+                if (title && title !== 'Nuevo Chat') {
+                  onTitleGenerated(title, newChat.id);
+                }
+              })
+              .catch(err => console.error('Failed to generate title:', err));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to create chat:', err);
+        return;
+      }
+    }
+
     try {
       if (filesToSend.length > 0) {
         // Create a DataTransfer to convert File[] to FileList
@@ -697,8 +720,8 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
       )}
 
       {/* Debug Modal */}
-      {showDebug && chatId && (
-        <DebugModal chatId={chatId} onClose={() => setShowDebug(false)} />
+      {showDebug && activeChatId && (
+        <DebugModal chatId={activeChatId} onClose={() => setShowDebug(false)} />
       )}
 
       {/* Camera Capture Modal */}
@@ -712,7 +735,7 @@ export function Chat({ chatId, onTitleGenerated, enabledTools = DEFAULT_TOOLS, r
       {/* Header with debug button */}
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <h1 className="text-lg font-semibold">Lab Assistant AI</h1>
-        {chatId && (
+        {activeChatId && (
           <Button
             variant="ghost"
             size="sm"
