@@ -915,10 +915,25 @@ async def chat_aisdk(request: AISdkChatRequest):
                 elif event_type == "on_chat_model_end":
                     output = event.get("data", {}).get("output")
                     if output:
+                        # Handle usage metadata
                         usage = getattr(output, 'usage_metadata', None)
                         if usage and isinstance(usage, dict):
                             total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
                             total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
+
+                        # IMPORTANT: If streaming didn't happen, yield the full content here
+                        # This happens when the model uses invoke instead of stream
+                        if not full_response and hasattr(output, 'content') and output.content:
+                            content = output.content
+                            if isinstance(content, str) and content:
+                                full_response.append(content)
+                                yield StreamAdapter.text(content)
+                            elif isinstance(content, list):
+                                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                text = ''.join(text_parts)
+                                if text:
+                                    full_response.append(text)
+                                    yield StreamAdapter.text(text)
 
             # Send browser tabs update as data
             if tabs_context:
