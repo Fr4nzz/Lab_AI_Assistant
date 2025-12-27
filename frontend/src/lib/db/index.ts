@@ -131,6 +131,10 @@ export async function updateChat(id: string, updates: Partial<Chat>): Promise<Ch
   return chats[index];
 }
 
+export async function updateChatTitle(id: string, title: string): Promise<Chat | null> {
+  return updateChat(id, { title });
+}
+
 export async function deleteChat(id: string): Promise<boolean> {
   const chats = await getChats();
   const filtered = chats.filter(c => c.id !== id);

@@ -37,9 +37,9 @@ interface DbMessage {
 function dbMessageToUiMessage(dbMsg: DbMessage): {
   id: string;
   role: 'user' | 'assistant';
-  parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: string; mimeType: string }>;
+  parts: Array<{ type: 'text'; text: string } | { type: 'file'; mediaType: string; url: string }>;
 } {
-  const parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: string; mimeType: string }> = [];
+  const parts: Array<{ type: 'text'; text: string } | { type: 'file'; mediaType: string; url: string }> = [];
 
   // Add text content
   if (dbMsg.content) {
@@ -52,8 +52,8 @@ function dbMessageToUiMessage(dbMsg: DbMessage): {
       // We'll handle these as URLs for display
       parts.push({
         type: 'file',
-        data: `/api/files/${att.path}`,
-        mimeType: att.mimeType
+        url: `/api/files/${att.path}`,
+        mediaType: att.mimeType
       });
     }
   }
@@ -343,6 +343,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Track if we just created a chat (to skip loading empty messages)
   const justCreatedChatRef = useRef<string | null>(null);
 
+  // Store pending message for title generation (used in onResponse callback)
+  const pendingTitleMessageRef = useRef<string | null>(null);
+
   // Create transport - recreates when chatId or enabledTools changes
   // This ensures messages are sent to the correct chat when switching
   const transport = useMemo(() => {
@@ -361,24 +364,60 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
-    onResponse: (response) => {
-      // Get the chatId from the API response header
-      const responseChatId = response.headers.get('X-Chat-Id');
-      console.log('[Chat] onResponse - X-Chat-Id:', responseChatId, 'current dbChatIdRef:', dbChatIdRef.current);
+    onFinish: async () => {
+      console.log('[Chat] onFinish - checking for new chat and title updates');
 
-      // If this is a new chat (we didn't have a chatId), update the state
-      if (responseChatId && !dbChatIdRef.current) {
-        console.log('[Chat] New chat created by API:', responseChatId);
-        dbChatIdRef.current = responseChatId;
-        justCreatedChatRef.current = responseChatId;
+      // If this was a new chat (no chatId when we started), refresh chats to get the new one
+      const pendingMessage = pendingTitleMessageRef.current;
+      if (pendingMessage && !chatId) {
+        console.log('[Chat] New chat created, refreshing chat list');
+        pendingTitleMessageRef.current = null;
 
-        // Notify parent about the new chat (updates sidebar)
-        if (onChatCreated) {
-          onChatCreated(responseChatId, 'Nuevo Chat');
+        try {
+          // Fetch the updated chat list from the database
+          const response = await fetch('/api/db/chats');
+          if (response.ok) {
+            const chats = await response.json();
+            // The newest chat should be first (they're sorted by creation time)
+            if (chats.length > 0) {
+              const newChat = chats[0];
+              console.log('[Chat] Found new chat:', newChat.id, 'title:', newChat.title);
+
+              dbChatIdRef.current = newChat.id;
+              justCreatedChatRef.current = newChat.id;
+              setActiveChatId(newChat.id);
+
+              // Notify parent about the new chat
+              if (onChatCreated) {
+                onChatCreated(newChat.id, newChat.title);
+              }
+
+              // If title was generated (not "Nuevo Chat"), also notify parent
+              if (newChat.title && newChat.title !== 'Nuevo Chat' && onTitleGenerated) {
+                setTitleGenerated(true);
+                onTitleGenerated(newChat.title, newChat.id);
+              } else {
+                // Title might still be generating, poll for it
+                setTimeout(async () => {
+                  try {
+                    const res = await fetch(`/api/db/chats/${newChat.id}`);
+                    if (res.ok) {
+                      const updatedChat = await res.json();
+                      if (updatedChat.title && updatedChat.title !== 'Nuevo Chat' && onTitleGenerated) {
+                        setTitleGenerated(true);
+                        onTitleGenerated(updatedChat.title, newChat.id);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[Chat] Failed to poll for title:', err);
+                  }
+                }, 3000); // Wait 3 seconds for title generation
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[Chat] Failed to refresh chat list:', err);
         }
-
-        // Update state for other components that need it
-        setActiveChatId(responseChatId);
       }
     },
   });
@@ -636,9 +675,12 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     setInput('');
     setSelectedFiles([]);
 
-    // Track if this is a new chat (for title generation after response)
-    const isNewChat = !activeChatId;
-    const messageForTitle = textToSend;
+    // For new chats, store the message to detect new chat creation in onFinish
+    // Title generation happens on the server side when the chat is created
+    if (!activeChatId && textToSend) {
+      console.log('[Chat] New chat - storing message for detection:', textToSend.slice(0, 50));
+      pendingTitleMessageRef.current = textToSend;
+    }
 
     try {
       if (filesToSend.length > 0) {
@@ -655,29 +697,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
           text: messageContent,
         });
       }
-
-      // For new chats, generate title after message is sent
-      // The chatId comes from onResponse which fires during the stream
-      console.log('[Chat] Title gen check:', { isNewChat, messageForTitle: !!messageForTitle, hasOnTitleGenerated: !!onTitleGenerated, dbChatIdRef: dbChatIdRef.current });
-      if (isNewChat && messageForTitle && onTitleGenerated && dbChatIdRef.current) {
-        console.log('[Chat] Generating title for:', messageForTitle.slice(0, 50));
-        setTitleGenerated(true);
-        const chatIdForTitle = dbChatIdRef.current;
-        fetch('/api/chat/title', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: messageForTitle }),
-        })
-          .then(res => res.json())
-          .then(({ title }) => {
-            console.log('[Chat] Title received:', title);
-            if (title && title !== 'Nuevo Chat') {
-              onTitleGenerated(title, chatIdForTitle);
-            }
-          })
-          .catch(err => console.error('[Chat] Failed to generate title:', err));
-      }
-      // Note: activeChatId is now updated in onResponse, no need to do it here
+      // Note: activeChatId is updated in onFinish after fetching the new chat from DB
     } catch (err) {
       console.error('[Chat] sendMessage error:', err);
     }

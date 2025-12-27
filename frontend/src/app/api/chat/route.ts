@@ -1,6 +1,33 @@
 import { type NextRequest } from 'next/server';
-import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { addMessage, saveFile, createChat, ChatAttachment, saveDebugRequest, updateDebugRequest } from '@/lib/db';
+import { createUIMessageStream, createUIMessageStreamResponse, generateText } from 'ai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { addMessage, saveFile, createChat, ChatAttachment, saveDebugRequest, updateDebugRequest, updateChatTitle } from '@/lib/db';
+
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+// Generate and save title for a chat
+async function generateTitle(chatId: string, messageContent: string): Promise<void> {
+  console.log('[API/chat] Generating title for chat:', chatId, 'message:', messageContent.slice(0, 50));
+
+  try {
+    const { text } = await generateText({
+      model: openrouter('nvidia/nemotron-3-nano-30b-a3b:free'),
+      prompt: `Generate a very short title (3-5 words, in Spanish) for a conversation that starts with: "${messageContent}"`,
+    });
+
+    const title = text.trim();
+    console.log('[API/chat] Generated title:', title);
+
+    if (title && title !== 'Nuevo Chat') {
+      await updateChatTitle(chatId, title);
+      console.log('[API/chat] Title saved to database');
+    }
+  } catch (error) {
+    console.error('[API/chat] Title generation error:', error);
+  }
+}
 
 // Summarize media content for debug (avoid storing huge base64 strings)
 function summarizeForDebug(obj: unknown): unknown {
@@ -206,10 +233,20 @@ export async function POST(req: NextRequest) {
   let chatId = providedChatId;
   let isNewChat = false;
   if (!chatId) {
-    const chat = await createChat('New Chat');
+    const chat = await createChat('Nuevo Chat');
     chatId = chat.id;
     isNewChat = true;
     console.log('[API/chat] Created new chat:', chatId);
+
+    // Generate title for new chat in the background
+    const lastUserMessage = messages[messages.length - 1];
+    const messageContent = getTextContent(lastUserMessage);
+    if (messageContent) {
+      // Fire and forget - don't wait for title generation
+      generateTitle(chatId, messageContent).catch(err =>
+        console.error('[API/chat] Title generation failed:', err)
+      );
+    }
   }
 
   // Get the last user message for storage
