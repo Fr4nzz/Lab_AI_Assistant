@@ -1265,15 +1265,23 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         # Send tool call as a "thinking" step to frontend with step number
                         tool_display = f"**[{step_counter}]** 🔧 **{tool_name}**"
                         if tool_input:
-                            # Show key parameters
+                            # Show ALL parameters
                             params = []
                             for k, v in tool_input.items():
-                                if isinstance(v, str) and len(v) < 50:
-                                    params.append(f"{k}={v}")
-                                elif isinstance(v, list) and len(v) < 5:
+                                if isinstance(v, str):
+                                    # Truncate long strings
+                                    display_v = v if len(v) < 50 else v[:47] + "..."
+                                    params.append(f"{k}={display_v}")
+                                elif isinstance(v, list):
+                                    # Show list with all items (truncate if too many)
+                                    if len(v) <= 10:
+                                        params.append(f"{k}={v}")
+                                    else:
+                                        params.append(f"{k}=[{', '.join(str(x) for x in v[:10])}... +{len(v)-10} more]")
+                                elif isinstance(v, (int, float, bool)):
                                     params.append(f"{k}={v}")
                             if params:
-                                tool_display += f" ({', '.join(params[:3])})"
+                                tool_display += f" ({', '.join(params)})"
                         tool_display += "\n"
 
                         data = {
