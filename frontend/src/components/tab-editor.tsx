@@ -308,8 +308,8 @@ export function TabEditor({ onClose }: TabEditorProps) {
         </div>
 
         {/* Right panel - Tab details & editor */}
-        <div className="flex-1 flex flex-col">
-          <div className="p-3 border-b flex items-center justify-between">
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="p-3 border-b flex items-center justify-between flex-shrink-0">
             <h2 className="font-semibold">
               {selectedTab ? TAB_TYPE_LABELS[selectedTab.type] : 'Selecciona una pestaña'}
             </h2>
@@ -318,7 +318,8 @@ export function TabEditor({ onClose }: TabEditorProps) {
             </button>
           </div>
 
-          <ScrollArea className="flex-1 p-4">
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-4">
             {!selectedTab ? (
               <div className="text-center text-muted-foreground py-8">
                 Selecciona una pestaña para ver y editar sus datos
@@ -509,11 +510,12 @@ export function TabEditor({ onClose }: TabEditorProps) {
                 Este tipo de pestaña no es editable
               </div>
             )}
+            </div>
           </ScrollArea>
 
           {/* Footer with action buttons */}
           {selectedTab && (selectedTab.type === 'resultados' || selectedTab.type === 'orden_edit' || selectedTab.type === 'nueva_orden') && (
-            <div className="p-3 border-t flex items-center justify-between">
+            <div className="p-3 border-t flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
                 {error && (
                   <span className="text-sm text-destructive">{error}</span>

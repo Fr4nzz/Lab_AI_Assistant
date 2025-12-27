@@ -337,11 +337,29 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   const [titleGenerated, setTitleGenerated] = useState(false);
 
+  // Track previous chatId to detect chat switches
+  const prevChatIdRef = useRef<string | undefined>(chatId);
+
   // Update refs when prop changes (but not sessionId - it stays stable)
   useEffect(() => {
+    const prevChatId = prevChatIdRef.current;
+    const chatChanged = prevChatId !== chatId;
+
+    // Clear all state when switching to a different chat (including new chat)
+    if (chatChanged) {
+      console.log('[Chat] Chat changed, clearing messages. Old:', prevChatId, 'New:', chatId);
+      setMessages([]);
+      setTitleGenerated(false);
+      setSelectedFiles([]);
+      setInput('');
+      loadedChatIdRef.current = null;
+    }
+
+    // Update refs after clearing
+    prevChatIdRef.current = chatId;
     setActiveChatId(chatId);
     dbChatIdRef.current = chatId;
-  }, [chatId]);
+  }, [chatId, setMessages]);
 
   // Track if we just created a chat (to skip loading empty messages)
   const justCreatedChatRef = useRef<string | null>(null);
@@ -434,14 +452,6 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // Reset state when chat changes
-  useEffect(() => {
-    setTitleGenerated(false);
-    setSelectedFiles([]);
-    setInput('');
-    loadedChatIdRef.current = null;
-  }, [chatId]);
 
   // Cleanup recording on unmount
   useEffect(() => {
