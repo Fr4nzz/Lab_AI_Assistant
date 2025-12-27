@@ -906,51 +906,34 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(1500)
 
-    # Extract ALL available exams at once (no need to search individually)
-    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-
-    # Build a map from exam code (uppercase) to button_id for fast lookup
-    code_to_button = {}
-    for exam in available:
-        if exam.get('codigo'):
-            code_to_button[exam['codigo'].upper()] = exam['button_id']
-
+    # Click exams in the order AI requested
+    # Re-extract button map after each click to handle row index shifting
     added_codes = []
     failed_exams = []
 
-    # Build list of (exam_code, button_id) pairs and sort by button_id DESCENDING
-    # This is critical: button IDs are row-based (examen-0, examen-1, etc.)
-    # When we click a button, that row is removed and all indices shift up
-    # By clicking highest indices first, we avoid the shifting problem
-    exams_to_click = []
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
-        button_id = code_to_button.get(exam_code_upper)
+
+        # Extract current available exams (indices shift after each click)
+        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        # Find the button for this exam
+        button_id = None
+        for exam in available:
+            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                button_id = exam['button_id']
+                break
+
         if button_id:
-            try:
-                btn_index = int(button_id.replace('examen-', ''))
-                exams_to_click.append((exam_code_upper, button_id, btn_index))
-            except ValueError:
-                exams_to_click.append((exam_code_upper, button_id, 0))
+            btn = page.locator(f'#{button_id}')
+            if await btn.count() > 0:
+                await btn.click()
+                added_codes.append(exam_code_upper)
+                await page.wait_for_timeout(100)
+            else:
+                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
-
-    # Sort by button index DESCENDING (highest first to avoid row shift issues)
-    exams_to_click.sort(key=lambda x: x[2], reverse=True)
-
-    # Click buttons in descending index order (but track in original order)
-    clicked_set = set()
-    for exam_code_upper, button_id, _ in exams_to_click:
-        btn = page.locator(f'#{button_id}')
-        if await btn.count() > 0:
-            await btn.click()
-            clicked_set.add(exam_code_upper)
-            await page.wait_for_timeout(100)
-        else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
-
-    # Preserve original order from AI request
-    added_codes = [e.upper().strip() for e in exams if e.upper().strip() in clicked_set]
 
     # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
