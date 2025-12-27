@@ -15,6 +15,7 @@ interface ChatProps {
   onChatCreated?: (chatId: string, title: string) => void;
   enabledTools?: string[];
   renderMarkdown?: boolean;
+  model?: string;
 }
 
 interface FilePreview {
@@ -308,7 +309,7 @@ const DEFAULT_TOOLS = [
   'get_available_exams', 'ask_user'
 ];
 
-export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true }: ChatProps) {
+export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = DEFAULT_TOOLS, renderMarkdown = true, model }: ChatProps) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<FilePreview[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -346,15 +347,15 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Store pending message for title generation (used in onResponse callback)
   const pendingTitleMessageRef = useRef<string | null>(null);
 
-  // Create transport - recreates when chatId or enabledTools changes
+  // Create transport - recreates when chatId, enabledTools, or model changes
   // This ensures messages are sent to the correct chat when switching
   const transport = useMemo(() => {
-    console.log('[Chat] Creating transport with chatId:', chatId);
+    console.log('[Chat] Creating transport with chatId:', chatId, 'model:', model);
     return new DefaultChatTransport({
       api: '/api/chat',
-      body: { enabledTools, chatId },
+      body: { enabledTools, chatId, model },
     });
-  }, [enabledTools, chatId]);
+  }, [enabledTools, chatId, model]);
 
   // Use stable sessionId for useChat's id prop - this prevents message cache clearing
   // when we update the database chatId (activeChatId) after creating a new chat
@@ -945,8 +946,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t p-4">
+      {/* Input - fixed at bottom with safe area support */}
+      <div className="sticky bottom-0 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background">
         <form onSubmit={handleFormSubmit} className="max-w-4xl mx-auto">
           {/* Hidden file input */}
           <input
@@ -964,6 +965,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant="outline"
               size="icon"
+              className="h-11 w-11 flex-shrink-0"
               onClick={() => fileInputRef.current?.click()}
               disabled={isRecording}
               title="Adjuntar archivo"
@@ -976,6 +978,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant="outline"
               size="icon"
+              className="h-11 w-11 flex-shrink-0 hidden sm:flex"
               onClick={() => setShowCamera(true)}
               disabled={isRecording}
               title="Tomar foto con cámara"
@@ -988,6 +991,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
               type="button"
               variant={isRecording ? "destructive" : "outline"}
               size="icon"
+              className="h-11 w-11 flex-shrink-0"
               onClick={isRecording ? stopRecording : startRecording}
               disabled={status === 'streaming'}
               title={isRecording ? "Detener grabación" : "Grabar audio"}
@@ -1014,6 +1018,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
             {/* Send button - greyed out while streaming */}
             <Button
               type="submit"
+              className="h-11 px-6 flex-shrink-0"
               disabled={!canSend}
             >
               Enviar
