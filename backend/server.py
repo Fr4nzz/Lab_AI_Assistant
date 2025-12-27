@@ -480,10 +480,48 @@ async def lifespan(app: FastAPI):
         logger.info("[Startup] Redirected to welcome page, navigating to orders...")
         await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
 
-    # Check login status and extract orders on startup for faster first response
+    # Check login status - if on login page, auto-click the "Ingresar" button
     if browser.page and "/login" in browser.page.url:
-        logger.warning("[Startup] Not logged in - waiting for user to login")
-        initial_orders_context = "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login."
+        logger.info("[Startup] On login page - attempting auto-login by clicking 'Ingresar' button...")
+        try:
+            # Click the Ingresar button to login with saved session
+            ingresar_button = browser.page.locator("button:has-text('Ingresar')")
+            if await ingresar_button.count() > 0:
+                await ingresar_button.click()
+                logger.info("[Startup] Clicked 'Ingresar' button, waiting for navigation...")
+                # Wait for navigation to complete
+                await browser.page.wait_for_load_state("networkidle", timeout=10000)
+                logger.info(f"[Startup] After login click, now at: {browser.page.url}")
+
+                # If we're still on login page, the session might have expired
+                if "/login" in browser.page.url:
+                    logger.warning("[Startup] Still on login page - session may have expired. User needs to login manually.")
+                    initial_orders_context = "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión manualmente."
+                else:
+                    # Navigate to orders page
+                    if "/bienvenida" in browser.page.url:
+                        logger.info("[Startup] Redirected to welcome page, navigating to orders...")
+                        await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
+
+                    # Extract orders
+                    logger.info("[Startup] Extracting orders context after login...")
+                    try:
+                        orders_context = await extract_initial_context()
+                        if orders_context:
+                            initial_orders_context = orders_context
+                            logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
+                        else:
+                            initial_orders_context = ""
+                            logger.info("[Startup] No orders found")
+                    except Exception as e:
+                        logger.error(f"[Startup] Failed to extract orders: {e}")
+                        initial_orders_context = ""
+            else:
+                logger.warning("[Startup] 'Ingresar' button not found on login page")
+                initial_orders_context = "⚠️ SESIÓN NO INICIADA: No se encontró el botón 'Ingresar'."
+        except Exception as e:
+            logger.error(f"[Startup] Auto-login failed: {e}")
+            initial_orders_context = f"⚠️ SESIÓN NO INICIADA: Error al intentar login automático: {e}"
     else:
         logger.info("[Startup] Extracting orders context on startup...")
         try:
