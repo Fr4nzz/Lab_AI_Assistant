@@ -922,22 +922,38 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     added_codes = []
     failed_exams = []
 
-    # Click all matching exam buttons in rapid succession
+    # Build list of (exam_code, button_id) pairs and sort by button_id DESCENDING
+    # This is critical: button IDs are row-based (examen-0, examen-1, etc.)
+    # When we click a button, that row is removed and all indices shift up
+    # By clicking highest indices first, we avoid the shifting problem
+    exams_to_click = []
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
         button_id = code_to_button.get(exam_code_upper)
-
         if button_id:
-            btn = page.locator(f'#{button_id}')
-            if await btn.count() > 0:
-                await btn.click()
-                added_codes.append(exam_code_upper)
-                # Minimal delay between clicks (100ms) - just enough for UI to respond
-                await page.wait_for_timeout(100)
-            else:
-                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
+            # Extract the numeric index from button_id (e.g., "examen-50" -> 50)
+            try:
+                btn_index = int(button_id.replace('examen-', ''))
+                exams_to_click.append((exam_code_upper, button_id, btn_index))
+            except ValueError:
+                exams_to_click.append((exam_code_upper, button_id, 0))
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match in available exams'})
+
+    # Sort by button index DESCENDING (highest first to avoid row shift issues)
+    exams_to_click.sort(key=lambda x: x[2], reverse=True)
+    logger.info(f"[create_order] Click order (highest index first): {[(e[0], e[1]) for e in exams_to_click]}")
+
+    # Click buttons in descending index order
+    for exam_code_upper, button_id, _ in exams_to_click:
+        btn = page.locator(f'#{button_id}')
+        if await btn.count() > 0:
+            await btn.click()
+            added_codes.append(exam_code_upper)
+            # Minimal delay between clicks (100ms) - just enough for UI to respond
+            await page.wait_for_timeout(100)
+        else:
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
 
     # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
