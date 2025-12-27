@@ -6,8 +6,14 @@ const toast = useToast()
 const overlay = useOverlay()
 const { loggedIn, openInPopup } = useUserSession()
 const { isOAuthEnabled } = useAuthConfig()
+const { enabledTools } = useEnabledTools()
 
 const open = ref(false)
+const tabEditorOpen = ref(false)
+
+// Collapsible panel states
+const showTools = ref(false)
+const showTabs = ref(false)
 
 const deleteModal = overlay.create(LazyModalConfirm, {
   props: {
@@ -143,6 +149,76 @@ defineShortcuts({
             </div>
           </template>
         </UNavigationMenu>
+
+        <!-- Collapsible panels for Tools and Browser Tabs -->
+        <div v-if="!collapsed" class="mt-auto space-y-1 border-t border-default pt-2">
+          <!-- Tools toggle -->
+          <UCollapsible v-model:open="showTools">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-between"
+              :ui="{ trailingIcon: 'transition-transform' }"
+              :trailing-icon="showTools ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+              @click="showTools = !showTools"
+            >
+              <span class="flex items-center gap-2">
+                <UIcon name="i-lucide-wrench" class="w-4 h-4" />
+                Herramientas
+                <UBadge size="xs" color="neutral" variant="subtle">
+                  {{ enabledTools.length }}
+                </UBadge>
+              </span>
+            </UButton>
+            <template #content>
+              <SidebarToolToggles v-model="enabledTools" />
+            </template>
+          </UCollapsible>
+
+          <!-- Browser Tabs toggle -->
+          <UCollapsible v-model:open="showTabs">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-between"
+              :ui="{ trailingIcon: 'transition-transform' }"
+              :trailing-icon="showTabs ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+              @click="showTabs = !showTabs"
+            >
+              <span class="flex items-center gap-2">
+                <UIcon name="i-lucide-layout-grid" class="w-4 h-4" />
+                Pestañas
+              </span>
+            </UButton>
+            <template #content>
+              <SidebarBrowserTabsPanel @open-editor="tabEditorOpen = true" />
+            </template>
+          </UCollapsible>
+        </div>
+
+        <!-- Collapsed state icons -->
+        <div v-if="collapsed" class="mt-auto space-y-1">
+          <UTooltip text="Herramientas">
+            <UButton
+              icon="i-lucide-wrench"
+              variant="ghost"
+              color="neutral"
+              block
+              @click="showTools = !showTools"
+            />
+          </UTooltip>
+          <UTooltip text="Pestañas del navegador">
+            <UButton
+              icon="i-lucide-layout-grid"
+              variant="ghost"
+              color="neutral"
+              block
+              @click="showTabs = !showTabs"
+            />
+          </UTooltip>
+        </div>
       </template>
 
       <template #footer="{ collapsed }">
@@ -173,5 +249,8 @@ defineShortcuts({
     />
 
     <slot />
+
+    <!-- Tab Editor Modal -->
+    <TabEditorModal v-model:open="tabEditorOpen" />
   </UDashboardGroup>
 </template>

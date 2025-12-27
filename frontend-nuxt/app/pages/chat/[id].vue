@@ -15,6 +15,7 @@ const route = useRoute()
 const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
+const { enabledTools } = useEnabledTools()
 
 function getFileName(url: string): string {
   try {
@@ -60,9 +61,10 @@ const chat = new Chat({
   messages: transformedMessages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    body: {
-      model: model.value
-    }
+    body: () => ({
+      model: model.value,
+      enabledTools: enabledTools.value
+    })
   }),
   onData: (dataPart) => {
     if (dataPart.type === 'data-chat-title') {

@@ -52,7 +52,8 @@ export default defineNuxtConfig({
 
     // Public (exposed to client)
     public: {
-      appName: 'Lab Assistant'
+      appName: 'Lab Assistant',
+      backendUrl: process.env.BACKEND_URL || 'http://localhost:8000'
     }
   },
 
