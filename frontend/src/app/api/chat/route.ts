@@ -276,11 +276,21 @@ export async function POST(req: NextRequest) {
 
           chunkCount++;
 
+          // Pass through the chunk immediately (before parsing)
+          if (!controllerClosed) {
+            try {
+              controller.enqueue(value);
+            } catch (enqueueError) {
+              console.warn('[API/chat] Could not enqueue chunk:', enqueueError);
+              controllerClosed = true;
+            }
+          }
+
           // Decode and collect text chunks for storage
           const text = decoder.decode(value, { stream: true });
+          console.log(`[API/chat] Chunk ${chunkCount}:`, text.slice(0, 100));
 
           // Check for error events from backend (rate limit, etc.)
-          let errorMessage = '';
           for (const line of text.split('\n')) {
             if (line.startsWith('data: ')) {
               const data = line.slice(6);
@@ -297,29 +307,12 @@ export async function POST(req: NextRequest) {
                   }
                 } else if (parsed.type === 'error') {
                   console.error('[API/chat] Error event:', parsed.error);
-                  errorMessage = parsed.error || 'Unknown error';
                   hasError = true;
                 }
               } catch {
                 // Skip non-JSON lines
               }
             }
-          }
-
-          // Pass through the chunk (only if controller is still open)
-          if (!controllerClosed) {
-            try {
-              controller.enqueue(value);
-            } catch (enqueueError) {
-              console.warn('[API/chat] Could not enqueue chunk (controller may be closed):', enqueueError);
-              controllerClosed = true;
-            }
-          }
-
-          // If we got an error, break out of the loop
-          if (errorMessage) {
-            console.error('[API/chat] Backend error:', errorMessage);
-            break;
           }
         }
 
