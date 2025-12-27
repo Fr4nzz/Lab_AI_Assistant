@@ -773,6 +773,7 @@ class AISdkChatRequest(BaseModel):
     messages: List[dict]
     chatId: Optional[str] = None
     model: Optional[str] = None
+    showStats: bool = True
 
 
 @app.post("/api/chat/aisdk")
@@ -976,20 +977,21 @@ async def chat_aisdk(request: AISdkChatRequest):
                                     logger.info(f"[AI SDK] YIELD text_delta (end, list): {stream_data[:100]}...")
                                     yield stream_data
 
-            # Calculate and send usage summary as text
+            # Calculate and send usage summary as text (if enabled)
             total_tokens = total_input_tokens + total_output_tokens
             input_cost = (total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
             output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
             total_cost = input_cost + output_cost
 
-            # Send usage summary at the end
-            usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
-            if total_tokens > 0:
-                usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
-                usage_summary += f" | Est. cost: ${total_cost:.6f}"
-            usage_summary += "\n"
+            if request.showStats:
+                # Send usage summary at the end
+                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                if total_tokens > 0:
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
+                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                usage_summary += "\n"
 
-            yield adapter.text_delta(usage_summary)
+                yield adapter.text_delta(usage_summary)
 
             # Send finish with usage
             usage = None

@@ -19,6 +19,7 @@ export default function Home() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [showTabEditor, setShowTabEditor] = useState(false);
   const [renderMarkdown, setRenderMarkdown] = useState(true);
+  const [showStats, setShowStats] = useState(true);
   const [selectedModel, setSelectedModel] = useState<ModelId>(DEFAULT_MODEL);
   const isMobile = useIsMobile();
 
@@ -148,6 +149,7 @@ export default function Home() {
             onChatCreated={handleChatCreated}
             enabledTools={enabledTools}
             renderMarkdown={renderMarkdown}
+            showStats={showStats}
             model={selectedModel}
           />
         )}
@@ -200,6 +202,17 @@ export default function Home() {
                   className="rounded"
                 />
                 Renderizar Markdown
+              </label>
+
+              {/* Stats Toggle */}
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showStats}
+                  onChange={(e) => setShowStats(e.target.checked)}
+                  className="rounded"
+                />
+                Mostrar estadísticas (tokens, costo)
               </label>
             </div>
           )}
