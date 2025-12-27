@@ -321,8 +321,12 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   // Track the active chat ID (can be different from prop if we just created one)
   const [activeChatId, setActiveChatId] = useState<string | undefined>(chatId);
-  // Use a ref for chatId in transport to avoid recreating transport mid-stream
-  const activeChatIdRef = useRef<string | undefined>(chatId);
+  // Use a ref for the database chatId (to avoid recreating transport mid-stream)
+  const dbChatIdRef = useRef<string | undefined>(chatId);
+
+  // Generate a stable session ID for useChat that never changes during component lifetime
+  // This prevents useChat from clearing messages when we update the database chatId
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).slice(2)}`);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -333,44 +337,53 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   const [titleGenerated, setTitleGenerated] = useState(false);
 
-  // Update activeChatId when prop changes
+  // Update refs when prop changes (but not sessionId - it stays stable)
   useEffect(() => {
     setActiveChatId(chatId);
-    activeChatIdRef.current = chatId;
+    dbChatIdRef.current = chatId;
   }, [chatId]);
 
-  // Create transport with custom body
+  // Track if we just created a chat (to skip loading empty messages)
+  const justCreatedChatRef = useRef<string | null>(null);
+
+  // Create transport - uses enabledTools only (chatId passed via ref to avoid recreating transport)
+  // The body function reads from dbChatIdRef at call time
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
-    body: { enabledTools, chatId: activeChatId },
-  }), [enabledTools, activeChatId]);
+    // Note: DefaultChatTransport doesn't support dynamic body, so we pass the current value
+    // The API will create a chat if chatId is undefined and return it via X-Chat-Id header
+    body: { enabledTools, chatId: dbChatIdRef.current },
+  }), [enabledTools]);
 
+  // Use stable sessionId for useChat's id prop - this prevents message cache clearing
+  // when we update the database chatId (activeChatId) after creating a new chat
   const { messages, sendMessage, status, error, setMessages } = useChat({
     transport,
-    id: activeChatId,
+    id: sessionId,  // Stable ID that never changes - prevents message clearing
     onError: (err) => {
       console.error('[Chat] onError:', err);
     },
     onResponse: (response) => {
       // Get the chatId from the API response header
       const responseChatId = response.headers.get('X-Chat-Id');
-      console.log('[Chat] onResponse - X-Chat-Id:', responseChatId);
+      console.log('[Chat] onResponse - X-Chat-Id:', responseChatId, 'current dbChatIdRef:', dbChatIdRef.current);
 
       // If this is a new chat (we didn't have a chatId), update the state
-      if (responseChatId && !activeChatIdRef.current) {
-        activeChatIdRef.current = responseChatId;
+      if (responseChatId && !dbChatIdRef.current) {
+        console.log('[Chat] New chat created by API:', responseChatId);
+        dbChatIdRef.current = responseChatId;
         justCreatedChatRef.current = responseChatId;
 
-        // Notify parent about the new chat
+        // Notify parent about the new chat (updates sidebar)
         if (onChatCreated) {
           onChatCreated(responseChatId, 'Nuevo Chat');
         }
+
+        // Update state for other components that need it
+        setActiveChatId(responseChatId);
       }
     },
   });
-
-  // Track if we just created a chat (to skip loading empty messages)
-  const justCreatedChatRef = useRef<string | null>(null);
 
   // Load historical messages when activeChatId changes
   useEffect(() => {
@@ -632,10 +645,10 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       }
 
       // For new chats, generate title after message is sent
-      // The chatId comes from onResponse which fires before this
-      if (isNewChat && messageForTitle && onTitleGenerated && activeChatIdRef.current) {
+      // The chatId comes from onResponse which fires during the stream
+      if (isNewChat && messageForTitle && onTitleGenerated && dbChatIdRef.current) {
         setTitleGenerated(true);
-        const chatIdForTitle = activeChatIdRef.current;
+        const chatIdForTitle = dbChatIdRef.current;
         fetch('/api/chat/title', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -649,17 +662,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
           })
           .catch(err => console.error('Failed to generate title:', err));
       }
-
-      // Update activeChatId after stream completes (if we got a new one from onResponse)
-      if (isNewChat && activeChatIdRef.current) {
-        setActiveChatId(activeChatIdRef.current);
-      }
+      // Note: activeChatId is now updated in onResponse, no need to do it here
     } catch (err) {
       console.error('[Chat] sendMessage error:', err);
-      // Still update chatId on error so user can retry
-      if (isNewChat && activeChatIdRef.current) {
-        setActiveChatId(activeChatIdRef.current);
-      }
     }
   };
 
