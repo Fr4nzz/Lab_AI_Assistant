@@ -44,20 +44,26 @@ def _disable_genai_sdk_retry():
 
         # Check if already patched
         if hasattr(_api_client.BaseApiClient, '_retry_patched'):
+            logger.info("[Model] SDK retry already patched")
             return
 
         # Get the retry-decorated method
         method = _api_client.BaseApiClient._request_once
+        logger.info(f"[Model] Found SDK method, type: {type(method)}, has retry: {hasattr(method, 'retry')}")
 
         # Modify the retry configuration to stop immediately (after 1 attempt = no retries)
         if hasattr(method, 'retry'):
+            original_stop = method.retry.stop
             method.retry.stop = stop_after_attempt(1)
             _api_client.BaseApiClient._retry_patched = True
-            logger.info("[Model] Disabled google-genai SDK internal retry (set stop_after_attempt=1)")
+            logger.info(f"[Model] Disabled SDK internal retry (was: {original_stop}, now: stop_after_attempt(1))")
         else:
-            logger.debug("[Model] SDK method doesn't have retry attribute")
+            # Try alternative: the method might be wrapped differently
+            logger.info(f"[Model] SDK method attrs: {[a for a in dir(method) if not a.startswith('_')]}")
+    except ImportError as e:
+        logger.info(f"[Model] google.genai SDK not found: {e}")
     except Exception as e:
-        logger.debug(f"[Model] Could not disable SDK retry: {e}")
+        logger.info(f"[Model] Could not disable SDK retry: {type(e).__name__}: {e}")
 
 
 # Try to disable SDK retry on module load
