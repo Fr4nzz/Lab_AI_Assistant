@@ -5,6 +5,7 @@ const route = useRoute()
 const toast = useToast()
 const overlay = useOverlay()
 const { loggedIn, openInPopup } = useUserSession()
+const { isOAuthEnabled } = useAuthConfig()
 
 const open = ref(false)
 
@@ -147,7 +148,7 @@ defineShortcuts({
       <template #footer="{ collapsed }">
         <UserMenu v-if="loggedIn" :collapsed="collapsed" />
         <UButton
-          v-else
+          v-else-if="isOAuthEnabled"
           :label="collapsed ? '' : 'Iniciar sesión'"
           icon="i-simple-icons-google"
           color="neutral"
@@ -155,6 +156,7 @@ defineShortcuts({
           class="w-full"
           @click="openInPopup('/auth/google')"
         />
+        <!-- No login button shown when OAuth is not configured -->
       </template>
     </UDashboardSidebar>
 
