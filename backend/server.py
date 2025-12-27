@@ -905,77 +905,51 @@ async def chat_aisdk(request: AISdkChatRequest):
             ):
                 event_type = event.get("event", "")
 
-                # DEBUG: Log all relevant events
-                if event_type.startswith("on_chat_model") or event_type.startswith("on_tool"):
-                    logger.info(f"[AI SDK] EVENT: {event_type}")
-
                 if event_type == "on_chat_model_start":
                     step_counter += 1
-                    logger.info(f"[AI SDK] LLM call #{step_counter}")
 
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
-                    run_id = event.get("run_id", str(uuid.uuid4()))
-                    logger.info(f"[AI SDK] TOOL START: {tool_name}")
-                    # Stream tool status as text content
+                    logger.info(f"[AI SDK] Tool: {tool_name}")
                     yield adapter.tool_status(tool_name, "start", tool_input)
 
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    tool_output = event.get("data", {}).get("output", "")
-                    run_id = event.get("run_id", "")
-                    logger.info(f"[AI SDK] TOOL END: {tool_name}")
-                    # Stream tool completion as text content
                     yield adapter.tool_status(tool_name, "end")
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
-                    logger.info(f"[AI SDK] STREAM chunk type: {type(chunk)}, has content: {hasattr(chunk, 'content') if chunk else False}")
                     if chunk and hasattr(chunk, 'content') and chunk.content:
                         content = chunk.content
-                        logger.info(f"[AI SDK] STREAM content type: {type(content)}, value: {str(content)[:100]}")
                         if isinstance(content, list):
                             text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
                             content = ''.join(text_parts)
                         if content:
                             full_response.append(content)
-                            stream_data = adapter.text_delta(content)
-                            logger.info(f"[AI SDK] YIELD text_delta: {stream_data[:100]}...")
-                            yield stream_data
+                            yield adapter.text_delta(content)
 
                 elif event_type == "on_chat_model_end":
                     output = event.get("data", {}).get("output")
-                    logger.info(f"[AI SDK] END output type: {type(output)}")
                     if output:
-                        logger.info(f"[AI SDK] END has content: {hasattr(output, 'content')}, full_response empty: {len(full_response) == 0}")
-                        if hasattr(output, 'content'):
-                            logger.info(f"[AI SDK] END content type: {type(output.content)}, value: {str(output.content)[:200]}")
-
                         # Handle usage metadata
                         usage = getattr(output, 'usage_metadata', None)
                         if usage and isinstance(usage, dict):
                             total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
                             total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
 
-                        # IMPORTANT: If streaming didn't happen, yield the full content here
-                        # This happens when the model uses invoke instead of stream
+                        # If streaming didn't happen, yield the full content here
                         if not full_response and hasattr(output, 'content') and output.content:
                             content = output.content
-                            logger.info(f"[AI SDK] END: No stream data, yielding from output.content")
                             if isinstance(content, str) and content:
                                 full_response.append(content)
-                                stream_data = adapter.text_delta(content)
-                                logger.info(f"[AI SDK] YIELD text_delta (end): {stream_data[:100]}...")
-                                yield stream_data
+                                yield adapter.text_delta(content)
                             elif isinstance(content, list):
                                 text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
                                 text = ''.join(text_parts)
                                 if text:
                                     full_response.append(text)
-                                    stream_data = adapter.text_delta(text)
-                                    logger.info(f"[AI SDK] YIELD text_delta (end, list): {stream_data[:100]}...")
-                                    yield stream_data
+                                    yield adapter.text_delta(text)
 
             # Calculate and send usage summary as text (if enabled)
             total_tokens = total_input_tokens + total_output_tokens
@@ -1001,12 +975,11 @@ async def chat_aisdk(request: AISdkChatRequest):
                     "completionTokens": total_output_tokens,
                     "totalTokens": total_input_tokens + total_output_tokens
                 }
-            finish_data = adapter.finish("stop", usage)
-            logger.info(f"[AI SDK] YIELD finish: {finish_data[:100]}...")
-            yield finish_data
+            yield adapter.finish("stop", usage)
 
-            logger.info(f"[AI SDK] COMPLETE: full_response has {len(full_response)} parts, total chars: {sum(len(p) for p in full_response)}")
-            logger.info(f"[AI SDK] Response: {''.join(full_response)[:200]}...")
+            # Log summary
+            response_preview = ''.join(full_response)[:100]
+            logger.info(f"[AI SDK] Done: {step_counter} LLM calls, {total_tokens} tokens, response: {response_preview}...")
 
         except Exception as e:
             logger.error(f"[AI SDK] Error: {e}", exc_info=True)

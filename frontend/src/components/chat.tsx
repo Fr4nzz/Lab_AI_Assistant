@@ -326,6 +326,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Effective chatId for transport - combines prop + received chatId from header
   // This ensures subsequent messages use the correct chatId even before parent updates
   const [effectiveChatId, setEffectiveChatId] = useState<string | undefined>(chatId);
+  // Ref to track effectiveChatId for use in callbacks (avoids stale closures)
+  const effectiveChatIdRef = useRef<string | undefined>(chatId);
   // Use a ref for the database chatId (to avoid recreating transport mid-stream)
   const dbChatIdRef = useRef<string | undefined>(chatId);
 
@@ -355,8 +357,14 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   useEffect(() => {
     if (chatId !== undefined) {
       setEffectiveChatId(chatId);
+      effectiveChatIdRef.current = chatId;
     }
   }, [chatId]);
+
+  // Keep ref in sync with state (for use in callbacks)
+  useEffect(() => {
+    effectiveChatIdRef.current = effectiveChatId;
+  }, [effectiveChatId]);
 
   // Create transport - uses effectiveChatId which updates immediately from X-Chat-Id header
   // This prevents race condition where second message is sent before parent updates chatId prop
@@ -377,16 +385,15 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       console.error('[Chat] onError:', err);
     },
     onResponse: (response) => {
-      console.log('[Chat] onResponse:', response.status);
-
       // Capture chatId from X-Chat-Id header IMMEDIATELY for new chats
-      // This ensures subsequent messages use the correct chatId before parent updates
+      // Use ref to avoid stale closure (effectiveChatId would be stale in this callback)
       const headerChatId = response.headers.get('X-Chat-Id');
-      if (headerChatId && !effectiveChatId) {
-        console.log('[Chat] onResponse: New chat detected, chatId:', headerChatId);
-        // Update effectiveChatId immediately - this triggers transport recreation
+      if (headerChatId && !effectiveChatIdRef.current) {
+        console.log('[Chat] onResponse: New chat created, chatId:', headerChatId);
+        // Update both state and ref immediately
         setEffectiveChatId(headerChatId);
-        // Also update refs
+        effectiveChatIdRef.current = headerChatId;
+        // Also update other refs
         dbChatIdRef.current = headerChatId;
         justCreatedChatRef.current = headerChatId;
         setActiveChatId(headerChatId);
@@ -460,6 +467,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
       // Reset effectiveChatId when starting a new chat (chatId becomes undefined)
       if (chatId === undefined) {
         setEffectiveChatId(undefined);
+        effectiveChatIdRef.current = undefined;
       }
     } else if (chatChanged && isOurNewChat) {
       console.log('[Chat] Chat changed to our newly created chat - NOT clearing messages');
