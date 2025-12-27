@@ -851,7 +851,19 @@ async def chat_aisdk(request: AISdkChatRequest):
                 if part.get('type') == 'text':
                     msg_parts.append(part.get('text', '')[:100])
                 elif part.get('type') == 'image_url':
-                    msg_parts.append('[IMAGE]')
+                    # Log image size for debugging
+                    image_url_data = part.get('image_url', {})
+                    url = image_url_data.get('url', '') if isinstance(image_url_data, dict) else str(image_url_data)
+                    if url.startswith('data:'):
+                        base64_parts = url.split(',', 1)
+                        if len(base64_parts) > 1:
+                            base64_size = len(base64_parts[1])
+                            approx_bytes = int(base64_size * 0.75)
+                            msg_parts.append(f'[IMAGE: ~{approx_bytes // 1024}KB]')
+                        else:
+                            msg_parts.append('[IMAGE]')
+                    else:
+                        msg_parts.append('[IMAGE: URL]')
                 elif part.get('type') == 'media':
                     msg_parts.append('[MEDIA]')
         user_msg_display = ' + '.join(msg_parts)

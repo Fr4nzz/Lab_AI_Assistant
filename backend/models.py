@@ -232,8 +232,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         if is_gemini_3:
             model_kwargs["include_thoughts"] = True
             model_kwargs["thinking_level"] = "high"  # Maximum reasoning capability
-            model_kwargs["media_resolution"] = "high"  # Better image understanding (more tokens per image)
-            logger.info(f"[Model] Enabling thinking (HIGH) + media_resolution (HIGH) for Gemini 3 model")
+            # Use enum value for media_resolution (not string)
+            try:
+                from google.genai import types as genai_types
+                model_kwargs["media_resolution"] = genai_types.MediaResolution.MEDIA_RESOLUTION_HIGH
+                logger.info(f"[Model] Enabling thinking (HIGH) + media_resolution (MEDIA_RESOLUTION_HIGH) for Gemini 3 model")
+            except (ImportError, AttributeError):
+                # Fallback to string if enum not available
+                model_kwargs["media_resolution"] = "MEDIA_RESOLUTION_HIGH"
+                logger.info(f"[Model] Enabling thinking (HIGH) + media_resolution (HIGH string) for Gemini 3 model")
 
         base_model = ChatGoogleGenerativeAI(**model_kwargs)
 
