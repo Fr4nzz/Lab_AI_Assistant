@@ -893,6 +893,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     """Create a new order with exams. Optimized for fast batch adding."""
     is_cotizacion = not cedula or cedula.strip() == ""
     logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams")
+    logger.info(f"[create_order] Requested exams: {exams}")
 
     page = await _browser.ensure_page()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
@@ -908,12 +909,15 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     # Extract ALL available exams at once (no need to search individually)
     available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+    logger.info(f"[create_order] Found {len(available)} available exams on page")
 
     # Build a map from exam code (uppercase) to button_id for fast lookup
     code_to_button = {}
     for exam in available:
         if exam.get('codigo'):
             code_to_button[exam['codigo'].upper()] = exam['button_id']
+
+    logger.info(f"[create_order] Available exam codes: {list(code_to_button.keys())[:20]}..." if len(code_to_button) > 20 else f"[create_order] Available exam codes: {list(code_to_button.keys())}")
 
     added_codes = []
     failed_exams = []
@@ -940,6 +944,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     # Get the final list of added exams
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+    logger.info(f"[create_order] Exams now in order (extracted from page): {[e.get('codigo') for e in added_exams]}")
 
     totals = await page.evaluate(r"""
         () => {
@@ -952,7 +957,9 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         }
     """)
 
-    logger.info(f"[create_order] Added {len(added_codes)} exams, failed {len(failed_exams)}")
+    logger.info(f"[create_order] Summary: requested={len(exams)}, clicked={len(added_codes)}, failed={len(failed_exams)}, extracted={len(added_exams)}")
+    if failed_exams:
+        logger.info(f"[create_order] Failed exams: {failed_exams}")
 
     return {
         "cedula": cedula if not is_cotizacion else None,
