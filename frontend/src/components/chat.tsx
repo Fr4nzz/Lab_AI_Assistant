@@ -646,7 +646,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
       // For new chats, generate title after message is sent
       // The chatId comes from onResponse which fires during the stream
+      console.log('[Chat] Title gen check:', { isNewChat, messageForTitle: !!messageForTitle, hasOnTitleGenerated: !!onTitleGenerated, dbChatIdRef: dbChatIdRef.current });
       if (isNewChat && messageForTitle && onTitleGenerated && dbChatIdRef.current) {
+        console.log('[Chat] Generating title for:', messageForTitle.slice(0, 50));
         setTitleGenerated(true);
         const chatIdForTitle = dbChatIdRef.current;
         fetch('/api/chat/title', {
@@ -656,11 +658,12 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
         })
           .then(res => res.json())
           .then(({ title }) => {
+            console.log('[Chat] Title received:', title);
             if (title && title !== 'Nuevo Chat') {
               onTitleGenerated(title, chatIdForTitle);
             }
           })
-          .catch(err => console.error('Failed to generate title:', err));
+          .catch(err => console.error('[Chat] Failed to generate title:', err));
       }
       // Note: activeChatId is now updated in onResponse, no need to do it here
     } catch (err) {

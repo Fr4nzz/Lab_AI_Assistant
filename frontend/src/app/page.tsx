@@ -121,7 +121,7 @@ export default function Home() {
   return (
     <main className="h-screen flex">
       {/* Left Sidebar - Chat List */}
-      <aside className="w-64 border-r flex-shrink-0">
+      <aside className="w-64 border-r flex-shrink-0 h-full overflow-hidden">
         <ChatSidebar
           chats={chats}
           selectedId={selectedChatId}
