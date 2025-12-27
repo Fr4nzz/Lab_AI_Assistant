@@ -851,7 +851,19 @@ async def chat_aisdk(request: AISdkChatRequest):
                 if part.get('type') == 'text':
                     msg_parts.append(part.get('text', '')[:100])
                 elif part.get('type') == 'image_url':
-                    msg_parts.append('[IMAGE]')
+                    # Log image size for debugging
+                    image_url_data = part.get('image_url', {})
+                    url = image_url_data.get('url', '') if isinstance(image_url_data, dict) else str(image_url_data)
+                    if url.startswith('data:'):
+                        base64_parts = url.split(',', 1)
+                        if len(base64_parts) > 1:
+                            base64_size = len(base64_parts[1])
+                            approx_bytes = int(base64_size * 0.75)
+                            msg_parts.append(f'[IMAGE: ~{approx_bytes // 1024}KB]')
+                        else:
+                            msg_parts.append('[IMAGE]')
+                    else:
+                        msg_parts.append('[IMAGE: URL]')
                 elif part.get('type') == 'media':
                     msg_parts.append('[MEDIA]')
         user_msg_display = ' + '.join(msg_parts)
@@ -1142,7 +1154,20 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 if part.get('type') == 'text':
                     msg_parts.append(part.get('text', '')[:100])
                 elif part.get('type') == 'image_url':
-                    msg_parts.append('[IMAGE]')
+                    # Log image size for debugging
+                    image_url_data = part.get('image_url', {})
+                    url = image_url_data.get('url', '') if isinstance(image_url_data, dict) else str(image_url_data)
+                    if url.startswith('data:'):
+                        # Extract base64 size to estimate original image size
+                        base64_parts = url.split(',', 1)
+                        if len(base64_parts) > 1:
+                            base64_size = len(base64_parts[1])
+                            approx_bytes = int(base64_size * 0.75)  # base64 is ~33% larger
+                            msg_parts.append(f'[IMAGE: ~{approx_bytes // 1024}KB]')
+                        else:
+                            msg_parts.append('[IMAGE]')
+                    else:
+                        msg_parts.append('[IMAGE: URL]')
                 elif part.get('type') == 'media':
                     mime = part.get('mime_type', 'unknown')
                     msg_parts.append(f'[AUDIO:{mime}]' if 'audio' in mime else f'[VIDEO:{mime}]')
@@ -1240,15 +1265,23 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         # Send tool call as a "thinking" step to frontend with step number
                         tool_display = f"**[{step_counter}]** 🔧 **{tool_name}**"
                         if tool_input:
-                            # Show key parameters
+                            # Show ALL parameters
                             params = []
                             for k, v in tool_input.items():
-                                if isinstance(v, str) and len(v) < 50:
-                                    params.append(f"{k}={v}")
-                                elif isinstance(v, list) and len(v) < 5:
+                                if isinstance(v, str):
+                                    # Truncate long strings
+                                    display_v = v if len(v) < 50 else v[:47] + "..."
+                                    params.append(f"{k}={display_v}")
+                                elif isinstance(v, list):
+                                    # Show list with all items (truncate if too many)
+                                    if len(v) <= 10:
+                                        params.append(f"{k}={v}")
+                                    else:
+                                        params.append(f"{k}=[{', '.join(str(x) for x in v[:10])}... +{len(v)-10} more]")
+                                elif isinstance(v, (int, float, bool)):
                                     params.append(f"{k}={v}")
                             if params:
-                                tool_display += f" ({', '.join(params[:3])})"
+                                tool_display += f" ({', '.join(params)})"
                         tool_display += "\n"
 
                         data = {

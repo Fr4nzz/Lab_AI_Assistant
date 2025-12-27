@@ -892,7 +892,7 @@ async def _edit_order_exams_impl(
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     """Create a new order with exams. Optimized for fast batch adding."""
     is_cotizacion = not cedula or cedula.strip() == ""
-    logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams")
+    logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams: {exams}")
 
     page = await _browser.ensure_page()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
@@ -906,34 +906,34 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(1500)
 
-    # Extract ALL available exams at once (no need to search individually)
-    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-
-    # Build a map from exam code (uppercase) to button_id for fast lookup
-    code_to_button = {}
-    for exam in available:
-        if exam.get('codigo'):
-            code_to_button[exam['codigo'].upper()] = exam['button_id']
-
+    # Click exams in the order AI requested
+    # Re-extract button map after each click to handle row index shifting
     added_codes = []
     failed_exams = []
 
-    # Click all matching exam buttons in rapid succession
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
-        button_id = code_to_button.get(exam_code_upper)
+
+        # Extract current available exams (indices shift after each click)
+        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        # Find the button for this exam
+        button_id = None
+        for exam in available:
+            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                button_id = exam['button_id']
+                break
 
         if button_id:
             btn = page.locator(f'#{button_id}')
             if await btn.count() > 0:
                 await btn.click()
                 added_codes.append(exam_code_upper)
-                # Minimal delay between clicks (100ms) - just enough for UI to respond
                 await page.wait_for_timeout(100)
             else:
                 failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
         else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'no exact match in available exams'})
+            failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
 
     # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
@@ -952,7 +952,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         }
     """)
 
-    logger.info(f"[create_order] Added {len(added_codes)} exams, failed {len(failed_exams)}")
+    logger.info(f"[create_order] Added {len(added_codes)}/{len(exams)} exams{f', {len(failed_exams)} failed' if failed_exams else ''}")
 
     return {
         "cedula": cedula if not is_cotizacion else None,
