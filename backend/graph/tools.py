@@ -343,6 +343,15 @@ async def _extract_tab_state(page, tab_type: str) -> dict:
 
     try:
         if tab_type == "resultados":
+            # Wait for the results page to fully load (has exam rows with inputs/selects)
+            try:
+                await page.wait_for_selector('tr.examen', timeout=5000)
+                # Also wait a bit for AJAX content
+                await page.wait_for_timeout(500)
+            except Exception:
+                # Page might not have loaded yet or structure is different
+                logger.warning(f"Results page may not have loaded: {page.url}")
+
             # Extract results page state
             data = await page.evaluate(EXTRACT_REPORTES_JS)
             state["paciente"] = data.get("paciente")
@@ -372,6 +381,7 @@ async def _extract_tab_state(page, tab_type: str) -> dict:
                     })
             state["field_values"] = field_values
             state["fields_details"] = fields_details
+            logger.debug(f"Results extraction: {len(examenes)} exams, {len(fields_details)} fields")
 
         elif tab_type == "orden_edit":
             # Extract order edit page state

@@ -16,11 +16,10 @@ export default function Home() {
   const [showTabEditor, setShowTabEditor] = useState(false);
   const [renderMarkdown, setRenderMarkdown] = useState(true);
 
-  // Load chats from database on mount, always start with a new chat
+  // Load chats from database on mount (don't create new chat - wait for first message)
   useEffect(() => {
-    async function loadChatsAndCreateNew() {
+    async function loadChats() {
       try {
-        // Load existing chats for the sidebar
         const response = await fetch('/api/db/chats');
         if (response.ok) {
           const data = await response.json();
@@ -29,29 +28,8 @@ export default function Home() {
             title: chat.title,
             createdAt: new Date(chat.createdAt),
           }));
-
-          // Always create a new chat on app start
-          const createResponse = await fetch('/api/db/chats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: 'Nuevo Chat' }),
-          });
-          if (createResponse.ok) {
-            const newChat = await createResponse.json();
-            const newChatItem = {
-              id: newChat.id,
-              title: newChat.title,
-              createdAt: new Date(newChat.createdAt),
-            };
-            setChats([newChatItem, ...loadedChats]);
-            setSelectedChatId(newChat.id);
-          } else {
-            // Fallback: just load existing chats
-            setChats(loadedChats);
-            if (loadedChats.length > 0) {
-              setSelectedChatId(loadedChats[0].id);
-            }
-          }
+          setChats(loadedChats);
+          // Don't auto-select any chat - show welcome screen
         }
       } catch (error) {
         console.error('Failed to load chats:', error);
@@ -59,7 +37,7 @@ export default function Home() {
         setIsLoading(false);
       }
     }
-    loadChatsAndCreateNew();
+    loadChats();
   }, []);
 
   const createNewChat = useCallback(async () => {
@@ -83,17 +61,29 @@ export default function Home() {
     }
   }, []);
 
-  const handleTitleGenerated = useCallback(async (title: string) => {
-    if (selectedChatId) {
+  // Called when a new chat is created (on first message)
+  const handleChatCreated = useCallback((chatId: string, title: string) => {
+    const newChatItem = {
+      id: chatId,
+      title,
+      createdAt: new Date(),
+    };
+    setChats((prev) => [newChatItem, ...prev]);
+    setSelectedChatId(chatId);
+  }, []);
+
+  const handleTitleGenerated = useCallback(async (title: string, chatId?: string) => {
+    const targetChatId = chatId || selectedChatId;
+    if (targetChatId) {
       // Update local state
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === selectedChatId ? { ...chat, title } : chat
+          chat.id === targetChatId ? { ...chat, title } : chat
         )
       );
       // Update in database
       try {
-        await fetch(`/api/db/chats/${selectedChatId}`, {
+        await fetch(`/api/db/chats/${targetChatId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title }),
@@ -147,23 +137,14 @@ export default function Home() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-muted-foreground">Cargando...</div>
           </div>
-        ) : selectedChatId ? (
+        ) : (
           <Chat
-            chatId={selectedChatId}
+            chatId={selectedChatId || undefined}
             onTitleGenerated={handleTitleGenerated}
+            onChatCreated={handleChatCreated}
             enabledTools={enabledTools}
             renderMarkdown={renderMarkdown}
           />
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <h2 className="text-2xl font-bold mb-2">Lab Assistant AI</h2>
-              <p>Selecciona un chat o crea uno nuevo para comenzar</p>
-              <p className="text-sm mt-2">
-                Puedes enviar texto, imagenes del cuaderno, o audio con instrucciones
-              </p>
-            </div>
-          </div>
         )}
       </div>
 
