@@ -127,6 +127,41 @@ function getTextContent(msg: Message): string {
   return '';
 }
 
+// Retry fetch with exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 5,
+  initialDelayMs = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if it's a connection error (backend not ready)
+      const isConnectionError = lastError.message.includes('ECONNREFUSED') ||
+                                 lastError.message.includes('fetch failed') ||
+                                 lastError.message.includes('ENOTFOUND');
+
+      if (!isConnectionError || attempt >= maxRetries - 1) {
+        throw lastError;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+      const delayMs = initialDelayMs * Math.pow(2, attempt);
+      console.log(`[API/chat] Backend not ready, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded');
+}
+
 // Parse OpenAI SSE stream
 async function* parseOpenAIStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
   const decoder = new TextDecoder();
@@ -225,11 +260,28 @@ export async function POST(req: NextRequest) {
   console.log('[API/chat] Messages count:', messages.length);
   console.log('[API/chat] Backend request (summarized):', JSON.stringify(summarizeForDebug(openaiMessages.slice(-1)), null, 2));
 
-  const backendResponse = await fetch(`${process.env.BACKEND_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(backendRequest),
-  });
+  let backendResponse: Response;
+  try {
+    // Use retry mechanism in case backend is still starting up
+    backendResponse = await fetchWithRetry(
+      `${process.env.BACKEND_URL}/v1/chat/completions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backendRequest),
+      },
+      5,  // max retries
+      1000  // initial delay 1s
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[API/chat] Backend connection failed after retries:', errorMessage);
+    await updateDebugRequest(chatId, debugId, { error: `Backend connection failed: ${errorMessage}` });
+    return new Response(JSON.stringify({ error: 'Backend not available. Please wait and try again.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   console.log('[API/chat] Backend response status:', backendResponse.status);
 

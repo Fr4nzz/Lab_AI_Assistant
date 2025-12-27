@@ -528,11 +528,11 @@ async def _get_all_tabs_info() -> dict:
             # Get known state and compute delta
             known_state = _tab_state_manager.get_known_state(tab_key)
 
-            if tab_info["is_new"]:
-                # New tab: include full state
-                tab_info["state"] = current_state
-            else:
-                # Known tab: include only changes
+            # Always include full state for tabs that need detailed info
+            tab_info["state"] = current_state
+
+            if not tab_info["is_new"]:
+                # For known tabs, also include changes
                 delta = _tab_state_manager.compute_state_delta(known_state or {}, current_state)
                 if delta:
                     tab_info["changes"] = delta

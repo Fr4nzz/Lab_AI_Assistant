@@ -447,6 +447,9 @@ async def extract_initial_context() -> str:
 async def lifespan(app: FastAPI):
     """
     Application lifespan - initialize browser and LangGraph.
+
+    For fast startup, we skip initial orders extraction - it will be done
+    lazily on first chat message instead.
     """
     global browser, graph, checkpointer, initial_orders_context
 
@@ -456,18 +459,20 @@ async def lifespan(app: FastAPI):
     data_dir = Path(__file__).parent / "data"
     data_dir.mkdir(exist_ok=True)
 
-    # Initialize browser
+    # Initialize browser (required before accepting requests)
     browser = BrowserManager(user_data_dir=settings.browser_data_dir)
     await browser.start(headless=settings.headless, browser=settings.browser_channel)
     await browser.navigate(settings.target_url)
     set_browser(browser)
 
-    # Extract initial orders context (will handle login state)
-    initial_orders_context = await get_orders_context()
-    if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
-        logger.info(f"Extracted initial context with {initial_orders_context.count('|') // 8} orders")
-    elif "SESIÓN NO INICIADA" in initial_orders_context:
+    # Skip initial orders extraction for fast startup
+    # Orders context will be fetched lazily on first chat message
+    if browser.page and "/login" in browser.page.url:
         logger.warning("[Startup] Not logged in - waiting for user to login")
+        initial_orders_context = "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login."
+    else:
+        logger.info("[Startup] Skipping initial orders extraction (will be done lazily)")
+        initial_orders_context = ""
 
     # Initialize checkpointer for conversation persistence
     # Using MemorySaver for development (in-memory, not persistent across restarts)
