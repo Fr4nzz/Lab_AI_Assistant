@@ -283,24 +283,16 @@ export async function POST(req: NextRequest) {
 
           // Decode and collect text chunks for storage
           const text = decoder.decode(value, { stream: true });
-          console.log(`[API/chat] Chunk ${chunkCount} raw:`, text.slice(0, 200));
 
           // Parse AI SDK v6 SSE format - look for text-delta events
           for (const line of text.split('\n')) {
             if (line.startsWith('data: ')) {
               const data = line.slice(6); // Remove 'data: ' prefix
-              if (data === '[DONE]') {
-                console.log('[API/chat] Found DONE marker');
-                continue;
-              }
+              if (data === '[DONE]') continue;
               try {
                 const parsed = JSON.parse(data);
-                console.log('[API/chat] SSE event type:', parsed.type);
                 if (parsed.type === 'text-delta' && parsed.delta) {
                   fullResponse += parsed.delta;
-                  console.log('[API/chat] Text delta:', parsed.delta.slice(0, 50));
-                } else if (parsed.type === 'finish') {
-                  console.log('[API/chat] Finish event:', parsed.finishReason);
                 }
               } catch {
                 // Skip non-JSON lines
