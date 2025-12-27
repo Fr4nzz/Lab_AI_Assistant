@@ -406,14 +406,21 @@ async def extract_initial_context() -> str:
         page1_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=1"
         logger.info("[Context] Fetching orders page 1...")
         await browser.page.goto(page1_url, timeout=30000)
-        await browser.page.wait_for_timeout(2000)
+        # Wait for table rows instead of fixed 2s delay
+        try:
+            await browser.page.wait_for_selector('table tbody tr, .order-row', timeout=5000)
+        except Exception:
+            await browser.page.wait_for_timeout(500)
         ordenes_page1 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
 
         # Fetch orders from page 2
         page2_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=2"
         logger.info("[Context] Fetching orders page 2...")
         await browser.page.goto(page2_url, timeout=30000)
-        await browser.page.wait_for_timeout(2000)
+        try:
+            await browser.page.wait_for_selector('table tbody tr, .order-row', timeout=5000)
+        except Exception:
+            await browser.page.wait_for_timeout(500)
         ordenes_page2 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
 
         # Combine orders from both pages

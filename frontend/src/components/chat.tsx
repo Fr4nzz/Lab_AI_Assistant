@@ -321,6 +321,8 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
   // Track the active chat ID (can be different from prop if we just created one)
   const [activeChatId, setActiveChatId] = useState<string | undefined>(chatId);
+  // Use a ref for chatId in transport to avoid recreating transport mid-stream
+  const activeChatIdRef = useRef<string | undefined>(chatId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -334,6 +336,7 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
   // Update activeChatId when prop changes
   useEffect(() => {
     setActiveChatId(chatId);
+    activeChatIdRef.current = chatId;
   }, [chatId]);
 
   // Create transport with custom body
@@ -350,6 +353,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
     },
   });
 
+  // Track if we just created a chat (to skip loading empty messages)
+  const justCreatedChatRef = useRef<string | null>(null);
+
   // Load historical messages when activeChatId changes
   useEffect(() => {
     async function loadMessages() {
@@ -359,6 +365,13 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
 
       // Skip if we already loaded this chat
       if (loadedChatIdRef.current === activeChatId) {
+        return;
+      }
+
+      // Skip loading if we just created this chat (it's empty and we're about to stream)
+      if (justCreatedChatRef.current === activeChatId) {
+        loadedChatIdRef.current = activeChatId;  // Mark as "loaded" to prevent future loads
+        justCreatedChatRef.current = null;  // Reset the flag
         return;
       }
 
@@ -593,6 +606,9 @@ export function Chat({ chatId, onTitleGenerated, onChatCreated, enabledTools = D
         if (createResponse.ok) {
           const newChat = await createResponse.json();
           targetChatId = newChat.id;
+          // Mark this chat as just created to skip loading empty messages
+          justCreatedChatRef.current = targetChatId;
+          activeChatIdRef.current = targetChatId;
           setActiveChatId(targetChatId);
           if (onChatCreated) {
             onChatCreated(newChat.id, newChat.title);
