@@ -1,4 +1,5 @@
 import { FILE_UPLOAD_CONFIG, type FileWithStatus } from '~~/shared/utils/file'
+import { generateUUID } from '~/utils/uuid'
 
 function createObjectUrl(file: File): string {
   return URL.createObjectURL(file)
@@ -39,7 +40,7 @@ export function useFileUploadWithStatus(_chatId: string) {
 
     const filesWithStatus: FileWithStatus[] = validFiles.map(file => ({
       file,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       previewUrl: createObjectUrl(file),
       status: 'uploading' as const
     }))
