@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { generateUUID } from '~/utils/uuid'
+
 const toast = useToast()
 const input = ref('')
 const loading = ref(false)
-const chatId = crypto.randomUUID()
+const chatId = generateUUID()
 
 const { model } = useModels()
 
