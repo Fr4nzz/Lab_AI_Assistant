@@ -78,18 +78,24 @@ const transformedMessages = computed(() => {
 
 const input = ref('')
 
+console.log('[Chat] Creating Chat instance for:', data.value.id)
+
 const chat = new Chat({
   id: data.value.id,
   messages: transformedMessages.value,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    body: () => ({
-      model: model.value,
-      enabledTools: enabledTools.value,
-      showStats: showStats.value
-    })
+    body: () => {
+      console.log('[Chat] Transport body called')
+      return {
+        model: model.value,
+        enabledTools: enabledTools.value,
+        showStats: showStats.value
+      }
+    }
   }),
   onFinish() {
+    console.log('[Chat] onFinish called')
     // Clear pending rotation info after AI response is complete
     pendingRotationInfo.value = []
 
@@ -100,6 +106,7 @@ const chat = new Chat({
     }, 1500)
   },
   onError(error) {
+    console.error('[Chat] onError called:', error)
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
     toast.add({
       description: message,
@@ -110,19 +117,21 @@ const chat = new Chat({
   }
 })
 
+// Watch chat status for debugging
+watch(() => chat.status, (newStatus) => {
+  console.log('[Chat] Status changed:', newStatus)
+}, { immediate: true })
+
 async function handleSubmit(e: Event) {
   e.preventDefault()
   const hasText = input.value.trim().length > 0
   const hasFiles = uploadedFiles.value.length > 0
 
-  console.log('[Chat] handleSubmit called:', {
-    hasText,
-    hasFiles,
-    isUploading: isUploading.value,
-    filesCount: files.value.length,
-    uploadedFilesCount: uploadedFiles.value.length,
-    rotatedFilesInfoCount: rotatedFilesInfo.value.length
-  })
+  // More visible logging
+  console.warn('=== [Chat] handleSubmit ===')
+  console.warn('hasText:', hasText, 'hasFiles:', hasFiles, 'isUploading:', isUploading.value)
+  console.warn('files:', files.value.length, 'uploadedFiles:', uploadedFiles.value.length)
+  console.warn('rotatedFilesInfo:', rotatedFilesInfo.value)
 
   // Allow sending with text, files, or both
   if ((hasText || hasFiles) && !isUploading.value) {
@@ -130,27 +139,28 @@ async function handleSubmit(e: Event) {
     pendingRotationInfo.value = [...rotatedFilesInfo.value]
 
     const filesToSend = hasFiles ? uploadedFiles.value : undefined
-    console.log('[Chat] Sending message:', {
-      text: input.value,
-      filesCount: filesToSend?.length || 0,
-      rotationInfo: pendingRotationInfo.value,
-      fileDetails: filesToSend?.map(f => ({ name: f.name, type: f.mediaType, dataLength: f.data?.length }))
-    })
+    console.warn('=== [Chat] Sending ===')
+    console.warn('text:', input.value)
+    console.warn('files:', filesToSend?.length || 0)
+    console.warn('pendingRotationInfo:', pendingRotationInfo.value)
 
     try {
+      console.warn('=== [Chat] Calling chat.sendMessage ===')
       chat.sendMessage({
         text: input.value || ' ', // AI SDK requires non-empty text
         files: filesToSend
       })
-      console.log('[Chat] sendMessage called successfully')
+      console.warn('=== [Chat] sendMessage returned ===')
+      console.warn('chat.status:', chat.status)
+      console.warn('chat.messages:', chat.messages.length)
     } catch (err) {
-      console.error('[Chat] sendMessage error:', err)
+      console.error('=== [Chat] sendMessage ERROR ===', err)
     }
 
     input.value = ''
     clearFiles()
   } else {
-    console.log('[Chat] Submit blocked - conditions not met')
+    console.warn('=== [Chat] Submit BLOCKED ===')
   }
 }
 
