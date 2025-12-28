@@ -1,15 +1,21 @@
 /**
  * OpenRouter Models Utility
- * Fetches and caches free models from OpenRouter API, sorted by latency
- * Uses the frontend API which supports latency-based sorting
+ * Fetches and caches free models from OpenRouter official API
+ * https://openrouter.ai/docs/api/api-reference/models/get-models
  */
 
-interface OpenRouterFrontendModel {
-  slug: string
+interface OpenRouterModel {
+  id: string
   name: string
-  has_text_output: boolean
-  input_modalities: string[]
-  output_modalities: string[]
+  pricing: {
+    prompt: string
+    completion: string
+  }
+  architecture?: {
+    input_modalities?: string[]
+    output_modalities?: string[]
+  }
+  context_length: number
 }
 
 interface ModelsCache {
@@ -22,16 +28,13 @@ const CACHE_TTL_MS = 60 * 60 * 1000
 let modelsCache: ModelsCache | null = null
 
 /**
- * Fetch free models from OpenRouter frontend API, sorted by latency
- * This endpoint returns models pre-sorted by latency (lowest first)
+ * Fetch models from OpenRouter official API
  */
-async function fetchFreeModelsByLatency(): Promise<string[]> {
-  // Use the frontend API which supports latency sorting
-  const url = 'https://openrouter.ai/api/frontend/models?q=free&order=latency-low-to-high'
-
-  const response = await fetch(url, {
+async function fetchModels(apiKey: string): Promise<OpenRouterModel[]> {
+  const response = await fetch('https://openrouter.ai/api/v1/models', {
     headers: {
-      'Accept': 'application/json'
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
     }
   })
 
@@ -40,30 +43,32 @@ async function fetchFreeModelsByLatency(): Promise<string[]> {
   }
 
   const data = await response.json()
-  const models: OpenRouterFrontendModel[] = data.data || []
-
-  // Filter for text-capable models only (we need text output for title generation)
-  // Also filter out image/video-only models
-  const textModels = models.filter(model =>
-    model.has_text_output &&
-    model.input_modalities?.includes('text') &&
-    model.output_modalities?.includes('text')
-  )
-
-  // The slug from frontend API needs to be converted to the API model ID format
-  // Frontend uses "author/model-name" but for free models we may need ":free" suffix
-  return textModels.map(model => {
-    // Check if it already has :free suffix
-    if (model.slug.includes(':')) {
-      return model.slug
-    }
-    // Add :free suffix for free models
-    return `${model.slug}:free`
-  })
+  return data.data || []
 }
 
 /**
- * Get top N free models from OpenRouter, sorted by latency (fastest first)
+ * Filter for free text-capable models
+ */
+function filterFreeTextModels(models: OpenRouterModel[]): string[] {
+  return models
+    .filter(model => {
+      // Check if it's free (pricing is 0)
+      const promptPrice = parseFloat(model.pricing?.prompt || '1')
+      const completionPrice = parseFloat(model.pricing?.completion || '1')
+      const isFree = promptPrice === 0 && completionPrice === 0
+
+      // Check if it supports text input and output
+      const inputModalities = model.architecture?.input_modalities || []
+      const outputModalities = model.architecture?.output_modalities || []
+      const supportsText = inputModalities.includes('text') && outputModalities.includes('text')
+
+      return isFree && supportsText
+    })
+    .map(model => model.id)
+}
+
+/**
+ * Get top N free models from OpenRouter
  * Results are cached for 1 hour
  */
 export async function getTopFreeModels(apiKey: string, count: number = 3): Promise<string[]> {
@@ -76,19 +81,20 @@ export async function getTopFreeModels(apiKey: string, count: number = 3): Promi
   }
 
   try {
-    console.log('[OpenRouter] Fetching free models sorted by latency...')
-    const modelIds = await fetchFreeModelsByLatency()
+    console.log('[OpenRouter] Fetching free models from official API...')
+    const allModels = await fetchModels(apiKey)
+    const freeTextModelIds = filterFreeTextModels(allModels)
 
-    console.log(`[OpenRouter] Found ${modelIds.length} free text models`)
+    console.log(`[OpenRouter] Found ${freeTextModelIds.length} free text models`)
 
     // Cache the results
     modelsCache = {
-      modelIds,
+      modelIds: freeTextModelIds,
       fetchedAt: now
     }
 
-    const topModels = modelIds.slice(0, count)
-    console.log('[OpenRouter] Top free models (by latency):', topModels)
+    const topModels = freeTextModelIds.slice(0, count)
+    console.log('[OpenRouter] Top free models:', topModels)
 
     return topModels
   } catch (error) {
@@ -103,8 +109,8 @@ export async function getTopFreeModels(apiKey: string, count: number = 3): Promi
     // Ultimate fallback: return known free models
     console.log('[OpenRouter] Using hardcoded fallback models')
     return [
-      'mistralai/mistral-small-3.1-24b-instruct-2503:free',
       'google/gemma-3-4b-it:free',
+      'mistralai/mistral-small-3.1-24b-instruct-2503:free',
       'deepseek/deepseek-r1-distill-llama-70b:free'
     ]
   }

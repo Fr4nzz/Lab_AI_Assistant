@@ -78,13 +78,23 @@ Título:`
   const freeModels = await getTopFreeModels(config.openrouterApiKey, 3)
   console.log('[API/chat] Available free models for title:', freeModels)
 
-  // Try each model with fallback
+  // Try each model with fallback, using latency-based provider sorting
   for (const modelId of freeModels) {
     try {
       console.log(`[API/chat] Trying model: ${modelId}`)
 
+      // Use extraBody to pass provider.sort for latency optimization
+      // https://openrouter.ai/docs/guides/routing/provider-selection
+      const model = openrouter(modelId, {
+        extraBody: {
+          provider: {
+            sort: 'latency'
+          }
+        }
+      })
+
       const { text } = await generateText({
-        model: openrouter(modelId),
+        model,
         prompt,
         temperature: 0.3,
         maxTokens: 20
