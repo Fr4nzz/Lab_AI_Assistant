@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { getChat, addMessage, updateChatTitle } from '../../utils/db'
+import { getTopFreeModels } from '../../utils/openrouter-models'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 
@@ -10,7 +11,25 @@ defineRouteMeta({
   }
 })
 
-// Generate title for a chat using best practices for prompt engineering
+// Clean up generated title text
+function cleanTitle(text: string): string {
+  let title = text.trim()
+    .replace(/^\*\*|\*\*$/g, '') // Remove bold markdown
+    .replace(/^#+\s*/, '') // Remove heading markdown
+    .replace(/^["']|["']$/g, '') // Remove quotes
+    .replace(/^Título:\s*/i, '') // Remove "Título:" prefix
+    .replace(/\n.*/g, '') // Take only first line
+    .trim()
+
+  // Limit length
+  if (title.length > 50) {
+    title = title.substring(0, 47) + '...'
+  }
+
+  return title
+}
+
+// Generate title for a chat using dynamic free models with fallback
 async function generateTitle(chatId: string, messageContent: string): Promise<void> {
   const config = useRuntimeConfig()
 
@@ -22,17 +41,12 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
 
   console.log('[API/chat] Generating title with OpenRouter...')
 
-  try {
-    const openrouter = createOpenRouter({
-      apiKey: config.openrouterApiKey
-    })
+  const openrouter = createOpenRouter({
+    apiKey: config.openrouterApiKey
+  })
 
-    // Improved prompt with:
-    // - Clear role assignment
-    // - Specific format constraints
-    // - Few-shot examples
-    // - Explicit prohibition of markdown/formatting
-    const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
+  // Prompt with clear instructions and few-shot examples
+  const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
 
 REGLAS ESTRICTAS:
 - Genera SOLO el título, sin explicaciones
@@ -60,34 +74,36 @@ Ahora genera un título para este mensaje:
 
 Título:`
 
-    const { text } = await generateText({
-      model: openrouter('mistralai/mistral-small-3.1-24b-instruct-2503:free'),
-      prompt,
-      temperature: 0.3,
-      maxTokens: 20
-    })
+  // Get top 3 free models dynamically
+  const freeModels = await getTopFreeModels(config.openrouterApiKey, 3)
+  console.log('[API/chat] Available free models for title:', freeModels)
 
-    // Clean up the title - remove any markdown or unwanted formatting
-    let title = text.trim()
-      .replace(/^\*\*|\*\*$/g, '') // Remove bold markdown
-      .replace(/^#+\s*/, '') // Remove heading markdown
-      .replace(/^["']|["']$/g, '') // Remove quotes
-      .replace(/^Título:\s*/i, '') // Remove "Título:" prefix
-      .replace(/\n.*/g, '') // Take only first line
-      .trim()
+  // Try each model with fallback
+  for (const modelId of freeModels) {
+    try {
+      console.log(`[API/chat] Trying model: ${modelId}`)
 
-    // Limit length
-    if (title.length > 50) {
-      title = title.substring(0, 47) + '...'
+      const { text } = await generateText({
+        model: openrouter(modelId),
+        prompt,
+        temperature: 0.3,
+        maxTokens: 20
+      })
+
+      const title = cleanTitle(text)
+
+      if (title && title !== 'Nuevo Chat' && title.length > 0) {
+        await updateChatTitle(chatId, title)
+        console.log('[API/chat] Generated title:', title)
+        return // Success, exit
+      }
+    } catch (error) {
+      console.warn(`[API/chat] Model ${modelId} failed:`, (error as Error).message)
+      // Continue to next model
     }
-
-    if (title && title !== 'Nuevo Chat' && title.length > 0) {
-      await updateChatTitle(chatId, title)
-      console.log('[API/chat] Generated title:', title)
-    }
-  } catch (error) {
-    console.error('[API/chat] Title generation error:', error)
   }
+
+  console.error('[API/chat] All models failed to generate title')
 }
 
 // Extract text content from message
