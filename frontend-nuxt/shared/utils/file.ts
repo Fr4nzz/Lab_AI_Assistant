@@ -2,9 +2,12 @@ export interface FileWithStatus {
   file: File
   id: string
   previewUrl: string
-  status: 'uploading' | 'uploaded' | 'error'
+  status: 'uploading' | 'uploaded' | 'error' | 'processing'
   base64Data?: string
   error?: string
+  rotation?: number // Rotation in degrees (0, 90, 180, 270)
+  wasRotated?: boolean
+  originalFile?: File // Original file before rotation
 }
 
 export const FILE_UPLOAD_CONFIG = {

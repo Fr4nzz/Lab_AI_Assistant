@@ -346,6 +346,7 @@ onUnmounted(() => {
                 :preview-url="fileWithStatus.previewUrl"
                 :status="fileWithStatus.status"
                 :error="fileWithStatus.error"
+                :rotation="fileWithStatus.rotation"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
                 @click="fileWithStatus.previewUrl && openLightbox(fileWithStatus.previewUrl, fileWithStatus.file.name)"
