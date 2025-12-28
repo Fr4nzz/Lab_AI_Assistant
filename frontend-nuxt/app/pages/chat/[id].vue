@@ -124,6 +124,10 @@ watch(() => chat.status, (newStatus) => {
 
 async function handleSubmit(e: Event) {
   e.preventDefault()
+
+  // VERY visible debug - remove after testing
+  alert('handleSubmit called!')
+
   const hasText = input.value.trim().length > 0
   const hasFiles = uploadedFiles.value.length > 0
 
