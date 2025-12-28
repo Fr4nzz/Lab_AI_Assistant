@@ -61,9 +61,10 @@ Ahora genera un título para este mensaje:
 Título:`
 
     const { text } = await generateText({
-      model: openrouter('nvidia/llama-3.1-nemotron-70b-instruct:free'),
+      model: openrouter('mistralai/mistral-small-3.1-24b-instruct-2503:free'),
       prompt,
-      temperature: 0.3
+      temperature: 0.3,
+      maxTokens: 20
     })
 
     // Clean up the title - remove any markdown or unwanted formatting
