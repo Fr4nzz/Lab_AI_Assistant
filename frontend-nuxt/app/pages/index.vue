@@ -61,8 +61,8 @@ function handlePaste(e: ClipboardEvent) {
       color: 'success',
       duration: 1500
     })
-    // Keep focus on input after paste
-    requestAnimationFrame(() => focusInput())
+    // Keep focus on input after paste - use setTimeout to ensure focus after toast
+    setTimeout(() => focusInput(), 50)
   }
 }
 
@@ -247,7 +247,7 @@ const quickChats = [
         <UChatPrompt
           v-model="input"
           :status="loading ? 'streaming' : 'ready'"
-          :disabled="isUploading || isRecording"
+          :disabled="isRecording"
           class="[view-transition-name:chat-prompt]"
           variant="subtle"
           :ui="{ base: 'px-1.5' }"

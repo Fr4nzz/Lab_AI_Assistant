@@ -160,8 +160,8 @@ async function handlePaste(e: ClipboardEvent) {
       color: 'success',
       duration: 1500
     })
-    // Keep focus on input after paste - use requestAnimationFrame for better timing
-    requestAnimationFrame(() => focusInput())
+    // Keep focus on input after paste - use setTimeout to ensure focus after toast
+    setTimeout(() => focusInput(), 50)
   }
 }
 
@@ -329,7 +329,7 @@ onUnmounted(() => {
         <UChatPrompt
           v-model="input"
           :error="chat.error"
-          :disabled="isUploading || isRecording"
+          :disabled="isRecording"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
