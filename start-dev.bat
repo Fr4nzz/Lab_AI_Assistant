@@ -19,16 +19,6 @@ shift
 goto :parse_args
 :done_args
 
-:: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
-set "NETWORK_IPS="
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|Ethernet' -and $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL' }; foreach($ip in $ips) { if($ip.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN') { Write-Host '[Wi-Fi]' $ip.IPAddress } else { Write-Host '[Ethernet]' $ip.IPAddress } }"`) do (
-    if "!NETWORK_IPS!"=="" (
-        set "NETWORK_IPS=%%i"
-    ) else (
-        set "NETWORK_IPS=!NETWORK_IPS!|%%i"
-    )
-)
-
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
 
@@ -53,10 +43,11 @@ if %errorlevel% neq 0 (
 :: Install backend dependencies if needed
 echo Checking backend dependencies...
 cd /d "%SCRIPT_DIR%backend"
-python -m pip install -r requirements.txt -q
+python -m pip install -r requirements.txt -q 2>nul
 cd /d "%SCRIPT_DIR%"
 
 :: Install frontend dependencies if needed (check for essential packages)
+echo Checking frontend dependencies...
 set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@nuxt\ui" set "NEED_INSTALL=1"
@@ -65,8 +56,10 @@ if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_I
 if defined NEED_INSTALL (
     echo Installing frontend dependencies...
     cd /d "%SCRIPT_DIR%frontend-nuxt"
-    npm install
+    call npm install
     cd /d "%SCRIPT_DIR%"
+) else (
+    echo Dependencies OK
 )
 
 echo.
@@ -131,7 +124,7 @@ if not defined NO_TUNNEL (
 
 echo.
 echo ========================================
-echo    Lab Assistant Started!
+echo    Lab Assistant Started
 echo ========================================
 echo.
 echo Local access:
@@ -139,32 +132,20 @@ echo   Frontend: http://localhost:3000
 echo   Backend:  http://localhost:8000
 echo.
 echo Network access (LAN):
-if not "!NETWORK_IPS!"=="" (
-    for %%a in ("!NETWORK_IPS:|=" "!") do (
-        for /f "tokens=1,2" %%b in (%%a) do (
-            echo   %%b http://%%c:3000
-        )
-    )
-) else (
-    echo   [No Wi-Fi/Ethernet adapter found]
-)
+powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '127.*' -and $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|Ethernet' -and $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL' } | ForEach-Object { $t = if($_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN'){'Wi-Fi'}else{'Ethernet'}; '  ['+$t+'] http://'+$_.IPAddress+':3000' }"
 
 if defined TUNNEL_STARTED (
     echo.
-    echo Remote access (Internet):
+    echo Remote access ^(Internet^):
     echo   !TUNNEL_URL!
 ) else if defined TUNNEL_URL (
     echo.
-    echo Remote access (not started):
+    echo Remote access ^(not started^):
     echo   !TUNNEL_URL!
     echo   Run with --tunnel flag or cloudflare-tunnel-run.bat
 )
 
 echo.
-echo Opening browser...
-start http://localhost:3000
-
-echo.
 echo Press any key to close this launcher...
-echo (The backend, frontend, and tunnel will keep running)
+echo ^(The backend, frontend, and tunnel will keep running^)
 pause >nul

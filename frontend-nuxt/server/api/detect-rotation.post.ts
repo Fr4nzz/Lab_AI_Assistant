@@ -11,11 +11,9 @@ defineRouteMeta({
 })
 
 const bodySchema = z.object({
-  // Base64 encoded image data URL (data:image/png;base64,...)
   imageDataUrl: z.string().min(1)
 })
 
-// Prompt for rotation detection based on GPT-4 Vision best practices
 const ROTATION_PROMPT = `Analyze this image and determine if it needs rotation to make text readable.
 
 TASK: Determine the rotation needed so text reads left-to-right, top-to-bottom.
@@ -36,6 +34,7 @@ IMPORTANT: Respond with ONLY the number (0, 90, 180, or 270). No other text.`
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
+  const startTime = Date.now()
 
   if (!config.openrouterApiKey) {
     throw createError({
@@ -46,7 +45,6 @@ export default defineEventHandler(async (event) => {
 
   const body = await readValidatedBody(event, bodySchema.parse)
 
-  // Extract the base64 data and mime type from the data URL
   const matches = body.imageDataUrl.match(/^data:(.+);base64,(.+)$/)
   if (!matches) {
     throw createError({
@@ -57,21 +55,24 @@ export default defineEventHandler(async (event) => {
 
   const mimeType = matches[1]
   const base64Data = matches[2]
+  const imageSizeKB = Math.round(base64Data.length * 0.75 / 1024)
 
-  console.log('[API/detect-rotation] Detecting rotation for image...')
+  console.log(`[API/detect-rotation] Starting (image: ${imageSizeKB}KB)...`)
 
   const openrouter = createOpenRouter({
     apiKey: config.openrouterApiKey
   })
 
   // Get top 3 free vision models
+  const modelFetchStart = Date.now()
   const visionModels = await getTopFreeVisionModels(config.openrouterApiKey, 3)
-  console.log('[API/detect-rotation] Available vision models:', visionModels)
+  console.log(`[API/detect-rotation] Models fetched in ${Date.now() - modelFetchStart}ms:`, visionModels)
 
   // Try each model with fallback
   for (const modelId of visionModels) {
+    const modelStart = Date.now()
     try {
-      console.log(`[API/detect-rotation] Trying model: ${modelId}`)
+      console.log(`[API/detect-rotation] Trying: ${modelId}`)
 
       const model = openrouter(modelId, {
         extraBody: {
@@ -87,14 +88,8 @@ export default defineEventHandler(async (event) => {
           {
             role: 'user',
             content: [
-              {
-                type: 'text',
-                text: ROTATION_PROMPT
-              },
-              {
-                type: 'image',
-                image: `data:${mimeType};base64,${base64Data}`
-              }
+              { type: 'text', text: ROTATION_PROMPT },
+              { type: 'image', image: `data:${mimeType};base64,${base64Data}` }
             ]
           }
         ],
@@ -102,34 +97,35 @@ export default defineEventHandler(async (event) => {
         maxTokens: 10
       })
 
-      // Parse the response - should be just a number
+      const modelTime = Date.now() - modelStart
+      const totalTime = Date.now() - startTime
+
       const cleanedText = text.trim().replace(/[^\d]/g, '')
       const rotation = parseInt(cleanedText, 10)
 
-      // Validate the rotation value
       if ([0, 90, 180, 270].includes(rotation)) {
-        console.log(`[API/detect-rotation] Detected rotation: ${rotation}°`)
+        console.log(`[API/detect-rotation] Result: ${rotation}° (model: ${modelTime}ms, total: ${totalTime}ms)`)
         return {
           rotation,
           model: modelId,
-          success: true
+          success: true,
+          timing: { modelMs: modelTime, totalMs: totalTime }
         }
       } else {
-        console.warn(`[API/detect-rotation] Invalid rotation value from model: "${text}"`)
-        // Try next model
+        console.warn(`[API/detect-rotation] Invalid response: "${text}" (${modelTime}ms)`)
       }
     } catch (error) {
-      console.warn(`[API/detect-rotation] Model ${modelId} failed:`, (error as Error).message)
-      // Continue to next model
+      console.warn(`[API/detect-rotation] ${modelId} failed after ${Date.now() - modelStart}ms:`, (error as Error).message)
     }
   }
 
-  // If all models failed, return 0 (no rotation)
-  console.warn('[API/detect-rotation] All models failed, defaulting to 0°')
+  const totalTime = Date.now() - startTime
+  console.warn(`[API/detect-rotation] All models failed (${totalTime}ms), defaulting to 0°`)
   return {
     rotation: 0,
     model: null,
     success: false,
-    error: 'All vision models failed to detect rotation'
+    error: 'All vision models failed',
+    timing: { totalMs: totalTime }
   }
 })
