@@ -7,6 +7,7 @@ const overlay = useOverlay()
 const { loggedIn, openInPopup } = useUserSession()
 const { isOAuthEnabled } = useAuthConfig()
 const { enabledTools } = useEnabledTools()
+const { showStats } = useShowStats()
 
 const open = ref(false)
 const tabEditorOpen = ref(false)
@@ -14,6 +15,7 @@ const tabEditorOpen = ref(false)
 // Collapsible panel states
 const showTools = ref(false)
 const showTabs = ref(false)
+const showSettings = ref(false)
 
 const deleteModal = overlay.create(LazyModalConfirm, {
   props: {
@@ -197,6 +199,31 @@ defineShortcuts({
               <SidebarBrowserTabsPanel @open-editor="tabEditorOpen = true" />
             </template>
           </UCollapsible>
+
+          <!-- Settings toggle -->
+          <UCollapsible v-model:open="showSettings">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-between"
+              :ui="{ trailingIcon: 'transition-transform' }"
+              :trailing-icon="showSettings ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            >
+              <span class="flex items-center gap-2">
+                <UIcon name="i-lucide-settings" class="w-4 h-4" />
+                Configuración
+              </span>
+            </UButton>
+            <template #content>
+              <div class="p-2 space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-sm text-muted">Mostrar stats LLM</label>
+                  <USwitch v-model="showStats" size="sm" />
+                </div>
+              </div>
+            </template>
+          </UCollapsible>
         </div>
 
         <!-- Collapsed state icons -->
@@ -217,6 +244,15 @@ defineShortcuts({
               color="neutral"
               block
               @click="showTabs = !showTabs"
+            />
+          </UTooltip>
+          <UTooltip text="Configuración">
+            <UButton
+              icon="i-lucide-settings"
+              variant="ghost"
+              color="neutral"
+              block
+              @click="showSettings = !showSettings"
             />
           </UTooltip>
         </div>

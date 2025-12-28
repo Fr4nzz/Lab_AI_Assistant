@@ -16,6 +16,10 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
+const { showStats } = useShowStats()
+
+// Ref for the chat prompt to refocus after paste
+const chatPromptRef = ref<HTMLElement | null>(null)
 
 function getFileName(url: string): string {
   try {
@@ -47,28 +51,39 @@ if (!data.value) {
 }
 
 // Transform messages to include parts if they only have content
-const transformedMessages = (data.value.messages || []).map((msg: any) => ({
-  id: msg.id,
-  role: msg.role,
-  createdAt: msg.createdAt,
-  parts: msg.parts || (msg.content ? [{ type: 'text', text: msg.content }] : [])
-}))
+// Filter out duplicate messages by checking if assistant response exists
+const transformedMessages = computed(() => {
+  const msgs = data.value?.messages || []
+  // Only return messages that were saved to DB (have content)
+  return msgs
+    .filter((msg: any) => msg.content || (msg.parts && msg.parts.length > 0))
+    .map((msg: any) => ({
+      id: msg.id,
+      role: msg.role,
+      createdAt: msg.createdAt,
+      parts: msg.parts || (msg.content ? [{ type: 'text', text: msg.content }] : [])
+    }))
+})
 
 const input = ref('')
 
 const chat = new Chat({
   id: data.value.id,
-  messages: transformedMessages,
+  messages: transformedMessages.value,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
     body: () => ({
       model: model.value,
-      enabledTools: enabledTools.value
+      enabledTools: enabledTools.value,
+      showStats: showStats.value
     })
   }),
   onFinish() {
-    // Refresh chat list to get updated title
-    refreshNuxtData('chats')
+    // Refresh chat list after a delay to get updated title
+    // Title generation is async and may take a few seconds
+    setTimeout(() => {
+      refreshNuxtData('chats')
+    }, 1500)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
@@ -105,6 +120,16 @@ function copy(e: MouseEvent, message: UIMessage) {
   }, 2000)
 }
 
+// Refocus the input after adding files
+function focusInput() {
+  nextTick(() => {
+    const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
+    if (textarea) {
+      textarea.focus()
+    }
+  })
+}
+
 // Handle clipboard paste for images
 async function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items
@@ -134,20 +159,98 @@ async function handlePaste(e: ClipboardEvent) {
       icon: 'i-lucide-image',
       color: 'success'
     })
+    // Keep focus on input after paste
+    focusInput()
   }
 }
 
-onMounted(() => {
-  if (data.value?.messages.length === 1) {
-    chat.regenerate()
-  }
+// Audio recording state
+const isRecording = ref(false)
+const recordingTime = ref(0)
+const mediaRecorder = ref<MediaRecorder | null>(null)
+const audioChunks = ref<Blob[]>([])
+const recordingInterval = ref<ReturnType<typeof setInterval> | null>(null)
 
+// Camera state
+const showCamera = ref(false)
+
+// Format recording time as mm:ss
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// Start audio recording
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const recorder = new MediaRecorder(stream)
+    mediaRecorder.value = recorder
+    audioChunks.value = []
+
+    recorder.ondataavailable = (event) => {
+      audioChunks.value.push(event.data)
+    }
+
+    recorder.onstart = () => {
+      isRecording.value = true
+      recordingTime.value = 0
+      recordingInterval.value = setInterval(() => {
+        recordingTime.value++
+      }, 1000)
+    }
+
+    recorder.onstop = () => {
+      const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
+      const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' })
+      addFiles([audioFile])
+      stream.getTracks().forEach(track => track.stop())
+      focusInput()
+    }
+
+    recorder.start()
+  } catch (err) {
+    console.error('Microphone access denied:', err)
+    toast.add({
+      title: 'Error',
+      description: 'No se pudo acceder al micrófono',
+      icon: 'i-lucide-mic-off',
+      color: 'error'
+    })
+  }
+}
+
+// Stop audio recording
+function stopRecording() {
+  if (mediaRecorder.value) {
+    mediaRecorder.value.stop()
+    isRecording.value = false
+    if (recordingInterval.value) {
+      clearInterval(recordingInterval.value)
+      recordingInterval.value = null
+    }
+  }
+}
+
+// Handle camera capture
+function handleCameraCapture(file: File) {
+  addFiles([file])
+  showCamera.value = false
+  focusInput()
+}
+
+onMounted(() => {
   // Add paste listener for images
   document.addEventListener('paste', handlePaste)
 })
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
+  // Clean up recording interval
+  if (recordingInterval.value) {
+    clearInterval(recordingInterval.value)
+  }
 })
 </script>
 
@@ -158,6 +261,13 @@ onUnmounted(() => {
     </template>
 
     <template #body>
+      <!-- Camera Capture Modal -->
+      <CameraCapture
+        v-if="showCamera"
+        @capture="handleCameraCapture"
+        @close="showCamera = false"
+      />
+
       <DragDropOverlay :show="isDragging" />
       <UContainer ref="dropzoneRef" class="flex-1 flex flex-col gap-4 sm:gap-6">
         <UChatMessages
@@ -204,10 +314,11 @@ onUnmounted(() => {
         <UChatPrompt
           v-model="input"
           :error="chat.error"
-          :disabled="isUploading"
+          :disabled="isUploading || isRecording"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
+          data-chat-prompt
           @submit="handleSubmit"
         >
           <template v-if="files.length > 0" #header>
@@ -228,13 +339,43 @@ onUnmounted(() => {
 
           <template #footer>
             <div class="flex items-center gap-1">
-              <FileUploadButton @files-selected="addFiles($event)" />
+              <FileUploadButton @files-selected="addFiles($event); focusInput()" />
+
+              <!-- Camera button -->
+              <UTooltip text="Tomar foto">
+                <UButton
+                  icon="i-lucide-camera"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="isRecording"
+                  class="hidden sm:flex"
+                  @click="showCamera = true"
+                />
+              </UTooltip>
+
+              <!-- Audio recording button -->
+              <UTooltip :text="isRecording ? 'Detener grabación' : 'Grabar audio'">
+                <UButton
+                  :icon="isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
+                  :color="isRecording ? 'error' : 'neutral'"
+                  :variant="isRecording ? 'solid' : 'ghost'"
+                  size="sm"
+                  :disabled="chat.status === 'streaming'"
+                  @click="isRecording ? stopRecording() : startRecording()"
+                >
+                  <template v-if="isRecording">
+                    <span class="text-xs font-mono ml-1">{{ formatTime(recordingTime) }}</span>
+                  </template>
+                </UButton>
+              </UTooltip>
+
               <ModelSelect v-model="model" />
             </div>
 
             <UChatPromptSubmit
               :status="chat.status"
-              :disabled="isUploading"
+              :disabled="isUploading || isRecording"
               color="neutral"
               size="sm"
               @stop="chat.stop()"
