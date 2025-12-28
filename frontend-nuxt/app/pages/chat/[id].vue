@@ -122,8 +122,8 @@ watch(() => chat.status, (newStatus) => {
   console.log('[Chat] Status changed:', newStatus)
 }, { immediate: true })
 
-async function handleSubmit(e: Event) {
-  e.preventDefault()
+async function handleSubmit(e?: Event) {
+  if (e) e.preventDefault()
 
   // VERY visible debug - remove after testing
   alert('handleSubmit called!')
@@ -471,6 +471,7 @@ onUnmounted(() => {
               size="sm"
               @stop="chat.stop()"
               @reload="chat.regenerate()"
+              @click="handleSubmit"
             />
           </template>
         </UChatPrompt>
