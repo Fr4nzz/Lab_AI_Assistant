@@ -96,32 +96,36 @@ const chat = new Chat({
   }
 })
 
+// Check if we need to auto-trigger AI response (e.g., after creating chat from main page)
+// If the last message is from user and there's no assistant response, trigger AI
+onMounted(() => {
+  const messages = transformedMessages.value
+  if (messages.length > 0) {
+    const lastMessage = messages[messages.length - 1]
+    const hasAssistantResponse = messages.some((m: any) => m.role === 'assistant')
+
+    // If last message is user and no assistant response yet, trigger AI
+    if (lastMessage.role === 'user' && !hasAssistantResponse) {
+      console.log('[Chat] Auto-triggering AI response for pending user message')
+      // Use the existing messages - the transport will send them to get a response
+      chat.reload()
+    }
+  }
+})
+
 async function handleSubmit(e?: Event) {
   if (e) e.preventDefault()
-
-  console.log('=== HANDLE SUBMIT CALLED ===')
-  console.log('input:', input.value)
-  console.log('isUploading:', isUploading.value)
-  console.log('uploadedFiles:', uploadedFiles.value.length)
 
   const hasText = input.value.trim().length > 0
   const hasFiles = uploadedFiles.value.length > 0
 
   if ((hasText || hasFiles) && !isUploading.value) {
-    console.log('=== SENDING MESSAGE ===')
-    try {
-      chat.sendMessage({
-        text: input.value || ' ',
-        files: hasFiles ? uploadedFiles.value : undefined
-      })
-      console.log('=== sendMessage called successfully ===')
-    } catch (err) {
-      console.error('=== sendMessage ERROR ===', err)
-    }
+    chat.sendMessage({
+      text: input.value || ' ',
+      files: hasFiles ? uploadedFiles.value : undefined
+    })
     input.value = ''
     clearFiles()
-  } else {
-    console.log('=== SUBMIT BLOCKED ===', { hasText, hasFiles, isUploading: isUploading.value })
   }
 }
 
@@ -352,7 +356,6 @@ onUnmounted(() => {
           :ui="{ base: 'px-1.5' }"
           data-chat-prompt
           @submit="handleSubmit"
-          @update:model-value="(val) => console.log('INPUT CHANGED:', val)"
         >
           <template v-if="files.length > 0" #header>
             <div class="flex flex-wrap gap-2">
@@ -374,15 +377,6 @@ onUnmounted(() => {
 
           <template #footer>
             <div class="flex items-center gap-1">
-              <!-- DEBUG: Test button -->
-              <UButton
-                size="xs"
-                color="error"
-                @click="() => { console.log('TEST BUTTON CLICKED'); handleSubmit(); }"
-              >
-                TEST
-              </UButton>
-
               <FileUploadButton @files-selected="addFiles($event); focusInput()" />
 
               <!-- Camera button -->
