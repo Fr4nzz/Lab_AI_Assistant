@@ -38,21 +38,10 @@ const {
   files,
   isUploading,
   uploadedFiles,
-  rotatedFilesInfo,
   addFiles,
   removeFile,
   clearFiles
 } = useFileUploadWithStatus(route.params.id as string)
-
-// Store rotation info from last sent message to display in AI response
-interface RotationDisplayInfo {
-  fileName: string
-  rotation: number
-  model: string | null
-  timing: { modelMs?: number; totalMs?: number }
-  rotatedUrl: string
-}
-const pendingRotationInfo = ref<RotationDisplayInfo[]>([])
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -78,27 +67,18 @@ const transformedMessages = computed(() => {
 
 const input = ref('')
 
-console.log('[Chat] Creating Chat instance for:', data.value.id)
-
 const chat = new Chat({
   id: data.value.id,
   messages: transformedMessages.value,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    body: () => {
-      console.log('[Chat] Transport body called')
-      return {
-        model: model.value,
-        enabledTools: enabledTools.value,
-        showStats: showStats.value
-      }
-    }
+    body: () => ({
+      model: model.value,
+      enabledTools: enabledTools.value,
+      showStats: showStats.value
+    })
   }),
   onFinish() {
-    console.log('[Chat] onFinish called')
-    // Clear pending rotation info after AI response is complete
-    pendingRotationInfo.value = []
-
     // Refresh chat list after a delay to get updated title
     // Title generation is async and may take a few seconds
     setTimeout(() => {
@@ -106,7 +86,6 @@ const chat = new Chat({
     }, 1500)
   },
   onError(error) {
-    console.error('[Chat] onError called:', error)
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
     toast.add({
       description: message,
@@ -117,54 +96,15 @@ const chat = new Chat({
   }
 })
 
-// Watch chat status for debugging
-watch(() => chat.status, (newStatus) => {
-  console.log('[Chat] Status changed:', newStatus)
-}, { immediate: true })
-
-async function handleSubmit(e?: Event) {
-  if (e) e.preventDefault()
-
-  // VERY visible debug - remove after testing
-  alert('handleSubmit called!')
-
-  const hasText = input.value.trim().length > 0
-  const hasFiles = uploadedFiles.value.length > 0
-
-  // More visible logging
-  console.warn('=== [Chat] handleSubmit ===')
-  console.warn('hasText:', hasText, 'hasFiles:', hasFiles, 'isUploading:', isUploading.value)
-  console.warn('files:', files.value.length, 'uploadedFiles:', uploadedFiles.value.length)
-  console.warn('rotatedFilesInfo:', rotatedFilesInfo.value)
-
-  // Allow sending with text, files, or both
-  if ((hasText || hasFiles) && !isUploading.value) {
-    // Capture rotation info before clearing files
-    pendingRotationInfo.value = [...rotatedFilesInfo.value]
-
-    const filesToSend = hasFiles ? uploadedFiles.value : undefined
-    console.warn('=== [Chat] Sending ===')
-    console.warn('text:', input.value)
-    console.warn('files:', filesToSend?.length || 0)
-    console.warn('pendingRotationInfo:', pendingRotationInfo.value)
-
-    try {
-      console.warn('=== [Chat] Calling chat.sendMessage ===')
-      chat.sendMessage({
-        text: input.value || ' ', // AI SDK requires non-empty text
-        files: filesToSend
-      })
-      console.warn('=== [Chat] sendMessage returned ===')
-      console.warn('chat.status:', chat.status)
-      console.warn('chat.messages:', chat.messages.length)
-    } catch (err) {
-      console.error('=== [Chat] sendMessage ERROR ===', err)
-    }
-
+async function handleSubmit(e: Event) {
+  e.preventDefault()
+  if (input.value.trim() && !isUploading.value) {
+    chat.sendMessage({
+      text: input.value,
+      files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+    })
     input.value = ''
     clearFiles()
-  } else {
-    console.warn('=== [Chat] Submit BLOCKED ===')
   }
 }
 
@@ -353,20 +293,6 @@ onUnmounted(() => {
           class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
         >
           <template #content="{ message }">
-            <!-- Show rotation info at the start of the current assistant response (only for the last message while streaming) -->
-            <template v-if="message.role === 'assistant' && pendingRotationInfo.length > 0 && chat.status === 'streaming' && message.id === chat.messages[chat.messages.length - 1]?.id">
-              <ToolImageRotation
-                v-for="(rotInfo, rotIndex) in pendingRotationInfo"
-                :key="`rotation-${rotIndex}`"
-                :file-name="rotInfo.fileName"
-                :rotation="rotInfo.rotation"
-                :rotated-url="rotInfo.rotatedUrl"
-                :model="rotInfo.model"
-                :timing="rotInfo.timing"
-                @click-image="openLightbox($event, rotInfo.fileName)"
-              />
-            </template>
-
             <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}${'state' in part ? `-${part.state}` : ''}`">
               <Reasoning
                 v-if="part.type === 'reasoning'"
@@ -471,7 +397,6 @@ onUnmounted(() => {
               size="sm"
               @stop="chat.stop()"
               @reload="chat.regenerate()"
-              @click="handleSubmit"
             />
           </template>
         </UChatPrompt>
