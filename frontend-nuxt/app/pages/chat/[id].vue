@@ -66,10 +66,9 @@ const chat = new Chat({
       enabledTools: enabledTools.value
     })
   }),
-  onData: (dataPart) => {
-    if (dataPart.type === 'data-chat-title') {
-      refreshNuxtData('chats')
-    }
+  onFinish() {
+    // Refresh chat list to get updated title
+    refreshNuxtData('chats')
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
