@@ -1,15 +1,21 @@
 /**
  * OpenRouter Vision Models Utility
- * Fetches and caches free vision models (models that can process images)
- * Uses the frontend API which supports filtering by input modality and top-weekly sorting
+ * Fetches and caches free vision models from OpenRouter official API
+ * Uses the same approach as openrouter-models.ts for reliability
  */
 
-interface OpenRouterFrontendModel {
-  slug: string
+interface OpenRouterModel {
+  id: string
   name: string
-  has_text_output: boolean
-  input_modalities: string[]
-  output_modalities: string[]
+  pricing: {
+    prompt: string
+    completion: string
+  }
+  architecture?: {
+    input_modalities?: string[]
+    output_modalities?: string[]
+  }
+  context_length: number
 }
 
 interface VisionModelsCache {
@@ -22,50 +28,50 @@ const CACHE_TTL_MS = 60 * 60 * 1000
 let visionModelsCache: VisionModelsCache | null = null
 
 /**
- * Fetch free vision models from OpenRouter frontend API, sorted by top-weekly popularity
+ * Fetch models from OpenRouter official API
  */
-async function fetchFreeVisionModels(): Promise<string[]> {
-  // Use the frontend API which supports input_modalities filter and top-weekly sorting
-  const url = 'https://openrouter.ai/api/frontend/models?input_modalities=image&order=top-weekly&q=free'
-
-  const response = await fetch(url, {
+async function fetchModels(apiKey: string): Promise<OpenRouterModel[]> {
+  const response = await fetch('https://openrouter.ai/api/v1/models', {
     headers: {
-      'Accept': 'application/json'
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
     }
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch vision models: ${response.status}`)
+    throw new Error(`Failed to fetch models: ${response.status}`)
   }
 
   const data = await response.json()
-  const models: OpenRouterFrontendModel[] = data.data || []
-
-  // Filter for models that:
-  // 1. Can process images (input_modalities includes 'image')
-  // 2. Output text (has_text_output is true) - we need text responses for rotation detection
-  // 3. Not image generation models
-  const visionModels = models.filter(model =>
-    model.has_text_output &&
-    model.input_modalities?.includes('image') &&
-    model.input_modalities?.includes('text') &&
-    model.output_modalities?.includes('text')
-  )
-
-  // Return model IDs with :free suffix if needed
-  return visionModels.map(model => {
-    if (model.slug.includes(':')) {
-      return model.slug
-    }
-    return `${model.slug}:free`
-  })
+  return data.data || []
 }
 
 /**
- * Get top N free vision models from OpenRouter, sorted by popularity
+ * Filter for free vision models (models that can process images and output text)
+ */
+function filterFreeVisionModels(models: OpenRouterModel[]): string[] {
+  return models
+    .filter(model => {
+      // Check if it's free (pricing is 0)
+      const promptPrice = parseFloat(model.pricing?.prompt || '1')
+      const completionPrice = parseFloat(model.pricing?.completion || '1')
+      const isFree = promptPrice === 0 && completionPrice === 0
+
+      // Check if it supports image input and text output
+      const inputModalities = model.architecture?.input_modalities || []
+      const outputModalities = model.architecture?.output_modalities || []
+      const supportsVision = inputModalities.includes('image') && outputModalities.includes('text')
+
+      return isFree && supportsVision
+    })
+    .map(model => model.id)
+}
+
+/**
+ * Get top N free vision models from OpenRouter
  * Results are cached for 1 hour
  */
-export async function getTopFreeVisionModels(count: number = 3): Promise<string[]> {
+export async function getTopFreeVisionModels(apiKey: string, count: number = 3): Promise<string[]> {
   const now = Date.now()
 
   // Return cached models if still valid
@@ -75,18 +81,19 @@ export async function getTopFreeVisionModels(count: number = 3): Promise<string[
   }
 
   try {
-    console.log('[OpenRouter] Fetching free vision models sorted by top-weekly...')
-    const modelIds = await fetchFreeVisionModels()
+    console.log('[OpenRouter] Fetching free vision models from official API...')
+    const allModels = await fetchModels(apiKey)
+    const freeVisionModelIds = filterFreeVisionModels(allModels)
 
-    console.log(`[OpenRouter] Found ${modelIds.length} free vision models`)
+    console.log(`[OpenRouter] Found ${freeVisionModelIds.length} free vision models`)
 
     // Cache the results
     visionModelsCache = {
-      modelIds,
+      modelIds: freeVisionModelIds,
       fetchedAt: now
     }
 
-    const topModels = modelIds.slice(0, count)
+    const topModels = freeVisionModelIds.slice(0, count)
     console.log('[OpenRouter] Top free vision models:', topModels)
 
     return topModels

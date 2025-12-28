@@ -65,7 +65,7 @@ export default defineEventHandler(async (event) => {
   })
 
   // Get top 3 free vision models
-  const visionModels = await getTopFreeVisionModels(3)
+  const visionModels = await getTopFreeVisionModels(config.openrouterApiKey, 3)
   console.log('[API/detect-rotation] Available vision models:', visionModels)
 
   // Try each model with fallback
