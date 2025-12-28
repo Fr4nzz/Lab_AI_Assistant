@@ -96,15 +96,32 @@ const chat = new Chat({
   }
 })
 
-async function handleSubmit(e: Event) {
-  e.preventDefault()
-  if (input.value.trim() && !isUploading.value) {
-    chat.sendMessage({
-      text: input.value,
-      files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
-    })
+async function handleSubmit(e?: Event) {
+  if (e) e.preventDefault()
+
+  console.log('=== HANDLE SUBMIT CALLED ===')
+  console.log('input:', input.value)
+  console.log('isUploading:', isUploading.value)
+  console.log('uploadedFiles:', uploadedFiles.value.length)
+
+  const hasText = input.value.trim().length > 0
+  const hasFiles = uploadedFiles.value.length > 0
+
+  if ((hasText || hasFiles) && !isUploading.value) {
+    console.log('=== SENDING MESSAGE ===')
+    try {
+      chat.sendMessage({
+        text: input.value || ' ',
+        files: hasFiles ? uploadedFiles.value : undefined
+      })
+      console.log('=== sendMessage called successfully ===')
+    } catch (err) {
+      console.error('=== sendMessage ERROR ===', err)
+    }
     input.value = ''
     clearFiles()
+  } else {
+    console.log('=== SUBMIT BLOCKED ===', { hasText, hasFiles, isUploading: isUploading.value })
   }
 }
 
@@ -397,6 +414,7 @@ onUnmounted(() => {
               size="sm"
               @stop="chat.stop()"
               @reload="chat.regenerate()"
+              @click="handleSubmit"
             />
           </template>
         </UChatPrompt>
