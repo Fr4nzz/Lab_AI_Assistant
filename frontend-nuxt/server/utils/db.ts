@@ -162,6 +162,15 @@ export async function getMessages(chatId: string) {
     .orderBy(asc(schema.messages.createdAt))
 }
 
+export async function getLastMessage(chatId: string) {
+  const db = useDB()
+
+  return db.query.messages.findFirst({
+    where: eq(schema.messages.chatId, chatId),
+    orderBy: [desc(schema.messages.createdAt)]
+  })
+}
+
 export async function addMessage(data: {
   id?: string
   chatId: string

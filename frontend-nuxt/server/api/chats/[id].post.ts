@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getChat, addMessage, updateChatTitle } from '../../utils/db'
+import { getChat, addMessage, updateChatTitle, getLastMessage } from '../../utils/db'
 import { getTopFreeModels } from '../../utils/openrouter-models'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
@@ -191,20 +191,28 @@ export default defineEventHandler(async (event) => {
   }
 
   // Save user message to database BEFORE streaming
+  // But check if it's already saved to avoid duplicates (e.g., when regenerate() is called)
   const lastMessage = messages[messages.length - 1]
   if (lastMessage?.role === 'user') {
     const textContent = extractTextContent(lastMessage)
 
-    await addMessage({
-      chatId,
-      role: 'user',
-      content: textContent,
-      parts: lastMessage.parts
-    })
+    // Check if this message already exists in DB
+    const lastDbMessage = await getLastMessage(chatId)
+    const isDuplicate = lastDbMessage?.role === 'user' &&
+      lastDbMessage?.content === textContent
 
-    // Generate title for new chats (fire and forget)
-    if (!chat.title || chat.title === 'Nuevo Chat') {
-      generateTitle(chatId, textContent).catch(console.error)
+    if (!isDuplicate) {
+      await addMessage({
+        chatId,
+        role: 'user',
+        content: textContent,
+        parts: lastMessage.parts
+      })
+
+      // Generate title for new chats (fire and forget)
+      if (!chat.title || chat.title === 'Nuevo Chat') {
+        generateTitle(chatId, textContent).catch(console.error)
+      }
     }
   }
 
