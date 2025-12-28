@@ -8,6 +8,9 @@ const chatId = generateUUID()
 
 const { model } = useModels()
 
+// Lightbox state
+const lightboxImage = ref<{ src: string; alt: string } | null>(null)
+
 const {
   dropzoneRef,
   isDragging,
@@ -51,14 +54,21 @@ function handlePaste(e: ClipboardEvent) {
   if (imageFiles.length > 0) {
     e.preventDefault()
     addFiles(imageFiles)
+    // Use shorter, less intrusive toast
     toast.add({
-      title: 'Imagen pegada',
-      description: `${imageFiles.length} imagen(es) agregada(s)`,
+      description: `${imageFiles.length} imagen(es) pegada(s)`,
       icon: 'i-lucide-image',
-      color: 'success'
+      color: 'success',
+      duration: 1500
     })
-    focusInput()
+    // Keep focus on input after paste
+    requestAnimationFrame(() => focusInput())
   }
+}
+
+// Open image in lightbox
+function openLightbox(url: string, name: string) {
+  lightboxImage.value = { src: url, alt: name }
 }
 
 // Audio recording state
@@ -213,6 +223,14 @@ const quickChats = [
     </template>
 
     <template #body>
+      <!-- Image Lightbox -->
+      <ImageLightbox
+        v-if="lightboxImage"
+        :src="lightboxImage.src"
+        :alt="lightboxImage.alt"
+        @close="lightboxImage = null"
+      />
+
       <!-- Camera Capture Modal -->
       <CameraCapture
         v-if="showCamera"
@@ -248,6 +266,7 @@ const quickChats = [
                 :error="fileWithStatus.error"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
+                @click="fileWithStatus.previewUrl && openLightbox(fileWithStatus.previewUrl, fileWithStatus.file.name)"
               />
             </div>
           </template>

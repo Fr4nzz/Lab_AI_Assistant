@@ -18,8 +18,8 @@ const { model } = useModels()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
 
-// Ref for the chat prompt to refocus after paste
-const chatPromptRef = ref<HTMLElement | null>(null)
+// Lightbox state
+const lightboxImage = ref<{ src: string; alt: string } | null>(null)
 
 function getFileName(url: string): string {
   try {
@@ -153,14 +153,15 @@ async function handlePaste(e: ClipboardEvent) {
   if (imageFiles.length > 0) {
     e.preventDefault()
     addFiles(imageFiles)
+    // Use a shorter, less intrusive notification
     toast.add({
-      title: 'Imagen pegada',
-      description: `${imageFiles.length} imagen(es) agregada(s)`,
+      description: `${imageFiles.length} imagen(es) pegada(s)`,
       icon: 'i-lucide-image',
-      color: 'success'
+      color: 'success',
+      duration: 1500
     })
-    // Keep focus on input after paste
-    focusInput()
+    // Keep focus on input after paste - use requestAnimationFrame for better timing
+    requestAnimationFrame(() => focusInput())
   }
 }
 
@@ -240,6 +241,11 @@ function handleCameraCapture(file: File) {
   focusInput()
 }
 
+// Open image in lightbox
+function openLightbox(url: string, name: string) {
+  lightboxImage.value = { src: url, alt: name }
+}
+
 onMounted(() => {
   // Add paste listener for images
   document.addEventListener('paste', handlePaste)
@@ -261,6 +267,14 @@ onUnmounted(() => {
     </template>
 
     <template #body>
+      <!-- Image Lightbox -->
+      <ImageLightbox
+        v-if="lightboxImage"
+        :src="lightboxImage.src"
+        :alt="lightboxImage.alt"
+        @close="lightboxImage = null"
+      />
+
       <!-- Camera Capture Modal -->
       <CameraCapture
         v-if="showCamera"
@@ -306,6 +320,7 @@ onUnmounted(() => {
                 :name="getFileName(part.url)"
                 :type="part.mediaType"
                 :preview-url="part.url"
+                @click="openLightbox(part.url, getFileName(part.url))"
               />
             </template>
           </template>
@@ -333,6 +348,7 @@ onUnmounted(() => {
                 :error="fileWithStatus.error"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
+                @click="fileWithStatus.previewUrl && openLightbox(fileWithStatus.previewUrl, fileWithStatus.file.name)"
               />
             </div>
           </template>
