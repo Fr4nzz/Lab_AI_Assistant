@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const toast = useToast()
 const input = ref('')
 const loading = ref(false)
 const chatId = crypto.randomUUID()
@@ -15,6 +16,45 @@ const {
   removeFile,
   clearFiles
 } = useFileUploadWithStatus(chatId)
+
+// Handle clipboard paste for images
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+
+  const imageFiles: File[] = []
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const blob = item.getAsFile()
+      if (blob) {
+        const extension = item.type.split('/')[1] || 'png'
+        const fileName = `pasted-image-${Date.now()}.${extension}`
+        const file = new File([blob], fileName, { type: item.type })
+        imageFiles.push(file)
+      }
+    }
+  }
+
+  if (imageFiles.length > 0) {
+    e.preventDefault()
+    addFiles(imageFiles)
+    toast.add({
+      title: 'Imagen pegada',
+      description: `${imageFiles.length} imagen(es) agregada(s)`,
+      icon: 'i-lucide-image',
+      color: 'success'
+    })
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('paste', handlePaste)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('paste', handlePaste)
+})
 
 async function createChat(prompt: string) {
   input.value = prompt
