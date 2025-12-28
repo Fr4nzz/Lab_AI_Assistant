@@ -265,7 +265,7 @@ function close() {
 </script>
 
 <template>
-  <UModal v-model:open="open" :ui="{ content: 'max-w-5xl' }">
+  <UModal :open="open" @update:open="emit('update:open', $event)" :ui="{ content: 'max-w-5xl' }">
     <template #content>
       <div class="flex h-[80vh]">
         <!-- Left panel - Tab list -->
