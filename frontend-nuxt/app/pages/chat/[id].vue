@@ -16,6 +16,7 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
+const { showStats } = useShowStats()
 
 function getFileName(url: string): string {
   try {
@@ -34,6 +35,7 @@ const {
   files,
   isUploading,
   uploadedFiles,
+  rotatedFilesInfo,
   addFiles,
   removeFile,
   clearFiles
@@ -47,6 +49,7 @@ if (!data.value) {
 }
 
 // Transform messages to include parts if they only have content
+// IMPORTANT: This must be a static value, NOT a computed
 const transformedMessages = (data.value.messages || []).map((msg: any) => ({
   id: msg.id,
   role: msg.role,
@@ -63,12 +66,15 @@ const chat = new Chat({
     api: `/api/chats/${data.value.id}`,
     body: () => ({
       model: model.value,
-      enabledTools: enabledTools.value
+      enabledTools: enabledTools.value,
+      showStats: showStats.value
     })
   }),
   onFinish() {
-    // Refresh chat list to get updated title
-    refreshNuxtData('chats')
+    // Refresh chat list after a delay to get updated title
+    setTimeout(() => {
+      refreshNuxtData('chats')
+    }, 1500)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
@@ -81,12 +87,18 @@ const chat = new Chat({
   }
 })
 
+// IMPORTANT: handleSubmit must have required Event parameter
 async function handleSubmit(e: Event) {
   e.preventDefault()
-  if (input.value.trim() && !isUploading.value) {
+  const textToSend = input.value.trim()
+  const hasFiles = uploadedFiles.value.length > 0
+
+  // Allow sending with just files OR just text OR both
+  if ((textToSend || hasFiles) && !isUploading.value) {
     chat.sendMessage({
-      text: input.value,
-      files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+      // Use space as fallback when sending files-only (AI SDK requirement)
+      text: textToSend || (hasFiles ? ' ' : ''),
+      files: hasFiles ? uploadedFiles.value : undefined
     })
     input.value = ''
     clearFiles()
@@ -105,6 +117,16 @@ function copy(e: MouseEvent, message: UIMessage) {
   }, 2000)
 }
 
+// Refocus the input after adding files
+function focusInput() {
+  requestAnimationFrame(() => {
+    const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
+    if (textarea) {
+      textarea.focus()
+    }
+  })
+}
+
 // Handle clipboard paste for images
 async function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items
@@ -116,7 +138,6 @@ async function handlePaste(e: ClipboardEvent) {
     if (item.type.startsWith('image/')) {
       const blob = item.getAsFile()
       if (blob) {
-        // Create a proper file with a name
         const extension = item.type.split('/')[1] || 'png'
         const fileName = `pasted-image-${Date.now()}.${extension}`
         const file = new File([blob], fileName, { type: item.type })
@@ -132,12 +153,104 @@ async function handlePaste(e: ClipboardEvent) {
       title: 'Imagen pegada',
       description: `${imageFiles.length} imagen(es) agregada(s)`,
       icon: 'i-lucide-image',
-      color: 'success'
+      color: 'success',
+      duration: 1500
+    })
+    focusInput()
+  }
+}
+
+// Audio recording state
+const isRecording = ref(false)
+const recordingTime = ref(0)
+const mediaRecorder = ref<MediaRecorder | null>(null)
+const audioChunks = ref<Blob[]>([])
+const recordingInterval = ref<ReturnType<typeof setInterval> | null>(null)
+
+// Camera state
+const showCamera = ref(false)
+
+// Lightbox state
+const lightboxImage = ref<{ src: string; alt?: string } | null>(null)
+
+// Format recording time as mm:ss
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// Start audio recording
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const recorder = new MediaRecorder(stream)
+    mediaRecorder.value = recorder
+    audioChunks.value = []
+
+    recorder.ondataavailable = (event) => {
+      audioChunks.value.push(event.data)
+    }
+
+    recorder.onstart = () => {
+      isRecording.value = true
+      recordingTime.value = 0
+      recordingInterval.value = setInterval(() => {
+        recordingTime.value++
+      }, 1000)
+    }
+
+    recorder.onstop = () => {
+      const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
+      const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' })
+      addFiles([audioFile])
+      stream.getTracks().forEach(track => track.stop())
+      focusInput()
+    }
+
+    recorder.start()
+  } catch (err) {
+    console.error('Microphone access denied:', err)
+    toast.add({
+      title: 'Error',
+      description: 'No se pudo acceder al micrófono',
+      icon: 'i-lucide-mic-off',
+      color: 'error'
     })
   }
 }
 
+// Stop audio recording
+function stopRecording() {
+  if (mediaRecorder.value) {
+    mediaRecorder.value.stop()
+    isRecording.value = false
+    if (recordingInterval.value) {
+      clearInterval(recordingInterval.value)
+      recordingInterval.value = null
+    }
+  }
+}
+
+// Handle camera capture
+function handleCameraCapture(file: File) {
+  addFiles([file])
+  showCamera.value = false
+  focusInput()
+}
+
+// Handle file avatar click for lightbox
+function handleFileClick(url: string, name?: string) {
+  lightboxImage.value = { src: url, alt: name }
+}
+
+// Handle rotation tool image click
+function handleRotationImageClick(url: string) {
+  lightboxImage.value = { src: url }
+}
+
 onMounted(() => {
+  // Auto-trigger AI response for messages from main page (only user message, no response yet)
   if (data.value?.messages.length === 1) {
     chat.regenerate()
   }
@@ -148,6 +261,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
+  if (recordingInterval.value) {
+    clearInterval(recordingInterval.value)
+  }
 })
 </script>
 
@@ -158,6 +274,21 @@ onUnmounted(() => {
     </template>
 
     <template #body>
+      <!-- Camera Capture Modal -->
+      <CameraCapture
+        v-if="showCamera"
+        @capture="handleCameraCapture"
+        @close="showCamera = false"
+      />
+
+      <!-- Image Lightbox -->
+      <ImageLightbox
+        v-if="lightboxImage"
+        :src="lightboxImage.src"
+        :alt="lightboxImage.alt"
+        @close="lightboxImage = null"
+      />
+
       <DragDropOverlay :show="isDragging" />
       <UContainer ref="dropzoneRef" class="flex-1 flex flex-col gap-4 sm:gap-6">
         <UChatMessages
@@ -196,6 +327,21 @@ onUnmounted(() => {
                 :name="getFileName(part.url)"
                 :type="part.mediaType"
                 :preview-url="part.url"
+                @click="handleFileClick(part.url, getFileName(part.url))"
+              />
+            </template>
+
+            <!-- Show rotation info for user messages that had images rotated -->
+            <template v-if="message.role === 'user' && rotatedFilesInfo.length > 0">
+              <ToolImageRotation
+                v-for="(info, idx) in rotatedFilesInfo"
+                :key="`rotation-${message.id}-${idx}`"
+                :file-name="info.fileName"
+                :rotation="info.rotation"
+                :rotated-url="info.rotatedUrl"
+                :model="info.model"
+                :timing="info.timing"
+                @click-image="handleRotationImageClick"
               />
             </template>
           </template>
@@ -220,8 +366,10 @@ onUnmounted(() => {
                 :preview-url="fileWithStatus.previewUrl"
                 :status="fileWithStatus.status"
                 :error="fileWithStatus.error"
+                :rotation="fileWithStatus.rotation"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
+                @click="handleFileClick(fileWithStatus.previewUrl, fileWithStatus.file.name)"
               />
             </div>
           </template>
@@ -229,6 +377,38 @@ onUnmounted(() => {
           <template #footer>
             <div class="flex items-center gap-1">
               <FileUploadButton @files-selected="addFiles($event)" />
+
+              <!-- Microphone button -->
+              <UTooltip v-if="!isRecording" text="Grabar audio">
+                <UButton
+                  icon="i-lucide-mic"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  @click="startRecording"
+                />
+              </UTooltip>
+              <UButton
+                v-else
+                :label="formatTime(recordingTime)"
+                icon="i-lucide-square"
+                color="error"
+                variant="soft"
+                size="sm"
+                @click="stopRecording"
+              />
+
+              <!-- Camera button -->
+              <UTooltip text="Tomar foto">
+                <UButton
+                  icon="i-lucide-camera"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  @click="showCamera = true"
+                />
+              </UTooltip>
+
               <ModelSelect v-model="model" />
             </div>
 
