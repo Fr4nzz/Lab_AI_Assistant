@@ -115,18 +115,42 @@ async function handleSubmit(e: Event) {
   const hasText = input.value.trim().length > 0
   const hasFiles = uploadedFiles.value.length > 0
 
+  console.log('[Chat] handleSubmit called:', {
+    hasText,
+    hasFiles,
+    isUploading: isUploading.value,
+    filesCount: files.value.length,
+    uploadedFilesCount: uploadedFiles.value.length,
+    rotatedFilesInfoCount: rotatedFilesInfo.value.length
+  })
+
   // Allow sending with text, files, or both
   if ((hasText || hasFiles) && !isUploading.value) {
     // Capture rotation info before clearing files
     pendingRotationInfo.value = [...rotatedFilesInfo.value]
-    console.log('[Chat] Sending message:', { hasText, hasFiles, rotationInfo: pendingRotationInfo.value })
 
-    chat.sendMessage({
-      text: input.value || ' ', // AI SDK requires non-empty text
-      files: hasFiles ? uploadedFiles.value : undefined
+    const filesToSend = hasFiles ? uploadedFiles.value : undefined
+    console.log('[Chat] Sending message:', {
+      text: input.value,
+      filesCount: filesToSend?.length || 0,
+      rotationInfo: pendingRotationInfo.value,
+      fileDetails: filesToSend?.map(f => ({ name: f.name, type: f.mediaType, dataLength: f.data?.length }))
     })
+
+    try {
+      chat.sendMessage({
+        text: input.value || ' ', // AI SDK requires non-empty text
+        files: filesToSend
+      })
+      console.log('[Chat] sendMessage called successfully')
+    } catch (err) {
+      console.error('[Chat] sendMessage error:', err)
+    }
+
     input.value = ''
     clearFiles()
+  } else {
+    console.log('[Chat] Submit blocked - conditions not met')
   }
 }
 

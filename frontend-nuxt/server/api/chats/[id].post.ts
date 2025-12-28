@@ -170,6 +170,8 @@ function convertMessagesForBackend(messages: any[]) {
 }
 
 export default defineEventHandler(async (event) => {
+  console.log('[API/chat] POST handler called')
+
   const config = useRuntimeConfig()
   const session = await getUserSession(event)
 
@@ -177,12 +179,16 @@ export default defineEventHandler(async (event) => {
     id: z.string()
   }).parse)
 
+  console.log('[API/chat] Chat ID:', chatId)
+
   const { messages, model, enabledTools, showStats = true } = await readValidatedBody(event, z.object({
     messages: z.array(z.any()),
     model: z.string().optional(),
     enabledTools: z.array(z.string()).optional(),
     showStats: z.boolean().optional()
   }).parse)
+
+  console.log('[API/chat] Received:', { messagesCount: messages.length, model, enabledTools, showStats })
 
   // Get chat to verify it exists
   const chat = await getChat(chatId)
