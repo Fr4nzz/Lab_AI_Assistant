@@ -382,36 +382,58 @@ async def lifespan(app: FastAPI):
                 # Wait for navigation to complete
                 await browser.page.wait_for_load_state("networkidle", timeout=10000)
                 logger.info(f"[Startup] After login click, now at: {browser.page.url}")
-
-                # If we're still on login page, the session might have expired
-                if "/login" in browser.page.url:
-                    logger.warning("[Startup] Still on login page - session may have expired. User needs to login manually.")
-                    initial_orders_context = "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión manualmente."
-                else:
-                    # Navigate to orders page
-                    if "/bienvenida" in browser.page.url:
-                        logger.info("[Startup] Redirected to welcome page, navigating to orders...")
-                        await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
-
-                    # Extract orders
-                    logger.info("[Startup] Extracting orders context after login...")
-                    try:
-                        orders_context = await extract_initial_context()
-                        if orders_context:
-                            initial_orders_context = orders_context
-                            logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
-                        else:
-                            initial_orders_context = ""
-                            logger.info("[Startup] No orders found")
-                    except Exception as e:
-                        logger.error(f"[Startup] Failed to extract orders: {e}")
-                        initial_orders_context = ""
             else:
-                logger.warning("[Startup] 'Ingresar' button not found on login page")
-                initial_orders_context = "⚠️ SESIÓN NO INICIADA: No se encontró el botón 'Ingresar'."
+                logger.info("[Startup] 'Ingresar' button not found - waiting for manual login...")
         except Exception as e:
-            logger.error(f"[Startup] Auto-login failed: {e}")
-            initial_orders_context = f"⚠️ SESIÓN NO INICIADA: Error al intentar login automático: {e}"
+            logger.warning(f"[Startup] Auto-login click failed: {e} - waiting for manual login...")
+
+        # If still on login page, wait for user to complete manual login
+        if browser.page and "/login" in browser.page.url:
+            logger.info("[Startup] Still on login page - waiting for user to login manually...")
+            logger.info("[Startup] Please enter your credentials in the browser and click 'Ingresar'")
+
+            # Poll every 2 seconds for up to 5 minutes waiting for login
+            max_wait_seconds = 300
+            poll_interval = 2
+            waited = 0
+
+            while waited < max_wait_seconds:
+                await asyncio.sleep(poll_interval)
+                waited += poll_interval
+
+                # Check if we're still on login page
+                if browser.page and "/login" not in browser.page.url:
+                    logger.info(f"[Startup] Login successful! Now at: {browser.page.url}")
+                    break
+
+                # Log progress every 30 seconds
+                if waited % 30 == 0:
+                    logger.info(f"[Startup] Still waiting for login... ({waited}s elapsed)")
+
+            if browser.page and "/login" in browser.page.url:
+                logger.warning("[Startup] Login timeout - user did not login within 5 minutes")
+                initial_orders_context = "⚠️ SESIÓN NO INICIADA: Tiempo de espera agotado. Por favor, reinicia la aplicación e inicia sesión."
+
+        # If logged in successfully, proceed with normal startup
+        if browser.page and "/login" not in browser.page.url:
+            # Navigate to orders page if on welcome page
+            if "/bienvenida" in browser.page.url:
+                logger.info("[Startup] Redirected to welcome page, navigating to orders...")
+                await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
+
+            # Extract orders
+            logger.info("[Startup] Extracting orders context after login...")
+            try:
+                orders_context = await extract_initial_context()
+                if orders_context:
+                    initial_orders_context = orders_context
+                    logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
+                else:
+                    initial_orders_context = ""
+                    logger.info("[Startup] No orders found")
+            except Exception as e:
+                logger.error(f"[Startup] Failed to extract orders: {e}")
+                initial_orders_context = ""
     else:
         logger.info("[Startup] Extracting orders context on startup...")
         try:
