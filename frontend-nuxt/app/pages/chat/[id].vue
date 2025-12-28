@@ -38,10 +38,21 @@ const {
   files,
   isUploading,
   uploadedFiles,
+  rotatedFilesInfo,
   addFiles,
   removeFile,
   clearFiles
 } = useFileUploadWithStatus(route.params.id as string)
+
+// Store rotation info from last sent message to display in AI response
+interface RotationDisplayInfo {
+  fileName: string
+  rotation: number
+  model: string | null
+  timing: { modelMs?: number; totalMs?: number }
+  rotatedUrl: string
+}
+const pendingRotationInfo = ref<RotationDisplayInfo[]>([])
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -79,6 +90,9 @@ const chat = new Chat({
     })
   }),
   onFinish() {
+    // Clear pending rotation info after AI response is complete
+    pendingRotationInfo.value = []
+
     // Refresh chat list after a delay to get updated title
     // Title generation is async and may take a few seconds
     setTimeout(() => {
@@ -99,6 +113,9 @@ const chat = new Chat({
 async function handleSubmit(e: Event) {
   e.preventDefault()
   if (input.value.trim() && !isUploading.value) {
+    // Capture rotation info before clearing files
+    pendingRotationInfo.value = [...rotatedFilesInfo.value]
+
     chat.sendMessage({
       text: input.value,
       files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
@@ -293,6 +310,20 @@ onUnmounted(() => {
           class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
         >
           <template #content="{ message }">
+            <!-- Show rotation info at the start of the current assistant response (only for the last message while streaming) -->
+            <template v-if="message.role === 'assistant' && pendingRotationInfo.length > 0 && chat.status === 'streaming' && message.id === chat.messages[chat.messages.length - 1]?.id">
+              <ToolImageRotation
+                v-for="(rotInfo, rotIndex) in pendingRotationInfo"
+                :key="`rotation-${rotIndex}`"
+                :file-name="rotInfo.fileName"
+                :rotation="rotInfo.rotation"
+                :rotated-url="rotInfo.rotatedUrl"
+                :model="rotInfo.model"
+                :timing="rotInfo.timing"
+                @click-image="openLightbox($event, rotInfo.fileName)"
+              />
+            </template>
+
             <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}${'state' in part ? `-${part.state}` : ''}`">
               <Reasoning
                 v-if="part.type === 'reasoning'"

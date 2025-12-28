@@ -1,3 +1,9 @@
+export interface RotationInfo {
+  rotation: number // Degrees: 0, 90, 180, 270
+  model: string | null
+  timing: { modelMs?: number; totalMs?: number }
+}
+
 export interface FileWithStatus {
   file: File
   id: string
@@ -8,6 +14,7 @@ export interface FileWithStatus {
   rotation?: number // Rotation in degrees (0, 90, 180, 270)
   wasRotated?: boolean
   originalFile?: File // Original file before rotation
+  rotationInfo?: RotationInfo // Detailed rotation info for display
 }
 
 export const FILE_UPLOAD_CONFIG = {

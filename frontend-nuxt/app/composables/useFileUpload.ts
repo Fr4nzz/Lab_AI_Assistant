@@ -93,7 +93,12 @@ export function useFileUploadWithStatus(_chatId: string) {
                 base64Data: rotatedBase64,
                 rotation: rotationResult.rotation,
                 wasRotated: true,
-                originalFile: fileWithStatus.file
+                originalFile: fileWithStatus.file,
+                rotationInfo: {
+                  rotation: rotationResult.rotation,
+                  model: rotationResult.model || null,
+                  timing: rotationResult.timing || {}
+                }
               }
 
               // Show notification
@@ -150,6 +155,19 @@ export function useFileUploadWithStatus(_chatId: string) {
       }))
   )
 
+  // Get info about rotated files for display in AI response
+  const rotatedFilesInfo = computed(() =>
+    files.value
+      .filter(f => f.wasRotated && f.rotationInfo)
+      .map(f => ({
+        fileName: f.originalFile?.name || f.file.name,
+        rotation: f.rotationInfo!.rotation,
+        model: f.rotationInfo!.model,
+        timing: f.rotationInfo!.timing,
+        rotatedUrl: f.previewUrl
+      }))
+  )
+
   function removeFile(id: string) {
     const file = files.value.find(f => f.id === id)
     if (!file) return
@@ -180,6 +198,7 @@ export function useFileUploadWithStatus(_chatId: string) {
     files,
     isUploading,
     uploadedFiles,
+    rotatedFilesInfo,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,

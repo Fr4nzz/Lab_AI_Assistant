@@ -10,6 +10,7 @@ export interface RotationResult {
   model: string | null
   success: boolean
   error?: string
+  timing?: { modelMs?: number; totalMs?: number }
 }
 
 export interface RotatedImageResult {
@@ -18,6 +19,8 @@ export interface RotatedImageResult {
   rotatedDataUrl: string | null
   rotation: RotationDegrees
   wasRotated: boolean
+  model?: string | null
+  timing?: { modelMs?: number; totalMs?: number }
 }
 
 /**
@@ -148,7 +151,9 @@ export async function processImageRotation(file: File): Promise<RotatedImageResu
         rotatedFile: null,
         rotatedDataUrl: null,
         rotation: detection.rotation,
-        wasRotated: false
+        wasRotated: false,
+        model: detection.model,
+        timing: detection.timing
       }
     }
 
@@ -164,7 +169,9 @@ export async function processImageRotation(file: File): Promise<RotatedImageResu
       rotatedFile,
       rotatedDataUrl,
       rotation: detection.rotation,
-      wasRotated: true
+      wasRotated: true,
+      model: detection.model,
+      timing: detection.timing
     }
   } catch (error) {
     console.error('Failed to process image rotation:', error)
