@@ -352,6 +352,7 @@ onUnmounted(() => {
           :ui="{ base: 'px-1.5' }"
           data-chat-prompt
           @submit="handleSubmit"
+          @update:model-value="(val) => console.log('INPUT CHANGED:', val)"
         >
           <template v-if="files.length > 0" #header>
             <div class="flex flex-wrap gap-2">
