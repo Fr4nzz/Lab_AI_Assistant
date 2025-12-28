@@ -11,6 +11,11 @@ export default defineNuxtConfig({
     enabled: true
   },
 
+  // Expose dev server on network
+  devServer: {
+    host: '0.0.0.0'
+  },
+
   css: ['~/assets/css/main.css'],
 
   mdc: {
