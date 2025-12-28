@@ -112,13 +112,18 @@ const chat = new Chat({
 
 async function handleSubmit(e: Event) {
   e.preventDefault()
-  if (input.value.trim() && !isUploading.value) {
+  const hasText = input.value.trim().length > 0
+  const hasFiles = uploadedFiles.value.length > 0
+
+  // Allow sending with text, files, or both
+  if ((hasText || hasFiles) && !isUploading.value) {
     // Capture rotation info before clearing files
     pendingRotationInfo.value = [...rotatedFilesInfo.value]
+    console.log('[Chat] Sending message:', { hasText, hasFiles, rotationInfo: pendingRotationInfo.value })
 
     chat.sendMessage({
-      text: input.value,
-      files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+      text: input.value || ' ', // AI SDK requires non-empty text
+      files: hasFiles ? uploadedFiles.value : undefined
     })
     input.value = ''
     clearFiles()
