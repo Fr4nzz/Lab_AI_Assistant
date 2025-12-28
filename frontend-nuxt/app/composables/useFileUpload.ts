@@ -11,6 +11,7 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
+      // Remove the data URL prefix to get just the base64 data
       const base64 = result.split(',')[1]
       resolve(base64 || '')
     }
@@ -41,79 +42,77 @@ export function useFileUploadWithStatus(_chatId: string) {
       return true
     })
 
-    // Create file entries with 'uploading' status
     const filesWithStatus: FileWithStatus[] = validFiles.map(file => ({
       file,
       id: generateUUID(),
       previewUrl: createObjectUrl(file),
-      status: 'uploading' as const,
+      status: (file.type.startsWith('image/') && autoRotateEnabled.value ? 'processing' : 'uploading') as const,
       rotation: 0,
       wasRotated: false
     }))
 
     files.value = [...files.value, ...filesWithStatus]
 
-    // Process files - upload first (fast), then rotate in background
-    for (const fileWithStatus of filesWithStatus) {
+    // Process files
+    const uploadPromises = filesWithStatus.map(async (fileWithStatus) => {
       const index = files.value.findIndex(f => f.id === fileWithStatus.id)
-      if (index === -1) continue
+      if (index === -1) return
 
       try {
-        // Step 1: Convert to base64 immediately (fast)
-        const base64Data = await fileToBase64(fileWithStatus.file)
+        let fileToProcess = fileWithStatus.file
+        let rotation = 0
+        let wasRotated = false
+        let newPreviewUrl = fileWithStatus.previewUrl
 
-        // Mark as uploaded immediately - user can send now
-        files.value[index] = {
-          ...files.value[index]!,
-          status: 'uploaded',
-          base64Data
-        }
-
-        // Step 2: Start rotation detection in background (non-blocking)
+        // Process image rotation if enabled and it's an image
         if (autoRotateEnabled.value && fileWithStatus.file.type.startsWith('image/')) {
-          // Fire and forget - don't await
-          processImageRotation(fileWithStatus.file).then(rotationResult => {
-            const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
-            if (currentIndex === -1) return // File was removed
+          try {
+            const rotationResult = await processImageRotation(fileWithStatus.file)
 
             if (rotationResult.wasRotated && rotationResult.rotatedFile && rotationResult.rotatedDataUrl) {
-              // Update with rotated image
-              const rotatedBase64 = rotationResult.rotatedDataUrl.split(',')[1] || ''
+              fileToProcess = rotationResult.rotatedFile
+              rotation = rotationResult.rotation
+              wasRotated = true
 
-              // Revoke old preview URL
-              const oldPreviewUrl = files.value[currentIndex]!.previewUrl
-              if (oldPreviewUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(oldPreviewUrl)
-              }
-
-              files.value[currentIndex] = {
-                ...files.value[currentIndex]!,
-                file: rotationResult.rotatedFile,
-                previewUrl: rotationResult.rotatedDataUrl,
-                base64Data: rotatedBase64,
-                rotation: rotationResult.rotation,
-                wasRotated: true,
-                originalFile: fileWithStatus.file,
-                rotationInfo: {
-                  rotation: rotationResult.rotation,
-                  model: rotationResult.model || null,
-                  timing: rotationResult.timing || {}
-                }
-              }
+              // Revoke old preview URL and use rotated data URL
+              URL.revokeObjectURL(fileWithStatus.previewUrl)
+              newPreviewUrl = rotationResult.rotatedDataUrl
 
               // Show notification
               toast.add({
-                description: `Imagen rotada ${rotationResult.rotation}° automáticamente`,
+                description: `Imagen rotada ${rotation}° para mejor lectura`,
                 icon: 'i-lucide-rotate-cw',
                 color: 'info',
                 duration: 2000
               })
-
-              console.log(`[Upload] Image rotated ${rotationResult.rotation}° in background`)
             }
-          }).catch(err => {
-            console.warn('[Upload] Background rotation failed:', err)
-          })
+          } catch (rotationError) {
+            console.warn('Rotation detection failed, using original:', rotationError)
+          }
+
+          // Update status to uploading after rotation processing
+          files.value[index] = {
+            ...files.value[index]!,
+            status: 'uploading',
+            previewUrl: newPreviewUrl,
+            file: fileToProcess,
+            originalFile: wasRotated ? fileWithStatus.file : undefined,
+            rotation,
+            wasRotated
+          }
+        }
+
+        // Convert file to base64
+        const base64Data = await fileToBase64(fileToProcess)
+
+        files.value[index] = {
+          ...files.value[index]!,
+          status: 'uploaded',
+          base64Data,
+          previewUrl: newPreviewUrl,
+          file: fileToProcess,
+          rotation,
+          wasRotated
         }
       } catch (error) {
         const errorMessage = (error as Error).message || 'Error al procesar archivo'
@@ -129,7 +128,9 @@ export function useFileUploadWithStatus(_chatId: string) {
           error: errorMessage
         }
       }
-    }
+    })
+
+    await Promise.allSettled(uploadPromises)
   }
 
   const { dropzoneRef, isDragging } = useFileUpload({
@@ -139,7 +140,7 @@ export function useFileUploadWithStatus(_chatId: string) {
   })
 
   const isUploading = computed(() =>
-    files.value.some(f => f.status === 'uploading')
+    files.value.some(f => f.status === 'uploading' || f.status === 'processing')
   )
 
   // Format files for AI SDK message parts
@@ -155,23 +156,11 @@ export function useFileUploadWithStatus(_chatId: string) {
       }))
   )
 
-  // Get info about rotated files for display in AI response
-  const rotatedFilesInfo = computed(() =>
-    files.value
-      .filter(f => f.wasRotated && f.rotationInfo)
-      .map(f => ({
-        fileName: f.originalFile?.name || f.file.name,
-        rotation: f.rotationInfo!.rotation,
-        model: f.rotationInfo!.model,
-        timing: f.rotationInfo!.timing,
-        rotatedUrl: f.previewUrl
-      }))
-  )
-
   function removeFile(id: string) {
     const file = files.value.find(f => f.id === id)
     if (!file) return
 
+    // Only revoke if it's a blob URL (not a data URL)
     if (file.previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(file.previewUrl)
     }
@@ -198,7 +187,6 @@ export function useFileUploadWithStatus(_chatId: string) {
     files,
     isUploading,
     uploadedFiles,
-    rotatedFilesInfo,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,
