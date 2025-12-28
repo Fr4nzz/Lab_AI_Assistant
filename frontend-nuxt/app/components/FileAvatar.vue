@@ -3,16 +3,18 @@ interface FileAvatarProps {
   name: string
   type: string
   previewUrl?: string
-  status?: 'idle' | 'uploading' | 'uploaded' | 'error'
+  status?: 'idle' | 'uploading' | 'uploaded' | 'error' | 'processing'
   error?: string
   removable?: boolean
   clickable?: boolean
+  rotation?: number // Rotation in degrees (0, 90, 180, 270)
 }
 
 const props = withDefaults(defineProps<FileAvatarProps>(), {
   status: 'idle',
   removable: false,
-  clickable: true
+  clickable: true,
+  rotation: 0
 })
 
 const emit = defineEmits<{
@@ -23,6 +25,7 @@ const emit = defineEmits<{
 const isImage = computed(() => props.type.startsWith('image/'))
 const isAudio = computed(() => props.type.startsWith('audio/'))
 const isVideo = computed(() => props.type.startsWith('video/'))
+const wasRotated = computed(() => props.rotation !== 0 && props.rotation !== undefined)
 
 function handleClick() {
   if (props.clickable && isImage.value && props.previewUrl) {
@@ -79,14 +82,14 @@ function handleClick() {
 
     <!-- Image / Other Files -->
     <template v-else>
-      <UTooltip arrow :text="removeRandomSuffix(name)">
+      <UTooltip arrow :text="wasRotated ? `${removeRandomSuffix(name)} (rotado ${rotation}°)` : removeRandomSuffix(name)">
         <UAvatar
           size="3xl"
           :src="isImage ? previewUrl : undefined"
           :icon="getFileIcon(type, name)"
           class="border border-default rounded-lg"
           :class="{
-            'opacity-50': status === 'uploading',
+            'opacity-50': status === 'uploading' || status === 'processing',
             'border-error': status === 'error',
             'cursor-pointer hover:ring-2 hover:ring-primary transition-all': clickable && isImage && previewUrl
           }"
@@ -94,12 +97,21 @@ function handleClick() {
         />
       </UTooltip>
 
+      <!-- Processing/Uploading overlay -->
       <div
-        v-if="status === 'uploading'"
+        v-if="status === 'uploading' || status === 'processing'"
         class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg"
       >
         <UIcon name="i-lucide-loader-2" class="size-8 animate-spin text-white" />
       </div>
+
+      <!-- Rotation badge -->
+      <UTooltip v-if="wasRotated && status !== 'uploading' && status !== 'processing'" :text="`Rotado ${rotation}°`">
+        <div class="absolute -bottom-1 -left-1 bg-info text-white text-[10px] font-bold px-1 py-0.5 rounded-full flex items-center gap-0.5">
+          <UIcon name="i-lucide-rotate-cw" class="w-3 h-3" />
+          {{ rotation }}°
+        </div>
+      </UTooltip>
 
       <UTooltip v-if="status === 'error'" :text="error">
         <div class="absolute inset-0 flex items-center justify-center bg-error/50 rounded-lg">
@@ -108,7 +120,7 @@ function handleClick() {
       </UTooltip>
 
       <UButton
-        v-if="removable && status !== 'uploading'"
+        v-if="removable && status !== 'uploading' && status !== 'processing'"
         icon="i-lucide-x"
         size="xs"
         square
