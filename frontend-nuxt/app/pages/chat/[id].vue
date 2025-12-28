@@ -373,6 +373,15 @@ onUnmounted(() => {
 
           <template #footer>
             <div class="flex items-center gap-1">
+              <!-- DEBUG: Test button -->
+              <UButton
+                size="xs"
+                color="error"
+                @click="() => { console.log('TEST BUTTON CLICKED'); handleSubmit(); }"
+              >
+                TEST
+              </UButton>
+
               <FileUploadButton @files-selected="addFiles($event); focusInput()" />
 
               <!-- Camera button -->
