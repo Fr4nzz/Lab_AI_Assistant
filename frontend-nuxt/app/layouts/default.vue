@@ -161,7 +161,6 @@ defineShortcuts({
               class="justify-between"
               :ui="{ trailingIcon: 'transition-transform' }"
               :trailing-icon="showTools ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-              @click="showTools = !showTools"
             >
               <span class="flex items-center gap-2">
                 <UIcon name="i-lucide-wrench" class="w-4 h-4" />
@@ -188,7 +187,6 @@ defineShortcuts({
               class="justify-between"
               :ui="{ trailingIcon: 'transition-transform' }"
               :trailing-icon="showTabs ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-              @click="showTabs = !showTabs"
             >
               <span class="flex items-center gap-2">
                 <UIcon name="i-lucide-layout-grid" class="w-4 h-4" />
