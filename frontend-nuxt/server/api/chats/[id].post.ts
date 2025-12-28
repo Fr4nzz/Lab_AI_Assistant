@@ -15,9 +15,12 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
   const config = useRuntimeConfig()
 
   if (!config.openrouterApiKey) {
-    console.log('[API/chat] No OpenRouter key, skipping title generation')
+    console.log('[API/chat] No OpenRouter key configured in OPENROUTER_API_KEY env var, skipping title generation')
+    console.log('[API/chat] Add your key to frontend-nuxt/.env file')
     return
   }
+
+  console.log('[API/chat] Generating title with OpenRouter...')
 
   try {
     const openrouter = createOpenRouter({
