@@ -27,3 +27,8 @@ logs
 .history
 .vercel
 .env*.local
+
+# Local sqlite artifacts
+data/lab-assistant.db
+data/lab-assistant.db-shm
+data/lab-assistant.db-wal
