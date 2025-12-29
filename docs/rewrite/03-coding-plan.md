@@ -2,14 +2,16 @@
 
 ## Overview
 
-This plan addresses two non-working features:
-1. **Image Rotation Tool Display** - Show rotation detection as a tool call in the AI response
-2. **Chat Title Generation** - Auto-generate titles for new chats
+This plan addresses broken features and adds improvements based on Lobe Chat analysis:
 
-Based on AI SDK documentation research, the root causes are:
-- UChatPrompt @submit may not reliably trigger our handler
-- Using transport body() for per-request data is unreliable timing
-- Need to use sendMessage options.body for extra data
+**Broken Features:**
+1. **Image Rotation Tool Display** - Rotation detection happens but tool is not shown in UI
+2. **Chat Title Generation** - New chats remain "Nuevo Chat" instead of getting auto-generated titles
+
+**New Features (from Lobe Chat):**
+3. **Per-message Regenerate** - Regenerate any assistant message
+4. **Read Aloud (TTS)** - Text-to-speech using browser API
+5. **Better Message Actions** - Dropdown menu with actions
 
 ---
 
@@ -19,35 +21,16 @@ Based on AI SDK documentation research, the root causes are:
 The `[handleSubmit]` log never appears, suggesting UChatPrompt doesn't trigger our @submit handler reliably.
 
 ### Solution
-Replace reliance on UChatPrompt @submit with direct form handling.
+Pass rotation data via `sendMessage` options instead of transport body().
 
 ### Changes
 
-#### 1.1 Update chat/[id].vue Template
+#### 1.1 Simplify handleSubmit - Use sendMessage options.body
 
-**Current:**
-```vue
-<UChatPrompt
-  v-model="input"
-  @submit="handleSubmit"
->
+**Key insight from AI SDK docs:** `sendMessage` accepts a second parameter for per-request body data:
+```typescript
+chat.sendMessage(message, { body: { customData: 'value' } })
 ```
-
-**New:**
-```vue
-<form @submit="handleSubmit">
-  <UChatPrompt
-    v-model="input"
-    :submit-disabled="true"  <!-- Disable internal submit -->
-  >
-    <!-- Keep existing slots -->
-  </UChatPrompt>
-</form>
-```
-
-Or alternatively, use a custom submit button that calls handleSubmit directly.
-
-#### 1.2 Simplify handleSubmit
 
 **New handleSubmit:**
 ```typescript
@@ -71,41 +54,28 @@ async function handleSubmit(e: Event) {
     files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
   };
 
-  // 3. Build extra body data
-  const extraBody = rotationResults.length > 0
-    ? { rotationResults: rotationResults.map(r => ({
+  // 3. Pass rotation data via sendMessage OPTIONS (not transport body)
+  chat.sendMessage(message, {
+    body: rotationResults.length > 0 ? {
+      rotationResults: rotationResults.map(r => ({
         fileName: r.fileName,
         rotation: r.rotation,
         model: r.model,
         timing: r.timing,
         rotatedUrl: r.rotatedUrl,
         state: r.state
-      })) }
-    : {};
+      }))
+    } : undefined
+  });
 
-  // 4. Send using AI SDK pattern - pass extra data in OPTIONS
-  chat.sendMessage(message, { body: extraBody });
-
-  // 5. Clean up
+  // 4. Clean up
   input.value = '';
   clearFiles();
 }
 ```
 
-#### 1.3 Remove transport body() for rotation data
+#### 1.2 Remove rotation data from transport body
 
-**Current:**
-```typescript
-transport: new DefaultChatTransport({
-  api: `/api/chats/${data.value.id}`,
-  body: () => ({
-    model: model.value,
-    rotationResults: pendingRotationResults.value  // UNRELIABLE
-  })
-})
-```
-
-**New:**
 ```typescript
 transport: new DefaultChatTransport({
   api: `/api/chats/${data.value.id}`,
@@ -113,117 +83,141 @@ transport: new DefaultChatTransport({
     model: model.value,
     enabledTools: enabledTools.value,
     showStats: showStats.value
-    // NO rotationResults here - pass via sendMessage options
+    // NO rotationResults - pass via sendMessage options
   })
 })
 ```
 
+#### 1.3 Remove pendingRotationResults ref
+
+No longer needed - we pass data directly with sendMessage.
+
 ---
 
-## Phase 2: Backend - Fix Tool Streaming Format
+## Phase 2: Fix Title Generation
 
 ### Problem
-Backend streams rotation tool but frontend may not recognize it due to format issues.
+Title generation not working - possibly env var not set or code path not reached.
 
 ### Solution
-Ensure tool streaming follows exact AI SDK format.
+Improve prompt based on Lobe Chat's approach and add better debugging.
 
 ### Changes
 
-#### 2.1 Update stream_adapter.py
+#### 2.1 Update title generation prompt (from Lobe Chat)
 
-Verify tool streaming format:
+```typescript
+const TITLE_SYSTEM_PROMPT = `You are a professional conversation summarizer. Generate a concise title that captures the essence of the conversation.
 
-```python
-def tool_status(self, tool_name: str, status: str, args: dict = None,
-                tool_call_id: str = None, result: Any = None) -> str:
-    if status == "start":
-        # First: tool-input-start
-        return self._format_sse({
-            "type": "tool-input-start",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name
-        })
-
-    elif status == "args":
-        # Second: tool-input-available (with complete args)
-        return self._format_sse({
-            "type": "tool-input-available",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "input": args
-        })
-
-    elif status == "end":
-        # Third: tool-output-available (with result)
-        return self._format_sse({
-            "type": "tool-output-available",
-            "toolCallId": tool_call_id,
-            "output": result
-        })
+Rules:
+- Output ONLY the title text, no explanations or additional context
+- Maximum 10 words
+- Maximum 50 characters
+- No punctuation marks
+- Use the language: Spanish
+- The title should accurately reflect the main topic of the conversation
+- Keep it short and to the point`;
 ```
 
-#### 2.2 Update server.py rotation streaming
+#### 2.2 Add startup validation
 
-```python
-# Stream rotation tool calls
-if request.rotationResults:
-    for rot in request.rotationResults:
-        tool_call_id = f"rotation_{uuid.uuid4().hex[:8]}"
+In `server/api/chats/[id].post.ts`:
+```typescript
+// At module load time
+const config = useRuntimeConfig();
+if (!config.openrouterApiKey) {
+  console.warn('[API/chat] WARNING: OPENROUTER_API_KEY not configured - title generation disabled');
+}
+```
 
-        # Step 1: tool-input-start
-        yield adapter._format_sse({
-            "type": "tool-input-start",
-            "toolCallId": tool_call_id,
-            "toolName": "detect_image_rotation"
-        })
+#### 2.3 Ensure .env has OPENROUTER_API_KEY
 
-        # Step 2: tool-input-available
-        yield adapter._format_sse({
-            "type": "tool-input-available",
-            "toolCallId": tool_call_id,
-            "toolName": "detect_image_rotation",
-            "input": {"fileName": rot.fileName}
-        })
-
-        # Step 3: tool-output-available
-        yield adapter._format_sse({
-            "type": "tool-output-available",
-            "toolCallId": tool_call_id,
-            "output": {
-                "rotation": rot.rotation,
-                "rotatedUrl": rot.rotatedUrl,
-                "model": rot.model,
-                "timing": rot.timing
-            }
-        })
+```bash
+# frontend-nuxt/.env
+OPENROUTER_API_KEY=sk-or-v1-xxxxx
 ```
 
 ---
 
-## Phase 3: Frontend - Fix Tool Display
+## Phase 3: Backend - Fix Tool Streaming Format
 
 ### Problem
-Frontend checks for `tool-invocation` but AI SDK uses `tool-{toolName}`.
+Backend streams rotation tool but format may not match AI SDK expectations.
 
 ### Solution
-Already partially implemented - verify the check is correct.
+Ensure exact AI SDK stream protocol format.
 
 ### Changes
 
-#### 3.1 Verify isToolPart function
+#### 3.1 Verify tool streaming format
+
+Backend must send these events in order:
+```json
+{"type":"tool-input-start","toolCallId":"rotation_123","toolName":"detect_image_rotation"}
+{"type":"tool-input-available","toolCallId":"rotation_123","toolName":"detect_image_rotation","input":{"fileName":"image.jpg"}}
+{"type":"tool-output-available","toolCallId":"rotation_123","output":{"rotation":180,"rotatedUrl":"..."}}
+```
+
+#### 3.2 Update stream_adapter.py
+
+```python
+def stream_rotation_tool(self, rotation_result):
+    tool_call_id = f"rotation_{uuid.uuid4().hex[:8]}"
+
+    # 1. tool-input-start
+    yield self._format_sse({
+        "type": "tool-input-start",
+        "toolCallId": tool_call_id,
+        "toolName": "detect_image_rotation"
+    })
+
+    # 2. tool-input-available
+    yield self._format_sse({
+        "type": "tool-input-available",
+        "toolCallId": tool_call_id,
+        "toolName": "detect_image_rotation",
+        "input": {"fileName": rotation_result.fileName}
+    })
+
+    # 3. tool-output-available
+    yield self._format_sse({
+        "type": "tool-output-available",
+        "toolCallId": tool_call_id,
+        "output": {
+            "rotation": rotation_result.rotation,
+            "rotatedUrl": rotation_result.rotatedUrl,
+            "model": rotation_result.model,
+            "timing": rotation_result.timing
+        }
+    })
+```
+
+---
+
+## Phase 4: Frontend - Fix Tool Display
+
+### Problem
+Frontend may not recognize tool parts correctly.
+
+### Solution
+Verify tool part detection matches AI SDK format.
+
+### Changes
+
+#### 4.1 Tool part type is `tool-{toolName}`
+
+AI SDK creates parts with type `tool-detect_image_rotation`, not `tool-invocation`.
 
 ```typescript
 function isToolPart(part: { type: string }): boolean {
-  // AI SDK uses tool-{toolName} format, not tool-invocation
   return part.type?.startsWith?.('tool-') ?? false;
 }
 ```
 
-#### 3.2 Verify tool state mapping
+#### 4.2 Tool state mapping
 
 ```typescript
-function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result' | 'error' {
+function getToolState(part: any): string {
   const state = part.state;
   if (state === 'input-streaming') return 'partial-call';
   if (state === 'input-available') return 'call';
@@ -233,11 +227,11 @@ function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result'
 }
 ```
 
-#### 3.3 Verify rotation tool detection
+#### 4.3 Access tool data from correct properties
 
 ```vue
 <ToolImageRotation
-  v-else-if="part.type === 'tool-detect_image_rotation'"
+  v-if="part.type === 'tool-detect_image_rotation'"
   :file-name="part.input?.fileName"
   :rotation="part.output?.rotation"
   :rotated-url="part.output?.rotatedUrl"
@@ -249,113 +243,219 @@ function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result'
 
 ---
 
-## Phase 4: Fix Title Generation
+## Phase 5: Add Per-Message Regenerate (New Feature)
 
-### Problem
-Title generation logs not appearing - either code not reached or OPENROUTER_API_KEY not set.
+### Inspiration
+Lobe Chat allows regenerating any assistant message, not just the last one.
 
-### Solution
-Add proper diagnostics and fix the flow.
+### Implementation
 
-### Changes
+#### 5.1 Add regenerate button to message actions
 
-#### 4.1 Add startup log for API key
-
-In `server/api/chats/[id].post.ts`, at module level:
-```typescript
-const config = useRuntimeConfig();
-console.log('[API/chat module] OPENROUTER_API_KEY configured:', !!config.openrouterApiKey);
+In the template:
+```vue
+<template #content="{ message }">
+  <div v-if="message.role === 'assistant'" class="message-actions">
+    <UButton
+      icon="i-lucide-rotate-ccw"
+      size="xs"
+      variant="ghost"
+      @click="regenerateMessage(message.id)"
+    />
+  </div>
+</template>
 ```
 
-#### 4.2 Verify .env is being read
+#### 5.2 Implement regenerateMessage function
 
-Check `nuxt.config.ts`:
 ```typescript
-runtimeConfig: {
-  openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
-  // ...
+async function regenerateMessage(messageId: string) {
+  const messages = chat.messages;
+  const messageIndex = messages.findIndex(m => m.id === messageId);
+
+  if (messageIndex === -1) return;
+
+  // Find the user message that triggered this response
+  let userMessageIndex = messageIndex - 1;
+  while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+    userMessageIndex--;
+  }
+
+  if (userMessageIndex < 0) return;
+
+  // Remove messages from this assistant message onward
+  const newMessages = messages.slice(0, messageIndex);
+
+  // Resend from the user message
+  chat.setMessages(newMessages);
+  chat.regenerate();
 }
-```
-
-#### 4.3 Ensure .env file exists and has key
-
-```
-# frontend-nuxt/.env
-OPENROUTER_API_KEY=sk-or-v1-xxxxx
 ```
 
 ---
 
-## Phase 5: Clean Up and Remove Debug Logs
+## Phase 6: Add Read Aloud / TTS (New Feature)
 
-After features work:
-1. Remove all `console.log` debug statements
-2. Remove unused code (pendingRotationResults ref if not needed)
-3. Simplify the flow
+### Inspiration
+Lobe Chat has TTS with multiple providers. We'll start simple with browser API.
+
+### Implementation
+
+#### 6.1 Create useTTS composable
+
+```typescript
+// composables/useTTS.ts
+export function useTTS() {
+  const isSpeaking = ref(false);
+  const currentUtterance = ref<SpeechSynthesisUtterance | null>(null);
+
+  function speak(text: string, lang = 'es-ES') {
+    stop(); // Stop any current speech
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 1.0;
+
+    utterance.onstart = () => { isSpeaking.value = true; };
+    utterance.onend = () => { isSpeaking.value = false; };
+    utterance.onerror = () => { isSpeaking.value = false; };
+
+    currentUtterance.value = utterance;
+    speechSynthesis.speak(utterance);
+  }
+
+  function stop() {
+    speechSynthesis.cancel();
+    isSpeaking.value = false;
+  }
+
+  return { speak, stop, isSpeaking };
+}
+```
+
+#### 6.2 Add TTS button to message actions
+
+```vue
+<UButton
+  :icon="isSpeaking ? 'i-lucide-square' : 'i-lucide-play'"
+  size="xs"
+  variant="ghost"
+  @click="isSpeaking ? tts.stop() : tts.speak(getTextFromMessage(message))"
+/>
+```
+
+---
+
+## Phase 7: Improve Message Actions UI
+
+### Inspiration
+Lobe Chat uses a clean action bar with dropdown menu.
+
+### Implementation
+
+#### 7.1 Create MessageActions component
+
+```vue
+<!-- components/MessageActions.vue -->
+<template>
+  <div class="flex items-center gap-1">
+    <!-- Primary actions (always visible) -->
+    <UButton
+      v-for="action in primaryActions"
+      :key="action.key"
+      :icon="action.icon"
+      size="xs"
+      variant="ghost"
+      :disabled="action.disabled"
+      @click="emit('action', action.key)"
+    />
+
+    <!-- Dropdown menu for secondary actions -->
+    <UDropdownMenu :items="menuItems">
+      <UButton icon="i-lucide-more-horizontal" size="xs" variant="ghost" />
+    </UDropdownMenu>
+  </div>
+</template>
+```
 
 ---
 
 ## Implementation Order
 
-1. **Phase 1.1-1.3**: Fix submit handling - pass data via sendMessage options
-2. **Phase 2**: Verify backend tool streaming format
-3. **Phase 3**: Verify frontend tool display
-4. **Phase 4**: Debug title generation
-5. **Phase 5**: Clean up
+### Week 1: Fix Broken Features
+1. **Phase 1**: Fix message submission (sendMessage options.body)
+2. **Phase 3**: Verify backend tool streaming format
+3. **Phase 4**: Verify frontend tool display
+4. **Phase 2**: Fix title generation with better prompt
 
----
+### Week 2: Add New Features
+5. **Phase 5**: Per-message regenerate
+6. **Phase 6**: Read aloud (TTS)
+7. **Phase 7**: Message actions UI
 
-## Testing Plan
-
-### Test 1: Submit Handler
-1. Open browser console
-2. Paste an image
-3. Wait for rotation to complete (watch logs)
-4. Type text and press Enter or click submit
-5. **Expected**: `[handleSubmit]` log appears
-
-### Test 2: Rotation Data Sent
-1. Do Test 1
-2. Check Nuxt terminal for `[API/chat] rotationResults: 1 [...]`
-3. **Expected**: Rotation data received by API
-
-### Test 3: Rotation Tool Displayed
-1. Do Test 2
-2. Check chat UI for rotation tool card
-3. **Expected**: ToolImageRotation component shows with thumbnail
-
-### Test 4: Title Generation
-1. Create new chat
-2. Send first message
-3. Check Nuxt terminal for `[API/chat] generateTitle called`
-4. Check sidebar for title update
-5. **Expected**: Chat renamed from "Nuevo Chat" to generated title
+### Week 3: Clean Up
+8. Remove all debug console.log statements
+9. Add tests
+10. Update documentation
 
 ---
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `app/pages/chat/[id].vue` | Fix handleSubmit, remove transport body rotation |
-| `app/composables/useFileUpload.ts` | Simplify if needed |
-| `server/api/chats/[id].post.ts` | Add startup diagnostics |
-| `backend/server.py` | Verify rotation tool streaming format |
-| `backend/stream_adapter.py` | Verify tool event format |
-| `frontend-nuxt/.env` | Ensure OPENROUTER_API_KEY is set |
+| Phase | File | Changes |
+|-------|------|---------|
+| 1 | `app/pages/chat/[id].vue` | Use sendMessage options.body |
+| 1 | `app/pages/chat/[id].vue` | Remove pendingRotationResults |
+| 2 | `server/api/chats/[id].post.ts` | Better prompt, startup validation |
+| 3 | `backend/stream_adapter.py` | Verify tool event format |
+| 3 | `backend/server.py` | Verify rotation streaming |
+| 4 | `app/pages/chat/[id].vue` | Fix tool part detection |
+| 5 | `app/pages/chat/[id].vue` | Add regenerateMessage |
+| 6 | `app/composables/useTTS.ts` | New file |
+| 6 | `app/pages/chat/[id].vue` | Add TTS button |
+| 7 | `app/components/MessageActions.vue` | New file |
+
+---
+
+## Testing Plan
+
+### Test 1: Rotation Tool Display
+1. Paste an image in chat
+2. Wait for rotation detection to complete
+3. Send message
+4. **Expected**: Rotation tool appears in AI response with thumbnail
+
+### Test 2: Title Generation
+1. Create new chat
+2. Send first message
+3. **Expected**: Chat title updates from "Nuevo Chat" to generated title
+
+### Test 3: Per-Message Regenerate
+1. Have a conversation with multiple messages
+2. Click regenerate on an earlier assistant message
+3. **Expected**: That message and all following are replaced
+
+### Test 4: TTS
+1. Get an assistant response
+2. Click play/read aloud button
+3. **Expected**: Message is spoken aloud
+4. Click stop button
+5. **Expected**: Speech stops
 
 ---
 
 ## Rollback Plan
 
-If issues persist after changes:
-1. Git revert to current commit
-2. Consider alternative approach: Don't stream rotation as tool, display it separately
+If issues persist:
+1. Git revert to before changes
+2. Consider alternative: Display rotation info separately, not as tool call
 
 ---
 
 ## Approval Checklist
 
 - [ ] Plan reviewed by user
-- [ ] Approach approved
+- [ ] Broken features approach approved
+- [ ] New features approved (regenerate, TTS)
+- [ ] Implementation order approved
 - [ ] Ready to implement
