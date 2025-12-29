@@ -5,6 +5,7 @@ Converts LangGraph events to AI SDK v6 UI Message Stream Protocol format.
 Documentation: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 
 Stream Format (SSE):
+- data: {"type":"start","messageId":"xxx"}
 - data: {"type":"text-start","id":"xxx"}
 - data: {"type":"text-delta","id":"xxx","delta":"content"}
 - data: {"type":"text-end","id":"xxx"}
@@ -13,6 +14,7 @@ Stream Format (SSE):
 - data: {"type":"reasoning-end","id":"xxx"}
 - data: {"type":"tool-input-start","toolCallId":"xxx","toolName":"xxx"}
 - data: {"type":"tool-input-available","toolCallId":"xxx","toolName":"xxx","input":{}}
+- data: {"type":"tool-output-available","toolCallId":"xxx","output":{}}
 - data: {"type":"start-step"}
 - data: {"type":"finish-step"}
 - data: {"type":"finish"}
@@ -52,8 +54,11 @@ class StreamAdapter:
         return result
 
     def start_message(self) -> str:
-        """Start a new assistant message"""
-        return ""
+        """Start a new assistant message - REQUIRED for AI SDK to create message parts"""
+        return self._sse({
+            "type": "start",
+            "messageId": self.message_id
+        })
 
     def start_step(self) -> str:
         """Start a new step"""
@@ -212,7 +217,7 @@ class StreamAdapter:
         """Stream an error"""
         return self._sse({
             "type": "error",
-            "error": message
+            "errorText": message
         })
 
     def finish(self, reason: str = "stop", usage: Optional[dict] = None) -> str:
