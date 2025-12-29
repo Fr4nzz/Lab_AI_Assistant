@@ -1134,26 +1134,19 @@ async def chat_aisdk(request: AISdkChatRequest):
 
                 if event_type == "on_chat_model_start":
                     step_counter += 1
-                    # Start a new step when LLM starts
-                    yield adapter.step_start()
+                    # Track step number for tool display
+                    adapter.step_indicator(step_counter)
                     logger.info(f"[AI SDK] Step {step_counter} started")
 
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
-                    run_id = event.get("run_id", "")
-                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
-                    logger.info(f"[AI SDK] Tool: {tool_name} (id: {tool_call_id})")
-                    yield adapter.tool_status(tool_name, "start", tool_input, tool_call_id=tool_call_id)
+                    logger.info(f"[AI SDK] Tool: {tool_name}")
+                    yield adapter.tool_status(tool_name, "start", tool_input)
 
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    tool_output = event.get("data", {}).get("output", "")
-                    run_id = event.get("run_id", "")
-                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
-                    # Truncate result if too long
-                    result_str = str(tool_output)[:500] if tool_output else "completed"
-                    yield adapter.tool_status(tool_name, "end", result=result_str)
+                    yield adapter.tool_status(tool_name, "end")
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
@@ -1170,10 +1163,10 @@ async def chat_aisdk(request: AISdkChatRequest):
                                             full_response.append(text)
                                             yield adapter.text_delta(text)
                                     elif part_type == 'thinking' or part_type == 'reasoning':
-                                        # Gemini 3 Flash thinking mode
+                                        # Gemini 3 Flash thinking mode - display as formatted text
                                         thinking_text = part.get('thinking', '') or part.get('text', '')
                                         if thinking_text:
-                                            yield adapter.reasoning_delta(thinking_text)
+                                            yield adapter.reasoning_text(thinking_text)
                         elif isinstance(content, str) and content:
                             full_response.append(content)
                             yield adapter.text_delta(content)
@@ -1205,10 +1198,8 @@ async def chat_aisdk(request: AISdkChatRequest):
                                         elif part_type == 'thinking' or part_type == 'reasoning':
                                             thinking_text = part.get('thinking', '') or part.get('text', '')
                                             if thinking_text:
-                                                yield adapter.reasoning_delta(thinking_text)
+                                                yield adapter.reasoning_text(thinking_text)
 
-                    # End the current step
-                    yield adapter.step_finish()
                     logger.info(f"[AI SDK] Step {step_counter} finished")
 
             # Calculate and send usage summary as text (if enabled)

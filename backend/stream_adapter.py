@@ -4,15 +4,14 @@ AI SDK UI Message Stream Protocol v1 Adapter.
 Converts LangGraph events to AI SDK v6 UI Message Stream Protocol format.
 Documentation: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 
-Stream Format (SSE):
+Stream Format (SSE) - Supported by @ai-sdk/vue Chat class:
 - data: {"type":"text-delta","textDelta":"content"}
-- data: {"type":"tool-call","toolCallId":"xxx","toolName":"xxx","args":{}}
-- data: {"type":"tool-result","toolCallId":"xxx","result":"xxx"}
-- data: {"type":"reasoning","textDelta":"thinking..."}
-- data: {"type":"step-start"}
-- data: {"type":"step-finish"}
+- data: {"type":"error","error":"message"}
 - data: {"type":"finish","finishReason":"stop","usage":{}}
 - data: [DONE]
+
+Note: The Chat class validates event types strictly. Only text-delta, error,
+and finish are supported. Tool calls are shown as formatted text.
 """
 import json
 import uuid
@@ -24,9 +23,7 @@ class StreamAdapter:
 
     def __init__(self):
         self.message_id = f"msg_{uuid.uuid4().hex[:12]}"
-        self.text_started = False
         self.current_step = 0
-        self.active_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
 
     def _sse(self, data: Any) -> str:
         """Format data as SSE event"""
@@ -38,82 +35,56 @@ class StreamAdapter:
         """Start a new assistant message"""
         return ""
 
-    def step_start(self) -> str:
-        """Start a new step (reasoning + actions)"""
-        self.current_step += 1
-        return self._sse({"type": "step-start"})
-
-    def step_finish(self) -> str:
-        """Finish current step"""
-        return self._sse({"type": "step-finish"})
-
     def text_delta(self, content: str) -> str:
         """Stream a text chunk"""
-        self.text_started = True
         return self._sse({
             "type": "text-delta",
             "textDelta": content
         })
 
-    def reasoning_delta(self, content: str) -> str:
-        """Stream reasoning/thinking content"""
-        return self._sse({
-            "type": "reasoning",
-            "textDelta": content
-        })
-
-    def tool_call(self, tool_call_id: str, tool_name: str, args: dict) -> str:
-        """Emit a tool call event"""
-        self.active_tool_calls[tool_call_id] = tool_name
-        return self._sse({
-            "type": "tool-call",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "args": args
-        })
-
-    def tool_result(self, tool_call_id: str, result: Any) -> str:
-        """Emit a tool result event"""
-        # Convert result to string if needed
-        if isinstance(result, (dict, list)):
-            result_str = json.dumps(result, ensure_ascii=False)
-        else:
-            result_str = str(result)
-
-        # Remove from active calls
-        self.active_tool_calls.pop(tool_call_id, None)
-
-        return self._sse({
-            "type": "tool-result",
-            "toolCallId": tool_call_id,
-            "result": result_str
-        })
+    def step_indicator(self, step_num: int) -> str:
+        """Show step number as text (workaround since step events aren't supported)"""
+        self.current_step = step_num
+        # Don't emit anything - we'll include step in tool display
+        return ""
 
     def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None,
                     tool_call_id: Optional[str] = None, result: Optional[Any] = None) -> str:
         """
-        Stream tool events using proper AI SDK format.
-        Falls back to text display if tool events aren't supported.
+        Stream tool status as formatted text.
+        The Chat class doesn't support tool-call events, so we display as text.
         """
         if status == "start":
-            # Generate tool call ID if not provided
-            if not tool_call_id:
-                tool_call_id = f"call_{uuid.uuid4().hex[:12]}"
-
-            return self.tool_call(tool_call_id, tool_name, args or {})
+            # Show tool being called with step number and args
+            step_prefix = f"**[{self.current_step}]** " if self.current_step > 0 else ""
+            params = []
+            if args:
+                for k, v in args.items():
+                    if isinstance(v, str):
+                        display_v = v if len(v) < 50 else v[:47] + "..."
+                        params.append(f"{k}={display_v}")
+                    elif isinstance(v, list):
+                        if len(v) <= 10:
+                            params.append(f"{k}={v}")
+                        else:
+                            items = ', '.join(str(x) for x in v[:10])
+                            params.append(f"{k}=[{items}... +{len(v)-10} more]")
+                    elif isinstance(v, (int, float, bool)):
+                        params.append(f"{k}={v}")
+            param_str = f" ({', '.join(params)})" if params else ""
+            text = f"{step_prefix}🔧 **{tool_name}**{param_str}\n"
         else:  # end
-            # Find the tool call ID for this tool
-            matching_id = None
-            for tid, tname in list(self.active_tool_calls.items()):
-                if tname == tool_name:
-                    matching_id = tid
-                    break
+            text = f"✓ {tool_name} completado\n\n"
 
-            if matching_id:
-                return self.tool_result(matching_id, result or "completed")
+        return self.text_delta(text)
 
-            # Fallback to text if no matching call
-            return self.text_delta(f"✓ {tool_name} completado\n\n")
+    def reasoning_text(self, content: str) -> str:
+        """
+        Stream reasoning/thinking as formatted text.
+        The Chat class doesn't support reasoning events, so we display as collapsible text.
+        """
+        # Format as a blockquote for visual distinction
+        return self.text_delta(f"> 💭 {content}\n")
 
     def error(self, message: str) -> str:
         """Stream an error"""
