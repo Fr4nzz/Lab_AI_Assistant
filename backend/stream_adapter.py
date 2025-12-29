@@ -33,11 +33,23 @@ class StreamAdapter:
         self.current_step = 0
         self.active_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
 
-    def _sse(self, data: Any) -> str:
+    def _sse(self, data: Any, verbose: bool = False) -> str:
         """Format data as SSE event"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if isinstance(data, str):
-            return f"data: {data}\n\n"
-        return f"data: {json.dumps(data)}\n\n"
+            result = f"data: {data}\n\n"
+        else:
+            result = f"data: {json.dumps(data)}\n\n"
+
+        # Log all events for debugging (except text-delta to avoid spam)
+        if isinstance(data, dict):
+            event_type = data.get('type', '')
+            if event_type != 'text-delta' or verbose:
+                logger.info(f"[SSE] Sending: {event_type} -> {json.dumps(data)[:200]}")
+
+        return result
 
     def start_message(self) -> str:
         """Start a new assistant message"""

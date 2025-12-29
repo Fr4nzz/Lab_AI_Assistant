@@ -1161,11 +1161,19 @@ async def chat_aisdk(request: AISdkChatRequest):
                     chunk = event["data"].get("chunk")
                     if chunk and hasattr(chunk, 'content') and chunk.content:
                         content = chunk.content
+                        # Log content structure for debugging
+                        content_type = type(content).__name__
+                        if isinstance(content, list) and content:
+                            logger.debug(f"[AI SDK] Stream content type: list, parts: {[type(p).__name__ for p in content[:3]]}")
+                        elif isinstance(content, str):
+                            logger.debug(f"[AI SDK] Stream content type: str, len: {len(content)}")
+
                         if isinstance(content, list):
                             # Handle multipart content (text and thinking/reasoning)
                             for part in content:
                                 if isinstance(part, dict):
                                     part_type = part.get('type', '')
+                                    logger.debug(f"[AI SDK] Part type: {part_type}, keys: {list(part.keys())}")
                                     if part_type == 'text':
                                         text = part.get('text', '')
                                         if text:
@@ -1175,7 +1183,11 @@ async def chat_aisdk(request: AISdkChatRequest):
                                         # Gemini 3 Flash thinking mode - stream as reasoning
                                         thinking_text = part.get('thinking', '') or part.get('text', '')
                                         if thinking_text:
+                                            logger.info(f"[AI SDK] REASONING detected: {thinking_text[:100]}...")
                                             yield adapter.reasoning_delta(thinking_text)
+                                    else:
+                                        # Log unknown part types
+                                        logger.info(f"[AI SDK] Unknown part type: {part_type}, part: {str(part)[:200]}")
                         elif isinstance(content, str) and content:
                             full_response.append(content)
                             yield adapter.text_delta(content)
