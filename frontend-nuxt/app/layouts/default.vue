@@ -17,6 +17,9 @@ const showTools = ref(false)
 const showTabs = ref(false)
 const showSettings = ref(false)
 
+// Register sidebar refresh for other components to trigger
+const { registerRefresh } = useSidebarRefresh()
+
 const deleteModal = overlay.create(LazyModalConfirm, {
   props: {
     title: 'Eliminar chat',
@@ -34,6 +37,9 @@ const { data: chats, refresh: refreshChats } = await useFetch<Chat[]>('/api/chat
     createdAt: chat.createdAt
   }))
 })
+
+// Register refresh function for other components to trigger sidebar updates
+registerRefresh(refreshChats)
 
 onNuxtReady(async () => {
   const first10 = (chats.value || []).slice(0, 10)

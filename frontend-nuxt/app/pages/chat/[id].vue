@@ -17,6 +17,7 @@ const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
+const { refreshSidebar } = useSidebarRefresh()
 
 function getFileName(url: string): string {
   try {
@@ -36,6 +37,8 @@ const {
   isUploading,
   uploadedFiles,
   rotatedFilesInfo,
+  rotationResultsReactive,
+  getRotationResultsByIds,
   addFiles,
   removeFile,
   clearFiles,
@@ -84,7 +87,7 @@ const chat = new Chat({
   onFinish() {
     // Refresh chat list to get the generated title
     // Title generation is async, refresh after 2s (usually completes in 1-3s)
-    setTimeout(() => refreshNuxtData('chats'), 2000)
+    setTimeout(refreshSidebar, 2000)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
@@ -97,6 +100,9 @@ const chat = new Chat({
   }
 })
 
+// Track pending file IDs and their associated message ID for rotation tracking
+const pendingFileIds = ref<{ messageId: string | null; fileIds: string[] }>({ messageId: null, fileIds: [] })
+
 // IMPORTANT: handleSubmit must have required Event parameter
 async function handleSubmit(e: Event) {
   e.preventDefault()
@@ -105,11 +111,17 @@ async function handleSubmit(e: Event) {
 
   // Allow sending with just files OR just text OR both
   if ((textToSend || hasFiles) && !isUploading.value) {
-    // Save rotation info before clearing files
-    // We'll associate it with the next message (which will be the user message being sent)
-    if (rotatedFilesInfo.value.length > 0) {
-      pendingRotationInfo.value = [...rotatedFilesInfo.value]
-      console.log('[Chat] Saved rotation info:', pendingRotationInfo.value)
+    // Save file IDs for rotation tracking (even if rotations aren't complete yet)
+    const currentFileIds = files.value.map(f => f.id)
+    if (currentFileIds.length > 0) {
+      // Already completed rotations - save immediately
+      const completedRotations = rotatedFilesInfo.value
+      if (completedRotations.length > 0) {
+        console.log('[Chat] Some rotations already completed:', completedRotations.length)
+      }
+      // Track file IDs for rotations that may complete later
+      pendingFileIds.value = { messageId: null, fileIds: currentFileIds }
+      console.log('[Chat] Tracking file IDs for rotation:', currentFileIds)
     }
 
     chat.sendMessage({
@@ -122,28 +134,57 @@ async function handleSubmit(e: Event) {
   }
 }
 
-// Pending rotation info to be associated with the next user message
-const pendingRotationInfo = ref<Array<{
-  fileName: string
-  rotation: number
-  model: string | null
-  timing: { modelMs?: number; totalMs?: number }
-  rotatedUrl: string
-}>>([])
-
-// Watch for new messages to associate rotation info
+// Watch for new user messages to associate file IDs
 watch(() => chat.messages.length, (newLen, oldLen) => {
-  if (newLen > oldLen && pendingRotationInfo.value.length > 0) {
+  if (newLen > oldLen && pendingFileIds.value.fileIds.length > 0) {
     // Find the latest user message
     const latestUserMessage = [...chat.messages].reverse().find(m => m.role === 'user')
-    if (latestUserMessage) {
-      messageRotationInfo.value[latestUserMessage.id] = [...pendingRotationInfo.value]
-      pendingRotationInfo.value = []
-      // Clear the rotation cache now that we've saved the info
-      clearRotationResults()
+    if (latestUserMessage && !pendingFileIds.value.messageId) {
+      pendingFileIds.value.messageId = latestUserMessage.id
+      console.log('[Chat] Associated file IDs with message:', latestUserMessage.id)
+
+      // Check if rotations are already complete
+      const results = getRotationResultsByIds(pendingFileIds.value.fileIds)
+      const completedResults = results.filter(r => r.state === 'completed')
+      if (completedResults.length > 0) {
+        messageRotationInfo.value[latestUserMessage.id] = completedResults.map(r => ({
+          fileName: r.fileName,
+          rotation: r.rotation,
+          model: r.model,
+          timing: r.timing,
+          rotatedUrl: r.rotatedUrl
+        }))
+        console.log('[Chat] Rotation info already available:', completedResults.length)
+      }
     }
   }
 })
+
+// Watch for rotation completions and update message rotation info
+watch(rotationResultsReactive, () => {
+  if (pendingFileIds.value.messageId && pendingFileIds.value.fileIds.length > 0) {
+    const results = getRotationResultsByIds(pendingFileIds.value.fileIds)
+    const completedResults = results.filter(r => r.state === 'completed')
+
+    if (completedResults.length > 0) {
+      messageRotationInfo.value[pendingFileIds.value.messageId] = completedResults.map(r => ({
+        fileName: r.fileName,
+        rotation: r.rotation,
+        model: r.model,
+        timing: r.timing,
+        rotatedUrl: r.rotatedUrl
+      }))
+      console.log('[Chat] Updated rotation info for message:', pendingFileIds.value.messageId, completedResults.length)
+
+      // If all rotations are complete, clear tracking
+      if (completedResults.length >= pendingFileIds.value.fileIds.length) {
+        console.log('[Chat] All rotations complete, clearing tracking')
+        pendingFileIds.value = { messageId: null, fileIds: [] }
+        clearRotationResults()
+      }
+    }
+  }
+}, { deep: true })
 
 const copied = ref(false)
 

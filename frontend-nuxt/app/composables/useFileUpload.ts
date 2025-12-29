@@ -19,8 +19,8 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-// Rotation result stored per file
-export interface RotationResult {
+// File rotation state (different from RotationResult in imageRotation.ts)
+export interface FileRotationState {
   fileId: string
   fileName: string
   rotation: number
@@ -36,7 +36,7 @@ export function useFileUploadWithStatus(_chatId: string) {
   const toast = useToast()
 
   // Track rotation results separately - survives file clearing
-  const rotationResults = ref<Map<string, RotationResult>>(new Map())
+  const rotationResults = ref<Map<string, FileRotationState>>(new Map())
 
   // Setting to enable/disable auto-rotation
   const autoRotateEnabled = ref(true)
@@ -86,8 +86,9 @@ export function useFileUploadWithStatus(_chatId: string) {
 
         // Step 2: Start rotation detection in background (non-blocking)
         if (autoRotateEnabled.value && fileWithStatus.file.type.startsWith('image/')) {
-          // Store pending state immediately
-          rotationResults.value.set(fileWithStatus.id, {
+          // Store pending state immediately (force reactivity by creating new Map)
+          const pendingMap = new Map(rotationResults.value)
+          pendingMap.set(fileWithStatus.id, {
             fileId: fileWithStatus.id,
             fileName: fileWithStatus.file.name,
             rotation: 0,
@@ -97,13 +98,14 @@ export function useFileUploadWithStatus(_chatId: string) {
             rotatedUrl: fileWithStatus.previewUrl,
             state: 'pending'
           })
+          rotationResults.value = pendingMap
 
           // Fire and forget - don't await
           processImageRotation(fileWithStatus.file).then(rotationResult => {
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
 
             // Always store the result (even if file was removed, we keep the cache)
-            const result: RotationResult = {
+            const result: FileRotationState = {
               fileId: fileWithStatus.id,
               fileName: fileWithStatus.file.name,
               rotation: rotationResult.rotation,
@@ -113,7 +115,10 @@ export function useFileUploadWithStatus(_chatId: string) {
               rotatedUrl: rotationResult.rotatedDataUrl || fileWithStatus.previewUrl,
               state: 'completed'
             }
-            rotationResults.value.set(fileWithStatus.id, result)
+            // Force reactivity by creating new Map
+            const newMap = new Map(rotationResults.value)
+            newMap.set(fileWithStatus.id, result)
+            rotationResults.value = newMap
 
             // Only update file if it still exists
             if (currentIndex !== -1 && rotationResult.wasRotated && rotationResult.rotatedFile && rotationResult.rotatedDataUrl) {
@@ -153,13 +158,15 @@ export function useFileUploadWithStatus(_chatId: string) {
             }
           }).catch(err => {
             console.warn('[Upload] Background rotation failed:', err)
-            // Mark as error but keep in cache
+            // Mark as error but keep in cache (force reactivity by creating new Map)
             const existing = rotationResults.value.get(fileWithStatus.id)
             if (existing) {
-              rotationResults.value.set(fileWithStatus.id, {
+              const errorMap = new Map(rotationResults.value)
+              errorMap.set(fileWithStatus.id, {
                 ...existing,
                 state: 'error'
               })
+              rotationResults.value = errorMap
             }
           })
         }
@@ -203,9 +210,9 @@ export function useFileUploadWithStatus(_chatId: string) {
       }))
   )
 
-  // Get rotation results for current files (for display)
+  // Get rotation results for current files (for display during editing)
   const currentRotationResults = computed(() => {
-    const results: RotationResult[] = []
+    const results: FileRotationState[] = []
     for (const file of files.value) {
       const result = rotationResults.value.get(file.id)
       if (result) {
@@ -213,6 +220,32 @@ export function useFileUploadWithStatus(_chatId: string) {
       }
     }
     return results
+  })
+
+  // Get rotation results by file IDs (for retrieving results after files are cleared)
+  function getRotationResultsByIds(fileIds: string[]): FileRotationState[] {
+    const results: FileRotationState[] = []
+    for (const id of fileIds) {
+      const result = rotationResults.value.get(id)
+      if (result) {
+        results.push(result)
+      }
+    }
+    return results
+  }
+
+  // Check if any rotations are still pending for given file IDs
+  function hasCompletedRotations(fileIds: string[]): boolean {
+    return fileIds.some(id => {
+      const result = rotationResults.value.get(id)
+      return result && result.state === 'completed'
+    })
+  }
+
+  // Watch for rotation completions (reactive)
+  const rotationResultsReactive = computed(() => {
+    // Return a new object when rotationResults changes to trigger reactivity
+    return new Map(rotationResults.value)
   })
 
   // Get info about ALL processed images (for saving with message)
@@ -271,6 +304,9 @@ export function useFileUploadWithStatus(_chatId: string) {
     uploadedFiles,
     rotatedFilesInfo,
     currentRotationResults,
+    rotationResultsReactive,
+    getRotationResultsByIds,
+    hasCompletedRotations,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,
