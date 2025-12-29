@@ -777,7 +777,14 @@ _vision_models_cache: List[str] = []
 _vision_models_cache_time: float = 0
 
 async def get_free_vision_models() -> List[str]:
-    """Get top free vision models from OpenRouter API."""
+    """
+    Get top free vision models from OpenRouter API.
+
+    Note: We don't sort by latency here because:
+    1. OpenRouter's /api/v1/models doesn't provide latency data
+    2. We use provider.sort: 'latency' in the actual API call instead
+       (see https://openrouter.ai/docs/guides/routing/provider-selection)
+    """
     global _vision_models_cache, _vision_models_cache_time
     import time
     import httpx
@@ -805,34 +812,32 @@ async def get_free_vision_models() -> List[str]:
             for model in data.get("data", []):
                 model_id = model.get("id", "")
                 pricing = model.get("pricing", {})
-                modality = model.get("architecture", {}).get("modality", "")
+                architecture = model.get("architecture", {})
+
+                # Check modality from architecture field
+                modality = architecture.get("modality", "")
+                input_modalities = architecture.get("input_modalities", [])
 
                 # Check if free (prompt and completion cost 0)
                 prompt_cost = float(pricing.get("prompt", "1") or "1")
                 completion_cost = float(pricing.get("completion", "1") or "1")
                 is_free = prompt_cost == 0 and completion_cost == 0
 
-                # Check if vision capable
-                is_vision = "image" in modality or "multimodal" in modality.lower()
+                # Check if vision capable (supports image input)
+                is_vision = (
+                    "image" in modality or
+                    "multimodal" in modality.lower() or
+                    "image" in input_modalities
+                )
 
                 if is_free and is_vision and ":free" in model_id:
                     free_vision.append(model_id)
 
-            # Sort by preference (nvidia and mistral models tend to be faster)
-            def sort_key(m):
-                if "nvidia" in m.lower():
-                    return 0
-                if "mistral" in m.lower():
-                    return 1
-                if "gemma" in m.lower():
-                    return 2
-                return 3
-
-            free_vision.sort(key=sort_key)
-
-            _vision_models_cache = free_vision[:3]  # Top 3
+            # No pre-sorting needed - OpenRouter handles latency routing via provider.sort
+            # We just cache the available models for fallback purposes
+            _vision_models_cache = free_vision[:5]  # Keep top 5 for fallback options
             _vision_models_cache_time = time.time()
-            logger.info(f"[Rotation] Found {len(free_vision)} free vision models, using top 3: {_vision_models_cache}")
+            logger.info(f"[Rotation] Found {len(free_vision)} free vision models, cached: {_vision_models_cache}")
             return _vision_models_cache
 
     except Exception as e:
