@@ -198,6 +198,11 @@ export default defineEventHandler(async (event) => {
     })).optional()
   }).parse)
 
+  // DEBUG: Log received rotation results
+  console.log(`[API/chat] Received request for chat ${chatId}:`)
+  console.log(`[API/chat]   - messages: ${messages.length}`)
+  console.log(`[API/chat]   - rotationResults: ${rotationResults?.length || 0}`, rotationResults ? JSON.stringify(rotationResults.map(r => ({ fileName: r.fileName, rotation: r.rotation }))) : 'none')
+
   // Get chat to verify it exists
   const chat = await getChat(chatId)
   if (!chat) {
@@ -207,13 +212,17 @@ export default defineEventHandler(async (event) => {
   // Save user message to database BEFORE streaming
   // But check if it's already saved to avoid duplicates (e.g., when regenerate() is called)
   const lastMessage = messages[messages.length - 1]
+  console.log(`[API/chat] Last message role: ${lastMessage?.role}`)
+
   if (lastMessage?.role === 'user') {
     const textContent = extractTextContent(lastMessage)
+    console.log(`[API/chat] User message text: "${textContent.slice(0, 50)}..."`)
 
     // Check if this message already exists in DB
     const lastDbMessage = await getLastMessage(chatId)
     const isDuplicate = lastDbMessage?.role === 'user' &&
       lastDbMessage?.content === textContent
+    console.log(`[API/chat] Is duplicate: ${isDuplicate}, lastDbMessage role: ${lastDbMessage?.role}`)
 
     if (!isDuplicate) {
       await addMessage({
@@ -233,6 +242,8 @@ export default defineEventHandler(async (event) => {
           console.error('[API/chat] Title generation error:', err)
         })
       }
+    } else {
+      console.log('[API/chat] Skipping message save and title gen - duplicate detected')
     }
   }
 
