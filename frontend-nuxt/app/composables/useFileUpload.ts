@@ -19,9 +19,24 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
+// Rotation result stored per file
+export interface RotationResult {
+  fileId: string
+  fileName: string
+  rotation: number
+  wasRotated: boolean
+  model: string | null
+  timing: { modelMs?: number; totalMs?: number }
+  rotatedUrl: string
+  state: 'pending' | 'processing' | 'completed' | 'error'
+}
+
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
+
+  // Track rotation results separately - survives file clearing
+  const rotationResults = ref<Map<string, RotationResult>>(new Map())
 
   // Setting to enable/disable auto-rotation
   const autoRotateEnabled = ref(true)
@@ -71,12 +86,37 @@ export function useFileUploadWithStatus(_chatId: string) {
 
         // Step 2: Start rotation detection in background (non-blocking)
         if (autoRotateEnabled.value && fileWithStatus.file.type.startsWith('image/')) {
+          // Store pending state immediately
+          rotationResults.value.set(fileWithStatus.id, {
+            fileId: fileWithStatus.id,
+            fileName: fileWithStatus.file.name,
+            rotation: 0,
+            wasRotated: false,
+            model: null,
+            timing: {},
+            rotatedUrl: fileWithStatus.previewUrl,
+            state: 'pending'
+          })
+
           // Fire and forget - don't await
           processImageRotation(fileWithStatus.file).then(rotationResult => {
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
-            if (currentIndex === -1) return // File was removed
 
-            if (rotationResult.wasRotated && rotationResult.rotatedFile && rotationResult.rotatedDataUrl) {
+            // Always store the result (even if file was removed, we keep the cache)
+            const result: RotationResult = {
+              fileId: fileWithStatus.id,
+              fileName: fileWithStatus.file.name,
+              rotation: rotationResult.rotation,
+              wasRotated: rotationResult.wasRotated,
+              model: rotationResult.model || null,
+              timing: rotationResult.timing || {},
+              rotatedUrl: rotationResult.rotatedDataUrl || fileWithStatus.previewUrl,
+              state: 'completed'
+            }
+            rotationResults.value.set(fileWithStatus.id, result)
+
+            // Only update file if it still exists
+            if (currentIndex !== -1 && rotationResult.wasRotated && rotationResult.rotatedFile && rotationResult.rotatedDataUrl) {
               // Update with rotated image
               const rotatedBase64 = rotationResult.rotatedDataUrl.split(',')[1] || ''
 
@@ -101,7 +141,7 @@ export function useFileUploadWithStatus(_chatId: string) {
                 }
               }
 
-              // Show notification
+              // Show notification only if actually rotated
               toast.add({
                 description: `Imagen rotada ${rotationResult.rotation}° automáticamente`,
                 icon: 'i-lucide-rotate-cw',
@@ -113,6 +153,14 @@ export function useFileUploadWithStatus(_chatId: string) {
             }
           }).catch(err => {
             console.warn('[Upload] Background rotation failed:', err)
+            // Mark as error but keep in cache
+            const existing = rotationResults.value.get(fileWithStatus.id)
+            if (existing) {
+              rotationResults.value.set(fileWithStatus.id, {
+                ...existing,
+                state: 'error'
+              })
+            }
           })
         }
       } catch (error) {
@@ -155,16 +203,30 @@ export function useFileUploadWithStatus(_chatId: string) {
       }))
   )
 
-  // Get info about rotated files for display in AI response
+  // Get rotation results for current files (for display)
+  const currentRotationResults = computed(() => {
+    const results: RotationResult[] = []
+    for (const file of files.value) {
+      const result = rotationResults.value.get(file.id)
+      if (result) {
+        results.push(result)
+      }
+    }
+    return results
+  })
+
+  // Get info about ALL processed images (for saving with message)
+  // This includes both rotated and non-rotated images
   const rotatedFilesInfo = computed(() =>
-    files.value
-      .filter(f => f.wasRotated && f.rotationInfo)
-      .map(f => ({
-        fileName: f.originalFile?.name || f.file.name,
-        rotation: f.rotationInfo!.rotation,
-        model: f.rotationInfo!.model,
-        timing: f.rotationInfo!.timing,
-        rotatedUrl: f.previewUrl
+    currentRotationResults.value
+      .filter(r => r.state === 'completed')
+      .map(r => ({
+        fileName: r.fileName,
+        rotation: r.rotation,
+        model: r.model,
+        timing: r.timing,
+        rotatedUrl: r.rotatedUrl,
+        state: r.state
       }))
   )
 
@@ -176,6 +238,8 @@ export function useFileUploadWithStatus(_chatId: string) {
       URL.revokeObjectURL(file.previewUrl)
     }
     files.value = files.value.filter(f => f.id !== id)
+    // Also remove from rotation cache
+    rotationResults.value.delete(id)
   }
 
   function clearFiles() {
@@ -186,10 +250,17 @@ export function useFileUploadWithStatus(_chatId: string) {
       }
     })
     files.value = []
+    // Don't clear rotation results - they're needed for display after send
+  }
+
+  // Clear rotation results (call after message is sent and displayed)
+  function clearRotationResults() {
+    rotationResults.value.clear()
   }
 
   onUnmounted(() => {
     clearFiles()
+    clearRotationResults()
   })
 
   return {
@@ -199,9 +270,11 @@ export function useFileUploadWithStatus(_chatId: string) {
     isUploading,
     uploadedFiles,
     rotatedFilesInfo,
+    currentRotationResults,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,
+    clearRotationResults,
     autoRotateEnabled
   }
 }

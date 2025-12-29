@@ -16,9 +16,10 @@ const items = computed(() => models.map(m => ({
     :icon="currentModel.icon"
     variant="ghost"
     value-key="value"
-    class="hover:bg-default focus:bg-default data-[state=open]:bg-default"
+    class="hover:bg-default focus:bg-default data-[state=open]:bg-default min-w-[200px]"
     :ui="{
-      trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
+      trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200',
+      itemsLeadingIcon: 'shrink-0'
     }"
   />
 </template>

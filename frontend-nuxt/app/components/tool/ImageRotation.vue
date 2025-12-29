@@ -6,11 +6,15 @@ const props = defineProps<{
   rotatedUrl: string
   model?: string | null
   timing?: { modelMs?: number; totalMs?: number }
+  state?: 'pending' | 'running' | 'completed'
 }>()
 
 const emit = defineEmits<{
   'click-image': [url: string]
 }>()
+
+// Only show if image was actually rotated (rotation != 0)
+const wasRotated = computed(() => props.rotation !== 0)
 
 // Format timing info
 const timingText = computed(() => {
@@ -20,28 +24,44 @@ const timingText = computed(() => {
   if (props.timing.totalMs) parts.push(`total: ${props.timing.totalMs}ms`)
   return parts.join(', ')
 })
+
+// State display
+const stateText = computed(() => {
+  switch (props.state) {
+    case 'pending': return 'Analizando...'
+    case 'running': return 'Rotando...'
+    case 'completed': return wasRotated.value ? '✓ Completado' : '✓ No requiere rotación'
+    default: return wasRotated.value ? '✓ Completado' : '✓ No requiere rotación'
+  }
+})
+
+const stateColor = computed(() => {
+  if (props.state === 'pending' || props.state === 'running') return 'info'
+  return wasRotated.value ? 'success' : 'neutral'
+})
 </script>
 
 <template>
   <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 my-2 border border-gray-200 dark:border-gray-700">
     <div class="flex-shrink-0 mt-0.5">
       <UIcon
-        name="i-lucide-rotate-cw"
+        :name="state === 'running' || state === 'pending' ? 'i-lucide-loader-2' : 'i-lucide-rotate-cw'"
+        :class="{ 'animate-spin': state === 'running' || state === 'pending' }"
         class="w-5 h-5"
-        style="color: var(--ui-success)"
+        :style="wasRotated ? 'color: var(--ui-success)' : 'color: var(--ui-text-muted)'"
       />
     </div>
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2 flex-wrap">
         <span class="font-medium text-sm text-gray-900 dark:text-gray-100">
-          Imagen rotada automáticamente
+          Detección de rotación
         </span>
         <UBadge
-          color="success"
+          :color="stateColor"
           size="xs"
           variant="subtle"
         >
-          {{ rotation }}° aplicado
+          {{ wasRotated ? `${rotation}° aplicado` : stateText }}
         </UBadge>
       </div>
 
@@ -61,9 +81,9 @@ const timingText = computed(() => {
         </div>
       </div>
 
-      <!-- Rotated image thumbnail -->
-      <div class="mt-3">
-        <div class="text-xs text-gray-500 dark:text-gray-500 mb-1">Resultado:</div>
+      <!-- Only show rotated image thumbnail if rotation was applied -->
+      <div v-if="wasRotated && rotatedUrl" class="mt-3">
+        <div class="text-xs text-gray-500 dark:text-gray-500 mb-1">Imagen rotada:</div>
         <div
           class="inline-block cursor-pointer hover:ring-2 hover:ring-primary rounded-lg transition-all"
           @click="emit('click-image', rotatedUrl)"

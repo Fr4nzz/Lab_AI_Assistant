@@ -38,7 +38,8 @@ const {
   rotatedFilesInfo,
   addFiles,
   removeFile,
-  clearFiles
+  clearFiles,
+  clearRotationResults
 } = useFileUploadWithStatus(route.params.id as string)
 
 // Store rotation info per message ID so it persists after files are cleared
@@ -138,6 +139,8 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
     if (latestUserMessage) {
       messageRotationInfo.value[latestUserMessage.id] = [...pendingRotationInfo.value]
       pendingRotationInfo.value = []
+      // Clear the rotation cache now that we've saved the info
+      clearRotationResults()
     }
   }
 })
@@ -286,6 +289,66 @@ function handleRotationImageClick(url: string) {
   lightboxImage.value = { src: url }
 }
 
+// Group message parts into enumerated steps for assistant messages
+// A step is: (optional reasoning) + (tool invocations OR final text)
+interface MessageStep {
+  stepNumber: number
+  reasoning?: { text: string; state?: string }
+  parts: Array<{ type: string; [key: string]: unknown }>
+  isFinal: boolean
+}
+
+function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }>): MessageStep[] {
+  const steps: MessageStep[] = []
+  let currentStep: MessageStep | null = null
+  let stepNumber = 0
+
+  for (const part of parts) {
+    if (part.type === 'reasoning') {
+      // Start a new step with reasoning
+      if (currentStep && currentStep.parts.length > 0) {
+        steps.push(currentStep)
+      }
+      stepNumber++
+      currentStep = {
+        stepNumber,
+        reasoning: { text: part.text as string, state: part.state as string | undefined },
+        parts: [],
+        isFinal: false
+      }
+    } else if (part.type === 'tool-invocation') {
+      // Add tool to current step or create new step
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: false }
+      }
+      currentStep.parts.push(part)
+    } else if (part.type === 'text') {
+      // Text is the final response
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: true }
+      }
+      currentStep.parts.push(part)
+      currentStep.isFinal = true
+    } else if (part.type === 'file') {
+      // Files attached by user, add to current step
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: false }
+      }
+      currentStep.parts.push(part)
+    }
+  }
+
+  // Push the last step
+  if (currentStep) {
+    steps.push(currentStep)
+  }
+
+  return steps
+}
+
 onMounted(() => {
   // Auto-trigger AI response for messages from main page (only user message, no response yet)
   if (data.value?.messages.length === 1) {
@@ -337,49 +400,86 @@ onUnmounted(() => {
           class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
         >
           <template #content="{ message }">
-            <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}${'state' in part ? `-${part.state}` : ''}`">
-              <Reasoning
-                v-if="part.type === 'reasoning'"
-                :text="part.text"
-                :is-streaming="part.state !== 'done'"
-              />
-              <MDCCached
-                v-else-if="part.type === 'text'"
-                :value="part.text"
-                :cache-key="`${message.id}-${index}`"
-                :components="components"
-                :parser-options="{ highlight: false }"
-                class="*:first:mt-0 *:last:mb-0"
-              />
-              <!-- Lab tool invocations -->
-              <ToolLabTool
-                v-else-if="part.type === 'tool-invocation'"
-                :name="(part as any).toolName"
-                :args="(part as any).args || {}"
-                :result="(part as any).result"
-                :state="(part as any).state || 'pending'"
-              />
-              <FileAvatar
-                v-else-if="part.type === 'file'"
-                :name="getFileName(part.url)"
-                :type="part.mediaType"
-                :preview-url="part.url"
-                @click="handleFileClick(part.url, getFileName(part.url))"
-              />
+            <!-- User messages: show files and rotation info -->
+            <template v-if="message.role === 'user'">
+              <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}`">
+                <MDCCached
+                  v-if="part.type === 'text'"
+                  :value="part.text"
+                  :cache-key="`${message.id}-${index}`"
+                  :components="components"
+                  :parser-options="{ highlight: false }"
+                  class="*:first:mt-0 *:last:mb-0"
+                />
+                <FileAvatar
+                  v-else-if="part.type === 'file'"
+                  :name="getFileName(part.url)"
+                  :type="part.mediaType"
+                  :preview-url="part.url"
+                  @click="handleFileClick(part.url, getFileName(part.url))"
+                />
+              </template>
+
+              <!-- Show rotation info for user messages that had images rotated -->
+              <template v-if="messageRotationInfo[message.id]">
+                <ToolImageRotation
+                  v-for="(info, idx) in messageRotationInfo[message.id]"
+                  :key="`rotation-${message.id}-${idx}`"
+                  :file-name="info.fileName"
+                  :rotation="info.rotation"
+                  :rotated-url="info.rotatedUrl"
+                  :model="info.model"
+                  :timing="info.timing"
+                  @click-image="handleRotationImageClick"
+                />
+              </template>
             </template>
 
-            <!-- Show rotation info for user messages that had images rotated -->
-            <template v-if="message.role === 'user' && messageRotationInfo[message.id]">
-              <ToolImageRotation
-                v-for="(info, idx) in messageRotationInfo[message.id]"
-                :key="`rotation-${message.id}-${idx}`"
-                :file-name="info.fileName"
-                :rotation="info.rotation"
-                :rotated-url="info.rotatedUrl"
-                :model="info.model"
-                :timing="info.timing"
-                @click-image="handleRotationImageClick"
-              />
+            <!-- Assistant messages: show enumerated steps with reasoning and tools -->
+            <template v-else>
+              <template v-for="step in groupMessageParts(message.parts)" :key="`${message.id}-step-${step.stepNumber}`">
+                <!-- Step indicator for multi-step responses -->
+                <div
+                  v-if="groupMessageParts(message.parts).length > 1 && (step.reasoning || step.parts.some(p => p.type === 'tool-invocation'))"
+                  class="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-3 mb-1"
+                >
+                  <span class="font-mono">{{ step.stepNumber }}.</span>
+                  <span>{{ step.isFinal ? 'Respuesta final' : 'Procesando...' }}</span>
+                </div>
+
+                <!-- Reasoning for this step -->
+                <Reasoning
+                  v-if="step.reasoning"
+                  :text="step.reasoning.text"
+                  :is-streaming="step.reasoning.state !== 'done'"
+                />
+
+                <!-- Parts for this step (tools or text) -->
+                <template v-for="(part, partIndex) in step.parts" :key="`${message.id}-step-${step.stepNumber}-part-${partIndex}`">
+                  <MDCCached
+                    v-if="part.type === 'text'"
+                    :value="(part as any).text"
+                    :cache-key="`${message.id}-step-${step.stepNumber}-${partIndex}`"
+                    :components="components"
+                    :parser-options="{ highlight: false }"
+                    class="*:first:mt-0 *:last:mb-0"
+                  />
+                  <ToolLabTool
+                    v-else-if="part.type === 'tool-invocation'"
+                    :name="(part as any).toolName"
+                    :args="(part as any).args || {}"
+                    :result="(part as any).result"
+                    :state="(part as any).state || 'pending'"
+                  />
+                  <FileAvatar
+                    v-else-if="part.type === 'file'"
+                    :name="getFileName((part as any).url)"
+                    :type="(part as any).mediaType"
+                    :preview-url="(part as any).url"
+                    @click="handleFileClick((part as any).url, getFileName((part as any).url))"
+                  />
+                </template>
+              </template>
             </template>
           </template>
         </UChatMessages>
