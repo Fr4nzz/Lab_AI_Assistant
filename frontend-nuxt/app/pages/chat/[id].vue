@@ -120,10 +120,22 @@ async function handleSubmit(e: Event) {
   const textToSend = input.value.trim()
   const hasFiles = uploadedFiles.value.length > 0
 
+  console.log('[handleSubmit] Called with:', {
+    textToSend: textToSend.slice(0, 50),
+    hasFiles,
+    filesCount: files.value.length,
+    uploadedFilesCount: uploadedFiles.value.length,
+    isUploading: isUploading.value,
+    isWaitingForRotationsState: isWaitingForRotationsState.value,
+    hasPendingRotations: hasPendingRotations.value,
+    currentRotationResults: currentRotationResults.value.map(r => ({ fileName: r.fileName, state: r.state }))
+  })
+
   // Allow sending with just files OR just text OR both
   if ((textToSend || hasFiles) && !isUploading.value && !isWaitingForRotationsState.value) {
     // Check if we have pending rotations - if so, wait for them
     if (hasPendingRotations.value) {
+      console.log('[handleSubmit] Waiting for pending rotations...')
       isWaitingForRotationsState.value = true
       toast.add({
         title: 'Procesando imágenes',

@@ -99,9 +99,17 @@ export function useFileUploadWithStatus(_chatId: string) {
             state: 'pending'
           })
           rotationResults.value = pendingMap
+          console.log(`[Upload] Rotation state set to 'pending' for file ${fileWithStatus.id}`)
+          console.log(`[Upload] rotationResults now has ${rotationResults.value.size} entries:`, Array.from(rotationResults.value.keys()))
 
           // Fire and forget - don't await
+          console.log(`[Upload] Starting processImageRotation for file ${fileWithStatus.id}`)
           processImageRotation(fileWithStatus.file).then(rotationResult => {
+            console.log(`[Upload] processImageRotation completed for file ${fileWithStatus.id}:`, {
+              rotation: rotationResult.rotation,
+              wasRotated: rotationResult.wasRotated,
+              model: rotationResult.model
+            })
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
 
             // Always store the result (even if file was removed, we keep the cache)
@@ -119,6 +127,7 @@ export function useFileUploadWithStatus(_chatId: string) {
             const newMap = new Map(rotationResults.value)
             newMap.set(fileWithStatus.id, result)
             rotationResults.value = newMap
+            console.log(`[Upload] Rotation state set to 'completed' for file ${fileWithStatus.id}`)
 
             // Only update file if it still exists
             if (currentIndex !== -1 && rotationResult.wasRotated && rotationResult.rotatedFile && rotationResult.rotatedDataUrl) {
@@ -244,11 +253,15 @@ export function useFileUploadWithStatus(_chatId: string) {
 
   // Check if there are any images with pending rotations
   const hasPendingRotations = computed(() => {
-    return files.value.some(f => {
+    const pending = files.value.some(f => {
       if (!f.file.type.startsWith('image/')) return false
       const result = rotationResults.value.get(f.id)
-      return result && (result.state === 'pending' || result.state === 'processing')
+      const isPending = result && (result.state === 'pending' || result.state === 'processing')
+      console.log(`[hasPendingRotations] File ${f.id}: result=${result?.state}, isPending=${isPending}`)
+      return isPending
     })
+    console.log(`[hasPendingRotations] Result: ${pending}, files: ${files.value.length}, rotationResults: ${rotationResults.value.size}`)
+    return pending
   })
 
   // Wait for all pending rotations to complete
