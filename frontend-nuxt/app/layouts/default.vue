@@ -7,6 +7,7 @@ const overlay = useOverlay()
 const { loggedIn, openInPopup } = useUserSession()
 const { isOAuthEnabled } = useAuthConfig()
 const { enabledTools } = useEnabledTools()
+const { showStats } = useShowStats()
 
 const open = ref(false)
 const tabEditorOpen = ref(false)
@@ -199,6 +200,27 @@ defineShortcuts({
           </UCollapsible>
         </div>
 
+        <!-- Stats toggle (non-collapsed) -->
+        <div v-if="!collapsed" class="border-t border-default pt-2 mt-2">
+          <UButton
+            variant="ghost"
+            color="neutral"
+            block
+            class="justify-between"
+            @click="showStats = !showStats"
+          >
+            <span class="flex items-center gap-2">
+              <UIcon name="i-lucide-bar-chart-2" class="w-4 h-4" />
+              Mostrar estadísticas
+            </span>
+            <UIcon
+              :name="showStats ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
+              class="w-5 h-5"
+              :class="showStats ? 'text-primary' : 'text-muted'"
+            />
+          </UButton>
+        </div>
+
         <!-- Collapsed state icons -->
         <div v-if="collapsed" class="mt-auto space-y-1">
           <UTooltip text="Herramientas">
@@ -217,6 +239,15 @@ defineShortcuts({
               color="neutral"
               block
               @click="showTabs = !showTabs"
+            />
+          </UTooltip>
+          <UTooltip :text="showStats ? 'Ocultar estadísticas' : 'Mostrar estadísticas'">
+            <UButton
+              icon="i-lucide-bar-chart-2"
+              variant="ghost"
+              :color="showStats ? 'primary' : 'neutral'"
+              block
+              @click="showStats = !showStats"
             />
           </UTooltip>
         </div>

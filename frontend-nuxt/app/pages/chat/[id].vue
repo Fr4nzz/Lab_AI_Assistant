@@ -16,6 +16,15 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
+const showCamera = ref(false)
+const chatPromptRef = ref<{ inputRef: { el: HTMLTextAreaElement } } | null>(null)
+
+const {
+  isRecording,
+  isPreparing,
+  startRecording,
+  stopRecording
+} = useAudioRecorder()
 
 function getFileName(url: string): string {
   try {
@@ -83,7 +92,7 @@ const chat = new Chat({
 
 async function handleSubmit(e: Event) {
   e.preventDefault()
-  if (input.value.trim() && !isUploading.value) {
+  if (input.value.trim() && !isRecording.value) {
     chat.sendMessage({
       text: input.value,
       files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
@@ -103,6 +112,45 @@ function copy(e: MouseEvent, message: UIMessage) {
   setTimeout(() => {
     copied.value = false
   }, 2000)
+}
+
+// Microphone recording handlers
+async function toggleRecording() {
+  if (isRecording.value) {
+    const audioFile = await stopRecording()
+    if (audioFile) {
+      addFiles([audioFile])
+      toast.add({
+        title: 'Audio grabado',
+        description: 'Grabación de audio agregada',
+        icon: 'i-lucide-mic',
+        color: 'success'
+      })
+    }
+  } else {
+    try {
+      await startRecording()
+    } catch {
+      toast.add({
+        title: 'Error',
+        description: 'No se pudo acceder al micrófono',
+        icon: 'i-lucide-mic-off',
+        color: 'error'
+      })
+    }
+  }
+}
+
+// Camera capture handler
+function handleCameraCapture(file: File) {
+  addFiles([file])
+  showCamera.value = false
+  toast.add({
+    title: 'Foto capturada',
+    description: 'Imagen agregada',
+    icon: 'i-lucide-camera',
+    color: 'success'
+  })
 }
 
 // Handle clipboard paste for images
@@ -134,6 +182,10 @@ async function handlePaste(e: ClipboardEvent) {
       icon: 'i-lucide-image',
       color: 'success'
     })
+    // Fix focus after paste - small delay to ensure DOM updates
+    setTimeout(() => {
+      chatPromptRef.value?.inputRef?.el?.focus()
+    }, 50)
   }
 }
 
@@ -202,9 +254,10 @@ onUnmounted(() => {
         </UChatMessages>
 
         <UChatPrompt
+          ref="chatPromptRef"
           v-model="input"
           :error="chat.error"
-          :disabled="isUploading"
+          :disabled="isRecording"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
@@ -220,6 +273,7 @@ onUnmounted(() => {
                 :preview-url="fileWithStatus.previewUrl"
                 :status="fileWithStatus.status"
                 :error="fileWithStatus.error"
+                :rotation="fileWithStatus.rotation"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
               />
@@ -229,12 +283,36 @@ onUnmounted(() => {
           <template #footer>
             <div class="flex items-center gap-1">
               <FileUploadButton @files-selected="addFiles($event)" />
+
+              <!-- Microphone button -->
+              <UTooltip :text="isRecording ? 'Detener grabación' : 'Grabar audio'">
+                <UButton
+                  :icon="isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
+                  :color="isRecording ? 'error' : 'neutral'"
+                  variant="ghost"
+                  size="sm"
+                  :loading="isPreparing"
+                  @click="toggleRecording"
+                />
+              </UTooltip>
+
+              <!-- Camera button -->
+              <UTooltip text="Capturar foto">
+                <UButton
+                  icon="i-lucide-camera"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  @click="showCamera = true"
+                />
+              </UTooltip>
+
               <ModelSelect v-model="model" />
             </div>
 
             <UChatPromptSubmit
               :status="chat.status"
-              :disabled="isUploading"
+              :disabled="isUploading || isRecording"
               color="neutral"
               size="sm"
               @stop="chat.stop()"
@@ -242,6 +320,13 @@ onUnmounted(() => {
             />
           </template>
         </UChatPrompt>
+
+        <!-- Camera capture overlay -->
+        <CameraCapture
+          v-if="showCamera"
+          @capture="handleCameraCapture"
+          @close="showCamera = false"
+        />
       </UContainer>
     </template>
   </UDashboardPanel>
