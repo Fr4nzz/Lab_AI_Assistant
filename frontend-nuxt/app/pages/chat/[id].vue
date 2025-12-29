@@ -86,8 +86,10 @@ const chat = new Chat({
   }),
   onFinish() {
     // Refresh chat list to get the generated title
-    // Title generation is async, refresh after 2s (usually completes in 1-3s)
-    setTimeout(refreshSidebar, 2000)
+    // Title generation is async, refresh multiple times to catch it
+    setTimeout(refreshSidebar, 1000)
+    setTimeout(refreshSidebar, 3000)
+    setTimeout(refreshSidebar, 6000)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
