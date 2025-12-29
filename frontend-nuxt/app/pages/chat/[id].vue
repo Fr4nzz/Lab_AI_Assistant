@@ -46,7 +46,15 @@ const {
   waitForRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
-// NOTE: Removed pendingRotationResults ref - now passing rotation data directly via sendMessage options.body
+// Rotation data to be sent with next message (stored in ref for transport body access)
+const pendingRotationData = ref<Array<{
+  fileName: string
+  rotation: number
+  model: string | null
+  timing: { modelMs?: number; totalMs?: number }
+  rotatedUrl: string
+  state: string
+}> | undefined>()
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -70,15 +78,17 @@ const chat = new Chat({
   messages: transformedMessages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    // NOTE: rotationResults is now passed via sendMessage options.body, not here
+    // rotationResults is passed via ref that gets set before sendMessage
     body: () => ({
       model: model.value,
       enabledTools: enabledTools.value,
-      showStats: showStats.value
+      showStats: showStats.value,
+      rotationResults: pendingRotationData.value
     })
   }),
   onFinish() {
-    // Clear rotation results after message is complete
+    // Clear rotation data and results after message is complete
+    pendingRotationData.value = undefined
     clearRotationResults()
 
     // Refresh chat list to get the generated title
@@ -97,80 +107,59 @@ const chat = new Chat({
   }
 })
 
-// State for waiting on rotation processing
-const isWaitingForRotationsState = ref(false)
-
-// Check if we're waiting for rotations before we can submit
-const isWaitingForRotations = computed(() => {
-  return files.value.length > 0 && hasPendingRotations.value
+// Computed: is submission currently disabled?
+const isSubmitDisabled = computed(() => {
+  const disabled = isUploading.value || hasPendingRotations.value
+  console.log('[isSubmitDisabled]', { isUploading: isUploading.value, hasPendingRotations: hasPendingRotations.value, result: disabled })
+  return disabled
 })
 
-// IMPORTANT: handleSubmit must have required Event parameter
-async function handleSubmit(e: Event) {
-  e.preventDefault()
+// Handle form submission
+// NOTE: UChatPrompt @submit does NOT pass a native event - don't use e.preventDefault()
+async function handleSubmit() {
   const textToSend = input.value.trim()
   const hasFiles = uploadedFiles.value.length > 0
 
-  // Early exit if nothing to send or busy
-  if ((!textToSend && !hasFiles) || isUploading.value || isWaitingForRotationsState.value) {
+  console.log('[handleSubmit] Called:', {
+    text: textToSend.slice(0, 30),
+    hasFiles,
+    filesCount: files.value.length,
+    hasPendingRotations: hasPendingRotations.value,
+    currentRotationResults: currentRotationResults.value.map(r => ({ name: r.fileName, state: r.state }))
+  })
+
+  // Early exit if nothing to send
+  if (!textToSend && !hasFiles) {
+    console.log('[handleSubmit] Nothing to send, returning')
     return
   }
 
-  // Check if we have pending rotations - if so, wait for them
-  let rotationResults: Array<{
-    fileName: string
-    rotation: number
-    model: string | null
-    timing: { modelMs?: number; totalMs?: number }
-    rotatedUrl: string
-    state: string
-  }> = []
+  // Capture completed rotation results and set in ref BEFORE sending
+  const rotationData = currentRotationResults.value
+    .filter(r => r.state === 'completed')
+    .map(r => ({
+      fileName: r.fileName,
+      rotation: r.rotation,
+      model: r.model,
+      timing: r.timing,
+      rotatedUrl: r.rotatedUrl,
+      state: r.state
+    }))
 
-  if (hasPendingRotations.value) {
-    isWaitingForRotationsState.value = true
-    toast.add({
-      title: 'Procesando imágenes',
-      description: 'Esperando detección de rotación...',
-      icon: 'i-lucide-rotate-cw',
-      color: 'info',
-      duration: 3000
-    })
+  console.log('[handleSubmit] Rotation data to send:', rotationData.length, rotationData.map(r => ({ name: r.fileName, rotation: r.rotation })))
 
-    try {
-      // Wait for all rotations to complete (max 60 seconds)
-      rotationResults = await waitForRotations(60000)
-    } finally {
-      isWaitingForRotationsState.value = false
-    }
-  } else {
-    // No pending rotations - capture any completed results
-    rotationResults = currentRotationResults.value
-      .filter(r => r.state === 'completed')
-      .map(r => ({
-        fileName: r.fileName,
-        rotation: r.rotation,
-        model: r.model,
-        timing: r.timing,
-        rotatedUrl: r.rotatedUrl,
-        state: r.state
-      }))
-  }
+  // Set rotation data in ref so transport body() can access it
+  pendingRotationData.value = rotationData.length > 0 ? rotationData : undefined
 
-  // Build message
+  // Build and send message
   const message = {
     text: textToSend || ' ',
-    files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+    files: hasFiles ? uploadedFiles.value : undefined
   }
 
-  // Pass rotation data via sendMessage OPTIONS (not transport body)
-  // This ensures the data is sent with THIS specific request
-  const options = rotationResults.length > 0
-    ? { body: { rotationResults } }
-    : undefined
+  chat.sendMessage(message)
 
-  chat.sendMessage(message, options)
-
-  // Clean up
+  // Clean up input and files
   input.value = ''
   clearFiles()
 }
@@ -669,27 +658,36 @@ onUnmounted(() => {
         <UChatPrompt
           v-model="input"
           :error="chat.error"
-          :disabled="isUploading || isWaitingForRotationsState"
+          :disabled="isSubmitDisabled"
+          :placeholder="hasPendingRotations ? 'Detectando orientación de imagen...' : 'Escribe un mensaje...'"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
           @submit="handleSubmit"
         >
-          <template v-if="files.length > 0" #header>
-            <div class="flex flex-wrap gap-2">
-              <FileAvatar
-                v-for="fileWithStatus in files"
-                :key="fileWithStatus.id"
-                :name="fileWithStatus.file.name"
-                :type="fileWithStatus.file.type"
-                :preview-url="fileWithStatus.previewUrl"
-                :status="fileWithStatus.status"
-                :error="fileWithStatus.error"
-                :rotation="fileWithStatus.rotation"
-                removable
-                @remove="removeFile(fileWithStatus.id)"
-                @click="handleFileClick(fileWithStatus.previewUrl, fileWithStatus.file.name)"
-              />
+          <template v-if="files.length > 0 || hasPendingRotations" #header>
+            <div class="flex flex-col gap-2">
+              <!-- Files preview -->
+              <div v-if="files.length > 0" class="flex flex-wrap gap-2">
+                <FileAvatar
+                  v-for="fileWithStatus in files"
+                  :key="fileWithStatus.id"
+                  :name="fileWithStatus.file.name"
+                  :type="fileWithStatus.file.type"
+                  :preview-url="fileWithStatus.previewUrl"
+                  :status="fileWithStatus.status"
+                  :error="fileWithStatus.error"
+                  :rotation="fileWithStatus.rotation"
+                  removable
+                  @remove="removeFile(fileWithStatus.id)"
+                  @click="handleFileClick(fileWithStatus.previewUrl, fileWithStatus.file.name)"
+                />
+              </div>
+              <!-- Rotation detection in progress indicator -->
+              <div v-if="hasPendingRotations" class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                <UIcon name="i-lucide-loader-2" class="w-4 h-4 animate-spin" />
+                <span>Detectando orientación de imagen...</span>
+              </div>
             </div>
           </template>
 
@@ -731,15 +729,9 @@ onUnmounted(() => {
               <ModelSelect v-model="model" />
             </div>
 
-            <!-- Show rotation waiting indicator -->
-            <div v-if="isWaitingForRotationsState" class="flex items-center gap-2 text-sm text-gray-500">
-              <UIcon name="i-lucide-loader-2" class="w-4 h-4 animate-spin" />
-              <span>Procesando...</span>
-            </div>
-
             <UChatPromptSubmit
               :status="chat.status"
-              :disabled="isUploading || isWaitingForRotationsState"
+              :disabled="isSubmitDisabled"
               color="neutral"
               size="sm"
               @stop="chat.stop()"
