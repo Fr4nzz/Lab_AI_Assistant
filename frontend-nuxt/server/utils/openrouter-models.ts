@@ -1,7 +1,7 @@
 /**
  * OpenRouter Free Models Utility
  *
- * Fetches free text models from OpenRouter API and provides latency-sorted access.
+ * Fetches free text models from OpenRouter API.
  * Uses OpenRouter's official endpoint: https://openrouter.ai/api/v1/models
  */
 
@@ -91,20 +91,6 @@ export async function getFreeTextModels(): Promise<string[]> {
   } catch (error) {
     console.error('[OpenRouter] Error fetching models:', error)
     return getDefaultFreeModels()
-  }
-}
-
-/**
- * Gets the extra body params for OpenRouter with latency-based provider sorting.
- * This tells OpenRouter to prefer providers with lowest latency.
- *
- * @see https://openrouter.ai/docs/features/provider-routing
- */
-export function getLatencySortedProviderBody() {
-  return {
-    provider: {
-      sort: 'latency'
-    }
   }
 }
 
