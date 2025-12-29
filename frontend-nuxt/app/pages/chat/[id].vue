@@ -16,6 +16,7 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
+const tts = useTTS()
 const showCamera = ref(false)
 const chatPromptRef = ref<{ inputRef: { el: HTMLTextAreaElement } } | null>(null)
 
@@ -63,6 +64,60 @@ function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result'
   if (state === 'output-available' || state === 'result') return 'result'
   if (state === 'output-error' || state === 'error') return 'error'
   return 'pending'
+}
+
+// Group message parts into enumerated steps for assistant messages
+interface MessageStep {
+  stepNumber: number
+  reasoning?: { text: string; state?: string }
+  parts: Array<{ type: string; [key: string]: unknown }>
+  isFinal: boolean
+}
+
+function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }>): MessageStep[] {
+  const steps: MessageStep[] = []
+  let currentStep: MessageStep | null = null
+  let stepNumber = 0
+
+  for (const part of parts) {
+    if (part.type === 'reasoning') {
+      if (currentStep && currentStep.parts.length > 0) {
+        steps.push(currentStep)
+      }
+      stepNumber++
+      currentStep = {
+        stepNumber,
+        reasoning: { text: part.text as string, state: part.state as string | undefined },
+        parts: [],
+        isFinal: false
+      }
+    } else if (isToolPart(part)) {
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: false }
+      }
+      currentStep.parts.push(part)
+    } else if (part.type === 'text') {
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: true }
+      }
+      currentStep.parts.push(part)
+      currentStep.isFinal = true
+    } else if (part.type === 'file') {
+      if (!currentStep) {
+        stepNumber++
+        currentStep = { stepNumber, parts: [], isFinal: false }
+      }
+      currentStep.parts.push(part)
+    }
+  }
+
+  if (currentStep) {
+    steps.push(currentStep)
+  }
+
+  return steps
 }
 
 const {
@@ -140,6 +195,23 @@ function copy(e: MouseEvent, message: UIMessage) {
   setTimeout(() => {
     copied.value = false
   }, 2000)
+}
+
+// Per-message regeneration
+function regenerateMessage(messageId: string) {
+  const messages = chat.messages
+  const messageIndex = messages.findIndex(m => m.id === messageId)
+  if (messageIndex === -1) return
+
+  let userMessageIndex = messageIndex - 1
+  while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+    userMessageIndex--
+  }
+  if (userMessageIndex < 0) return
+
+  const newMessages = messages.slice(0, messageIndex)
+  chat.setMessages(newMessages)
+  chat.regenerate()
 }
 
 // Microphone recording handlers
@@ -244,39 +316,108 @@ onUnmounted(() => {
           should-auto-scroll
           :messages="chat.messages"
           :status="chat.status"
-          :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copiar', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
           :spacing-offset="160"
-          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
+          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6 [&_[data-chat-message]]:group"
         >
           <template #content="{ message }">
-            <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}${'state' in part ? `-${part.state}` : ''}`">
-              <Reasoning
-                v-if="part.type === 'reasoning'"
-                :text="part.text"
-                :is-streaming="part.state !== 'done'"
-              />
-              <MDCCached
-                v-else-if="part.type === 'text'"
-                :value="part.text"
-                :cache-key="`${message.id}-${index}`"
-                :components="components"
-                :parser-options="{ highlight: false }"
-                class="*:first:mt-0 *:last:mb-0"
-              />
-              <!-- Lab tool invocations (handles both 'tool-invocation' and 'tool-{toolName}' formats) -->
-              <ToolLabTool
-                v-else-if="isToolPart(part)"
-                :name="getToolName(part)"
-                :args="(part as any).args || (part as any).input || {}"
-                :result="(part as any).result || (part as any).output"
-                :state="getToolState(part)"
-              />
-              <FileAvatar
-                v-else-if="part.type === 'file'"
-                :name="getFileName(part.url)"
-                :type="part.mediaType"
-                :preview-url="part.url"
-              />
+            <!-- User messages -->
+            <template v-if="message.role === 'user'">
+              <template v-for="(part, index) in message.parts" :key="`${message.id}-${part.type}-${index}`">
+                <MDCCached
+                  v-if="part.type === 'text'"
+                  :value="part.text"
+                  :cache-key="`${message.id}-${index}`"
+                  :components="components"
+                  :parser-options="{ highlight: false }"
+                  class="*:first:mt-0 *:last:mb-0"
+                />
+                <FileAvatar
+                  v-else-if="part.type === 'file'"
+                  :name="getFileName(part.url)"
+                  :type="part.mediaType"
+                  :preview-url="part.url"
+                />
+              </template>
+            </template>
+
+            <!-- Assistant messages: show enumerated steps with reasoning and tools -->
+            <template v-else>
+              <template v-for="step in groupMessageParts(message.parts)" :key="`${message.id}-step-${step.stepNumber}`">
+                <!-- Step indicator for multi-step responses -->
+                <div
+                  v-if="groupMessageParts(message.parts).length > 1 && (step.reasoning || step.parts.some(p => isToolPart(p)))"
+                  class="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-3 mb-1"
+                >
+                  <span class="font-mono">{{ step.stepNumber }}.</span>
+                  <span>{{ step.isFinal ? 'Respuesta final' : 'Procesando...' }}</span>
+                </div>
+
+                <!-- Reasoning for this step -->
+                <Reasoning
+                  v-if="step.reasoning"
+                  :text="step.reasoning.text"
+                  :is-streaming="step.reasoning.state !== 'done'"
+                />
+
+                <!-- Parts for this step (tools or text) -->
+                <template v-for="(part, partIndex) in step.parts" :key="`${message.id}-step-${step.stepNumber}-part-${partIndex}`">
+                  <MDCCached
+                    v-if="part.type === 'text'"
+                    :value="(part as any).text"
+                    :cache-key="`${message.id}-step-${step.stepNumber}-${partIndex}`"
+                    :components="components"
+                    :parser-options="{ highlight: false }"
+                    class="*:first:mt-0 *:last:mb-0"
+                  />
+                  <ToolLabTool
+                    v-else-if="isToolPart(part)"
+                    :name="getToolName(part)"
+                    :args="(part as any).args || (part as any).input || {}"
+                    :result="(part as any).result || (part as any).output"
+                    :state="getToolState(part)"
+                  />
+                  <FileAvatar
+                    v-else-if="part.type === 'file'"
+                    :name="getFileName((part as any).url)"
+                    :type="(part as any).mediaType"
+                    :preview-url="(part as any).url"
+                  />
+                </template>
+
+                <!-- Message actions for assistant messages -->
+                <div
+                  v-if="chat.status !== 'streaming'"
+                  class="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <UTooltip text="Regenerar">
+                    <UButton
+                      icon="i-lucide-rotate-ccw"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="regenerateMessage(message.id)"
+                    />
+                  </UTooltip>
+                  <UTooltip text="Copiar">
+                    <UButton
+                      :icon="copied ? 'i-lucide-copy-check' : 'i-lucide-copy'"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="copy($event, message)"
+                    />
+                  </UTooltip>
+                  <UTooltip v-if="tts.isSupported.value" :text="tts.isSpeakingMessage(message.id) ? 'Detener' : 'Leer en voz alta'">
+                    <UButton
+                      :icon="tts.isSpeakingMessage(message.id) ? 'i-lucide-square' : 'i-lucide-volume-2'"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="tts.isSpeakingMessage(message.id) ? tts.stop() : tts.speak(message)"
+                    />
+                  </UTooltip>
+                </div>
+              </template>
             </template>
           </template>
         </UChatMessages>
