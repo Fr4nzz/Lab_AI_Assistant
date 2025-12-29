@@ -85,6 +85,13 @@ const chat = new Chat({
     })
   }),
   onFinish() {
+    // Debug: Log message parts after completion
+    const messages = chat.messages.value
+    const lastMsg = messages[messages.length - 1]
+    console.log('[Chat] onFinish - Last message:', lastMsg?.id)
+    console.log('[Chat] onFinish - Parts:', JSON.stringify(lastMsg?.parts, null, 2))
+    console.log('[Chat] onFinish - Content:', lastMsg?.content?.slice(0, 200))
+
     // Refresh chat list to get the generated title
     // Title generation is async, refresh multiple times to catch it
     setTimeout(refreshSidebar, 1000)
