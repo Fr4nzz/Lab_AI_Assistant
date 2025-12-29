@@ -262,6 +262,8 @@ export default defineEventHandler(async (event) => {
   // Collect response while streaming for database storage
   const reader = response.body.getReader()
   let fullResponse = ''
+  let eventCount = 0
+  const eventTypes: Record<string, number> = {}
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -274,23 +276,41 @@ export default defineEventHandler(async (event) => {
 
           controller.enqueue(value)
 
-          // Parse stream to collect text for storage
+          // Parse stream to collect text for storage AND debug events
           const text = decoder.decode(value, { stream: true })
           for (const line of text.split('\n')) {
             if (line.startsWith('data: ')) {
+              const rawData = line.slice(6)
+              eventCount++
+
               try {
-                const parsed = JSON.parse(line.slice(6))
+                const parsed = JSON.parse(rawData)
+                const eventType = parsed.type || 'unknown'
+                eventTypes[eventType] = (eventTypes[eventType] || 0) + 1
+
+                // Log ALL non-text-delta events for debugging
+                if (eventType !== 'text-delta') {
+                  console.log(`[Stream Event ${eventCount}] ${eventType}:`, JSON.stringify(parsed).slice(0, 200))
+                }
+
                 if (parsed.type === 'text-delta' && parsed.delta) {
                   fullResponse += parsed.delta
                 }
               } catch {
-                // Skip non-JSON lines
+                // Log non-JSON data (like [DONE])
+                if (rawData.trim() && rawData.trim() !== '[DONE]') {
+                  console.log(`[Stream Event ${eventCount}] Raw data:`, rawData.slice(0, 100))
+                }
               }
             }
           }
         }
 
         controller.close()
+
+        // Log stream summary
+        console.log('[API/chat] Stream complete. Event summary:', eventTypes)
+        console.log(`[API/chat] Total events: ${eventCount}`)
 
         // Save assistant response to database
         if (fullResponse) {
