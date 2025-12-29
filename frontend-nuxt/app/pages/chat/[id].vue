@@ -41,7 +41,8 @@ const {
   removeFile,
   clearFiles,
   clearRotationResults,
-  hasPendingRotations
+  hasPendingRotations,
+  waitForRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
 // Store rotation info to display as tool calls in AI messages
@@ -105,6 +106,9 @@ const chat = new Chat({
   }
 })
 
+// State for waiting on rotation processing
+const isWaitingForRotationsState = ref(false)
+
 // Check if we're waiting for rotations before we can submit
 const isWaitingForRotations = computed(() => {
   return files.value.length > 0 && hasPendingRotations.value
@@ -117,8 +121,49 @@ async function handleSubmit(e: Event) {
   const hasFiles = uploadedFiles.value.length > 0
 
   // Allow sending with just files OR just text OR both
-  if ((textToSend || hasFiles) && !isUploading.value) {
-    // Capture rotation results BEFORE clearing files
+  if ((textToSend || hasFiles) && !isUploading.value && !isWaitingForRotationsState.value) {
+    // Check if we have pending rotations - if so, wait for them
+    if (hasPendingRotations.value) {
+      isWaitingForRotationsState.value = true
+      toast.add({
+        title: 'Procesando imágenes',
+        description: 'Esperando detección de rotación...',
+        icon: 'i-lucide-rotate-cw',
+        color: 'info',
+        duration: 3000
+      })
+
+      try {
+        // Wait for all rotations to complete (max 60 seconds)
+        const rotationResults = await waitForRotations(60000)
+
+        // Store rotation results for backend to stream as tool calls
+        if (rotationResults.length > 0) {
+          pendingRotationResults.value = rotationResults.map(r => ({
+            fileName: r.fileName,
+            rotation: r.rotation,
+            model: r.model,
+            timing: r.timing,
+            rotatedUrl: r.rotatedUrl,
+            state: r.state
+          }))
+        }
+
+        // Now send the message with updated files (they may have been rotated)
+        chat.sendMessage({
+          text: textToSend || (hasFiles ? ' ' : ''),
+          files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+        })
+        input.value = ''
+        clearFiles()
+      } finally {
+        isWaitingForRotationsState.value = false
+      }
+      return
+    }
+
+    // No pending rotations - send immediately
+    // Capture any completed rotation results BEFORE clearing files
     const rotationResults = currentRotationResults.value.filter(r => r.state === 'completed')
     if (rotationResults.length > 0) {
       pendingRotationResults.value = rotationResults.map(r => ({
@@ -153,9 +198,9 @@ function copy(e: MouseEvent, message: UIMessage) {
   }, 2000)
 }
 
-// Refocus the input after adding files - use nextTick and multiple attempts for reliability
+// Refocus the input after adding files - use multiple strategies for reliability
 function focusInput() {
-  nextTick(() => {
+  const doFocus = () => {
     const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
     if (textarea) {
       textarea.focus()
@@ -163,14 +208,18 @@ function focusInput() {
       const len = textarea.value.length
       textarea.setSelectionRange(len, len)
     }
-  })
-  // Backup attempt after a short delay
-  setTimeout(() => {
-    const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
-    if (textarea && document.activeElement !== textarea) {
-      textarea.focus()
-    }
-  }, 100)
+  }
+
+  // Strategy 1: nextTick (Vue's DOM update cycle)
+  nextTick(doFocus)
+
+  // Strategy 2: requestAnimationFrame (browser's next paint)
+  requestAnimationFrame(doFocus)
+
+  // Strategy 3: Multiple setTimeout backups for edge cases
+  setTimeout(doFocus, 0)
+  setTimeout(doFocus, 50)
+  setTimeout(doFocus, 150)
 }
 
 // Handle clipboard paste for images
@@ -574,7 +623,7 @@ onUnmounted(() => {
         <UChatPrompt
           v-model="input"
           :error="chat.error"
-          :disabled="isUploading"
+          :disabled="isUploading || isWaitingForRotationsState"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
@@ -636,9 +685,15 @@ onUnmounted(() => {
               <ModelSelect v-model="model" />
             </div>
 
+            <!-- Show rotation waiting indicator -->
+            <div v-if="isWaitingForRotationsState" class="flex items-center gap-2 text-sm text-gray-500">
+              <UIcon name="i-lucide-loader-2" class="w-4 h-4 animate-spin" />
+              <span>Procesando...</span>
+            </div>
+
             <UChatPromptSubmit
               :status="chat.status"
-              :disabled="isUploading"
+              :disabled="isUploading || isWaitingForRotationsState"
               color="neutral"
               size="sm"
               @stop="chat.stop()"
