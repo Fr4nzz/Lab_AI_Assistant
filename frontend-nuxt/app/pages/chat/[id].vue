@@ -161,8 +161,12 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
 })
 
 // Watch for rotation completions and update message rotation info
-watch(rotationResultsReactive, (newVal) => {
-  console.log('[Chat] rotationResultsReactive changed, size:', newVal.size)
+// Use watchEffect for better reactivity tracking with Maps
+watchEffect(() => {
+  const rotationMap = rotationResultsReactive.value
+  const size = rotationMap.size
+
+  console.log('[Chat] watchEffect triggered, rotation map size:', size)
   console.log('[Chat] pendingFileIds:', JSON.stringify(pendingFileIds.value))
 
   if (pendingFileIds.value.messageId && pendingFileIds.value.fileIds.length > 0) {
@@ -187,10 +191,8 @@ watch(rotationResultsReactive, (newVal) => {
         clearRotationResults()
       }
     }
-  } else {
-    console.log('[Chat] No pending file IDs to process')
   }
-}, { deep: true })
+})
 
 const copied = ref(false)
 

@@ -4,14 +4,15 @@ AI SDK UI Message Stream Protocol v1 Adapter.
 Converts LangGraph events to AI SDK v6 UI Message Stream Protocol format.
 Documentation: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 
-Stream Format (SSE) - Only these types are supported by useChat:
-- data: {"type":"text-start","id":"xxx"}
-- data: {"type":"text-delta","id":"xxx","delta":"content"}
-- data: {"type":"text-end","id":"xxx"}
+Stream Format (SSE):
+- data: {"type":"text-delta","textDelta":"content"}
+- data: {"type":"tool-call","toolCallId":"xxx","toolName":"xxx","args":{}}
+- data: {"type":"tool-result","toolCallId":"xxx","result":"xxx"}
+- data: {"type":"reasoning","textDelta":"thinking..."}
+- data: {"type":"step-start"}
+- data: {"type":"step-finish"}
+- data: {"type":"finish","finishReason":"stop","usage":{}}
 - data: [DONE]
-
-Note: tool events and finish events are NOT supported by the basic
-UI Message Stream Protocol. Tool status is shown as text content instead.
 """
 import json
 import uuid
@@ -23,8 +24,9 @@ class StreamAdapter:
 
     def __init__(self):
         self.message_id = f"msg_{uuid.uuid4().hex[:12]}"
-        self.text_id = None
-        self.message_started = False
+        self.text_started = False
+        self.current_step = 0
+        self.active_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
 
     def _sse(self, data: Any) -> str:
         """Format data as SSE event"""
@@ -33,88 +35,100 @@ class StreamAdapter:
         return f"data: {json.dumps(data)}\n\n"
 
     def start_message(self) -> str:
-        """Start a new assistant message - returns empty since 'start' isn't supported"""
-        self.message_started = True
-        # The 'start' event type is not supported by useChat, so we skip it
+        """Start a new assistant message"""
         return ""
 
-    def text_start(self) -> str:
-        """Start a text block"""
-        self.text_id = f"text_{uuid.uuid4().hex[:8]}"
-        return self._sse({
-            "type": "text-start",
-            "id": self.text_id
-        })
+    def step_start(self) -> str:
+        """Start a new step (reasoning + actions)"""
+        self.current_step += 1
+        return self._sse({"type": "step-start"})
+
+    def step_finish(self) -> str:
+        """Finish current step"""
+        return self._sse({"type": "step-finish"})
 
     def text_delta(self, content: str) -> str:
         """Stream a text chunk"""
-        if not self.text_id:
-            # Auto-start text block if not started
-            result = self.text_start()
-            result += self._sse({
-                "type": "text-delta",
-                "id": self.text_id,
-                "delta": content
-            })
-            return result
+        self.text_started = True
         return self._sse({
             "type": "text-delta",
-            "id": self.text_id,
-            "delta": content
+            "textDelta": content
         })
 
-    def text_end(self) -> str:
-        """End a text block"""
-        if not self.text_id:
-            return ""
-        result = self._sse({
-            "type": "text-end",
-            "id": self.text_id
+    def reasoning_delta(self, content: str) -> str:
+        """Stream reasoning/thinking content"""
+        return self._sse({
+            "type": "reasoning",
+            "textDelta": content
         })
-        self.text_id = None
-        return result
 
-    def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None) -> str:
+    def tool_call(self, tool_call_id: str, tool_name: str, args: dict) -> str:
+        """Emit a tool call event"""
+        self.active_tool_calls[tool_call_id] = tool_name
+        return self._sse({
+            "type": "tool-call",
+            "toolCallId": tool_call_id,
+            "toolName": tool_name,
+            "args": args
+        })
+
+    def tool_result(self, tool_call_id: str, result: Any) -> str:
+        """Emit a tool result event"""
+        # Convert result to string if needed
+        if isinstance(result, (dict, list)):
+            result_str = json.dumps(result, ensure_ascii=False)
+        else:
+            result_str = str(result)
+
+        # Remove from active calls
+        self.active_tool_calls.pop(tool_call_id, None)
+
+        return self._sse({
+            "type": "tool-result",
+            "toolCallId": tool_call_id,
+            "result": result_str
+        })
+
+    def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None,
+                    tool_call_id: Optional[str] = None, result: Optional[Any] = None) -> str:
         """
-        Stream tool status as text content.
-        Since AI SDK v6 doesn't support tool events, we show them as styled text.
+        Stream tool events using proper AI SDK format.
+        Falls back to text display if tool events aren't supported.
         """
         if status == "start":
-            # Show tool being called with ALL args
-            params = []
-            if args:
-                for k, v in args.items():
-                    if isinstance(v, str):
-                        display_v = v if len(v) < 50 else v[:47] + "..."
-                        params.append(f"{k}={display_v}")
-                    elif isinstance(v, list):
-                        if len(v) <= 10:
-                            params.append(f"{k}={v}")
-                        else:
-                            items = ', '.join(str(x) for x in v[:10])
-                            params.append(f"{k}=[{items}... +{len(v)-10} more]")
-                    elif isinstance(v, (int, float, bool)):
-                        params.append(f"{k}={v}")
-            param_str = f" ({', '.join(params)})" if params else ""
-            text = f"🔧 **{tool_name}**{param_str}\n"
-        else:  # end
-            text = f"✓ {tool_name} completado\n\n"
+            # Generate tool call ID if not provided
+            if not tool_call_id:
+                tool_call_id = f"call_{uuid.uuid4().hex[:12]}"
 
-        return self.text_delta(text)
+            return self.tool_call(tool_call_id, tool_name, args or {})
+        else:  # end
+            # Find the tool call ID for this tool
+            matching_id = None
+            for tid, tname in list(self.active_tool_calls.items()):
+                if tname == tool_name:
+                    matching_id = tid
+                    break
+
+            if matching_id:
+                return self.tool_result(matching_id, result or "completed")
+
+            # Fallback to text if no matching call
+            return self.text_delta(f"✓ {tool_name} completado\n\n")
 
     def error(self, message: str) -> str:
-        """Stream an error as text (error type not well supported)"""
-        # Stream error as text since 'error' type may not be fully supported
-        return self.text_delta(f"❌ Error: {message}\n")
+        """Stream an error"""
+        return self._sse({
+            "type": "error",
+            "error": message
+        })
 
     def finish(self, reason: str = "stop", usage: Optional[dict] = None) -> str:
         """Stream finish signal and close stream"""
-        result = ""
-        # End any open text block
-        if self.text_id:
-            result += self.text_end()
-
-        # Note: 'finish' type is not supported by useChat, so we just send DONE
+        result = self._sse({
+            "type": "finish",
+            "finishReason": reason,
+            "usage": usage or {}
+        })
         # Send DONE marker to signal end of stream
         result += "data: [DONE]\n\n"
         return result
