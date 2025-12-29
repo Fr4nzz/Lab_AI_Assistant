@@ -161,9 +161,13 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
 })
 
 // Watch for rotation completions and update message rotation info
-watch(rotationResultsReactive, () => {
+watch(rotationResultsReactive, (newVal) => {
+  console.log('[Chat] rotationResultsReactive changed, size:', newVal.size)
+  console.log('[Chat] pendingFileIds:', JSON.stringify(pendingFileIds.value))
+
   if (pendingFileIds.value.messageId && pendingFileIds.value.fileIds.length > 0) {
     const results = getRotationResultsByIds(pendingFileIds.value.fileIds)
+    console.log('[Chat] Results for file IDs:', results.map(r => ({ id: r.fileId, state: r.state, rotation: r.rotation })))
     const completedResults = results.filter(r => r.state === 'completed')
 
     if (completedResults.length > 0) {
@@ -183,6 +187,8 @@ watch(rotationResultsReactive, () => {
         clearRotationResults()
       }
     }
+  } else {
+    console.log('[Chat] No pending file IDs to process')
   }
 }, { deep: true })
 
