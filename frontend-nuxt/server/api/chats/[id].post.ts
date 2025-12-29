@@ -33,6 +33,9 @@ function cleanTitle(text: string): string {
 async function generateTitle(chatId: string, messageContent: string): Promise<void> {
   const config = useRuntimeConfig()
 
+  console.log('[API/chat] generateTitle called for chatId:', chatId)
+  console.log('[API/chat] openrouterApiKey configured:', !!config.openrouterApiKey, config.openrouterApiKey ? `(${config.openrouterApiKey.slice(0, 10)}...)` : '')
+
   if (!config.openrouterApiKey) {
     console.log('[API/chat] No OpenRouter key configured in OPENROUTER_API_KEY env var, skipping title generation')
     console.log('[API/chat] Add your key to frontend-nuxt/.env file')
