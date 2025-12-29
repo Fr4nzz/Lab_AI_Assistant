@@ -87,10 +87,16 @@ const chat = new Chat({
   onFinish() {
     // Debug: Log message parts after completion
     const messages = chat.messages.value
-    const lastMsg = messages[messages.length - 1]
-    console.log('[Chat] onFinish - Last message:', lastMsg?.id)
-    console.log('[Chat] onFinish - Parts:', JSON.stringify(lastMsg?.parts, null, 2))
-    console.log('[Chat] onFinish - Content:', lastMsg?.content?.slice(0, 200))
+    console.log('[Chat] onFinish - Messages count:', messages?.length || 0)
+    if (messages && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1]
+      console.log('[Chat] onFinish - Last message id:', lastMsg?.id)
+      console.log('[Chat] onFinish - Last message role:', lastMsg?.role)
+      console.log('[Chat] onFinish - Parts count:', lastMsg?.parts?.length || 0)
+      console.log('[Chat] onFinish - Parts types:', lastMsg?.parts?.map((p: any) => p.type) || [])
+      console.log('[Chat] onFinish - Parts:', JSON.stringify(lastMsg?.parts?.slice(0, 5), null, 2))
+      console.log('[Chat] onFinish - Content preview:', typeof lastMsg?.content === 'string' ? lastMsg.content.slice(0, 200) : lastMsg?.content)
+    }
 
     // Refresh chat list to get the generated title
     // Title generation is async, refresh multiple times to catch it
