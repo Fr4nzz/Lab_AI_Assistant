@@ -164,6 +164,8 @@ const chat = new Chat({
   onFinish() {
     // Refresh chat list to get updated title
     refreshNuxtData('chats')
+    // Title is generated asynchronously, refresh again after a short delay
+    setTimeout(() => refreshNuxtData('chats'), 2000)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error

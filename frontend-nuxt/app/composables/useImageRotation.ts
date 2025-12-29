@@ -16,8 +16,9 @@ export interface RotationResult {
  * Exposes state for UI display of rotation tool.
  */
 export function useImageRotation() {
-  const rotationStates = ref<Map<string, RotationResult>>(new Map())
-  const pendingPromises = ref<Map<string, Promise<RotationResult>>>(new Map())
+  // Use reactive object instead of Map for Vue reactivity
+  const rotationStates = ref<Record<string, RotationResult>>({})
+  const pendingPromises = new Map<string, Promise<RotationResult>>()
 
   /**
    * Detects rotation for an image and optionally applies it.
@@ -31,18 +32,18 @@ export function useImageRotation() {
     previewUrl: string
   ): Promise<RotationResult> {
     // Check if already processed
-    const existing = rotationStates.value.get(fileId)
+    const existing = rotationStates.value[fileId]
     if (existing && existing.status === 'completed') {
       return existing
     }
 
     // Check if already processing
-    const existingPromise = pendingPromises.value.get(fileId)
+    const existingPromise = pendingPromises.get(fileId)
     if (existingPromise) {
       return existingPromise
     }
 
-    // Initialize state as pending
+    // Initialize state as pending - use spread to trigger reactivity
     const initialState: RotationResult = {
       fileId,
       fileName,
@@ -50,16 +51,16 @@ export function useImageRotation() {
       detected: false,
       status: 'pending'
     }
-    rotationStates.value.set(fileId, initialState)
+    rotationStates.value = { ...rotationStates.value, [fileId]: initialState }
 
     // Create detection promise
     const rotationPromise = (async (): Promise<RotationResult> => {
       try {
-        // Update to processing
-        rotationStates.value.set(fileId, {
-          ...initialState,
-          status: 'processing'
-        })
+        // Update to processing - use spread to trigger reactivity
+        rotationStates.value = {
+          ...rotationStates.value,
+          [fileId]: { ...initialState, status: 'processing' }
+        }
 
         console.log('[useImageRotation] Detecting rotation for:', fileName)
 
@@ -86,9 +87,9 @@ export function useImageRotation() {
           result.rotatedBase64 = dataUrlToBase64(rotatedDataUrl)
         }
 
-        // Store result
-        rotationStates.value.set(fileId, result)
-        pendingPromises.value.delete(fileId)
+        // Store result - use spread to trigger reactivity
+        rotationStates.value = { ...rotationStates.value, [fileId]: result }
+        pendingPromises.delete(fileId)
 
         return result
       } catch (error) {
@@ -101,13 +102,13 @@ export function useImageRotation() {
           status: 'error',
           error: (error as Error).message || 'Detection failed'
         }
-        rotationStates.value.set(fileId, errorResult)
-        pendingPromises.value.delete(fileId)
+        rotationStates.value = { ...rotationStates.value, [fileId]: errorResult }
+        pendingPromises.delete(fileId)
         return errorResult
       }
     })()
 
-    pendingPromises.value.set(fileId, rotationPromise)
+    pendingPromises.set(fileId, rotationPromise)
     return rotationPromise
   }
 
@@ -115,19 +116,19 @@ export function useImageRotation() {
    * Gets the rotation state for a file.
    */
   function getRotationState(fileId: string): RotationResult | undefined {
-    return rotationStates.value.get(fileId)
+    return rotationStates.value[fileId]
   }
 
   /**
    * Gets all rotation states for display.
    */
-  const allRotationStates = computed(() => Array.from(rotationStates.value.values()))
+  const allRotationStates = computed(() => Object.values(rotationStates.value))
 
   /**
    * Gets only the processing/pending rotation states.
    */
   const pendingRotationStates = computed(() =>
-    Array.from(rotationStates.value.values()).filter(
+    Object.values(rotationStates.value).filter(
       r => r.status === 'pending' || r.status === 'processing'
     )
   )
@@ -136,7 +137,7 @@ export function useImageRotation() {
    * Checks if there are pending rotation detections.
    */
   const hasPendingRotations = computed(() =>
-    Array.from(rotationStates.value.values()).some(
+    Object.values(rotationStates.value).some(
       r => r.status === 'pending' || r.status === 'processing'
     )
   )
@@ -145,7 +146,7 @@ export function useImageRotation() {
    * Waits for all pending rotations to complete.
    */
   async function waitForAllRotations(): Promise<void> {
-    const promises = Array.from(pendingPromises.value.values())
+    const promises = Array.from(pendingPromises.values())
     if (promises.length > 0) {
       await Promise.allSettled(promises)
     }
@@ -155,16 +156,17 @@ export function useImageRotation() {
    * Clears rotation data for a file.
    */
   function clearRotation(fileId: string) {
-    rotationStates.value.delete(fileId)
-    pendingPromises.value.delete(fileId)
+    const { [fileId]: _, ...rest } = rotationStates.value
+    rotationStates.value = rest
+    pendingPromises.delete(fileId)
   }
 
   /**
    * Clears all rotation data.
    */
   function clearAllRotations() {
-    rotationStates.value.clear()
-    pendingPromises.value.clear()
+    rotationStates.value = {}
+    pendingPromises.clear()
   }
 
   return {
