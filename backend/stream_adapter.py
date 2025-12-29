@@ -141,24 +141,60 @@ class StreamAdapter:
             "input": args
         })
 
+    def tool_output_available(self, tool_call_id: str, output: Any) -> str:
+        """Signal tool output is available"""
+        # Convert output to appropriate format
+        if isinstance(output, (dict, list)):
+            output_data = output
+        else:
+            output_data = str(output) if output else "completed"
+
+        return self._sse({
+            "type": "tool-output-available",
+            "toolCallId": tool_call_id,
+            "output": output_data
+        })
+
     def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None,
                     tool_call_id: Optional[str] = None, result: Optional[Any] = None) -> str:
         """Stream tool status using AI SDK protocol"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if status == "start":
             # Generate tool call ID if not provided
             if not tool_call_id:
                 tool_call_id = f"call_{uuid.uuid4().hex[:12]}"
 
+            # Store for later lookup
+            self.active_tool_calls[tool_call_id] = tool_name
+
             # Emit tool-input-start followed by tool-input-available
             output = self.tool_start(tool_call_id, tool_name)
             output += self.tool_input_available(tool_call_id, tool_name, args or {})
+            logger.info(f"[StreamAdapter] Tool start: {tool_name} ({tool_call_id})")
             return output
         else:  # end
-            # Find and remove the tool call
-            if tool_call_id and tool_call_id in self.active_tool_calls:
-                del self.active_tool_calls[tool_call_id]
-            # No specific end event needed - the tool result is handled by the model
-            return ""
+            # Find the tool call ID
+            actual_id = tool_call_id
+            if not actual_id:
+                # Try to find by tool name
+                for tid, tname in list(self.active_tool_calls.items()):
+                    if tname == tool_name:
+                        actual_id = tid
+                        break
+
+            output = ""
+            if actual_id:
+                # Emit tool-output-available
+                output = self.tool_output_available(actual_id, result)
+                logger.info(f"[StreamAdapter] Tool end: {tool_name} ({actual_id})")
+                # Remove from active calls
+                self.active_tool_calls.pop(actual_id, None)
+            else:
+                logger.warning(f"[StreamAdapter] Tool end but no matching ID for: {tool_name}")
+
+            return output
 
     def error(self, message: str) -> str:
         """Stream an error"""
