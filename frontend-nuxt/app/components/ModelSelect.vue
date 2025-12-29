@@ -1,10 +1,10 @@
 <script setup lang="ts">
-const { model, models, formatModelName } = useModels()
+const { model, models, currentModel } = useModels()
 
-const items = computed(() => models.map(model => ({
-  label: formatModelName(model),
-  value: model,
-  icon: `i-simple-icons-${model.split('/')[0]}`
+const items = computed(() => models.map(m => ({
+  label: m.displayName,
+  value: m.id,
+  icon: m.icon
 })))
 </script>
 
@@ -13,7 +13,7 @@ const items = computed(() => models.map(model => ({
     v-model="model"
     :items="items"
     size="sm"
-    :icon="`i-simple-icons-${model.split('/')[0]}`"
+    :icon="currentModel.icon"
     variant="ghost"
     value-key="value"
     class="hover:bg-default focus:bg-default data-[state=open]:bg-default"

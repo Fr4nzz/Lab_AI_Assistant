@@ -42,13 +42,14 @@ const {
 } = useFileUploadWithStatus(route.params.id as string)
 
 // Store rotation info per message ID so it persists after files are cleared
-const messageRotationInfo = ref<Map<string, Array<{
+// Using plain object for better Vue reactivity in templates
+const messageRotationInfo = ref<Record<string, Array<{
   fileName: string
   rotation: number
   model: string | null
   timing: { modelMs?: number; totalMs?: number }
   rotatedUrl: string
-}>>>(new Map())
+}>>>({})
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -80,14 +81,9 @@ const chat = new Chat({
     })
   }),
   onFinish() {
-    // Poll for chat list updates to get the generated title
-    // Title generation is async and may take a few seconds
-    const refreshTimes = [500, 2000, 5000]
-    refreshTimes.forEach(delay => {
-      setTimeout(() => {
-        refreshNuxtData('chats')
-      }, delay)
-    })
+    // Refresh chat list to get the generated title
+    // Title generation is async, refresh after 2s (usually completes in 1-3s)
+    setTimeout(() => refreshNuxtData('chats'), 2000)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
@@ -112,6 +108,7 @@ async function handleSubmit(e: Event) {
     // We'll associate it with the next message (which will be the user message being sent)
     if (rotatedFilesInfo.value.length > 0) {
       pendingRotationInfo.value = [...rotatedFilesInfo.value]
+      console.log('[Chat] Saved rotation info:', pendingRotationInfo.value)
     }
 
     chat.sendMessage({
@@ -139,7 +136,7 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
     // Find the latest user message
     const latestUserMessage = [...chat.messages].reverse().find(m => m.role === 'user')
     if (latestUserMessage) {
-      messageRotationInfo.value.set(latestUserMessage.id, [...pendingRotationInfo.value])
+      messageRotationInfo.value[latestUserMessage.id] = [...pendingRotationInfo.value]
       pendingRotationInfo.value = []
     }
   }
@@ -372,9 +369,9 @@ onUnmounted(() => {
             </template>
 
             <!-- Show rotation info for user messages that had images rotated -->
-            <template v-if="message.role === 'user' && messageRotationInfo.get(message.id)">
+            <template v-if="message.role === 'user' && messageRotationInfo[message.id]">
               <ToolImageRotation
-                v-for="(info, idx) in messageRotationInfo.get(message.id)"
+                v-for="(info, idx) in messageRotationInfo[message.id]"
                 :key="`rotation-${message.id}-${idx}`"
                 :file-name="info.fileName"
                 :rotation="info.rotation"

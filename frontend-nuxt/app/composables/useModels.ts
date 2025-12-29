@@ -1,48 +1,62 @@
-export function formatModelName(modelId: string): string {
-  // Map of model IDs to display names
-  const displayNames: Record<string, string> = {
-    'lab-assistant': 'Lab Assistant',
-    'google/gemini-2.5-flash-preview-05-20': 'Gemini 2.5 Flash',
-    'google/gemini-2.0-flash-exp:free': 'Gemini 2.0 Flash (Free)',
-    'anthropic/claude-3.5-sonnet': 'Claude 3.5 Sonnet',
-    'openai/gpt-4o-mini': 'GPT-4o Mini',
-    'meta-llama/llama-3.3-70b-instruct:free': 'Llama 3.3 70B (Free)'
-  }
+// Lab Assistant models configuration
+// These models use the backend's Gemini integration with tools
+export interface ModelConfig {
+  id: string           // ID sent to backend (also the API model name)
+  displayName: string  // Display name in UI
+  icon: string         // Icon for the model
+  isLabAssistant: boolean // If true, shows Lab Assistant branding
+}
 
-  if (displayNames[modelId]) {
-    return displayNames[modelId]
+// Available models configuration
+// Lab Assistant models use Gemini via the backend with tools
+// Non-Lab Assistant models could use OpenRouter directly (future)
+export const MODEL_CONFIGS: ModelConfig[] = [
+  {
+    id: 'gemini-2.5-flash-preview-05-20',
+    displayName: 'Lab Assistant (Gemini 2.5 Flash)',
+    icon: 'i-lucide-flask-conical',
+    isLabAssistant: true
+  },
+  {
+    id: 'gemini-2.0-flash',
+    displayName: 'Lab Assistant (Gemini 2.0 Flash)',
+    icon: 'i-lucide-flask-conical',
+    isLabAssistant: true
   }
+]
+
+export function formatModelName(modelId: string): string {
+  const config = MODEL_CONFIGS.find(m => m.id === modelId)
+  if (config) return config.displayName
 
   // Fallback: format from model ID
-  const acronyms = ['gpt']
   const modelName = modelId.split('/')[1] || modelId
-
   return modelName
     .split('-')
-    .map((word) => {
-      const lowerWord = word.toLowerCase()
-      return acronyms.includes(lowerWord)
-        ? word.toUpperCase()
-        : word.charAt(0).toUpperCase() + word.slice(1)
-    })
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
 }
 
-export function useModels() {
-  const models = [
-    'lab-assistant',
-    'google/gemini-2.5-flash-preview-05-20',
-    'google/gemini-2.0-flash-exp:free',
-    'anthropic/claude-3.5-sonnet',
-    'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct:free'
-  ]
+export function getModelIcon(modelId: string): string {
+  const config = MODEL_CONFIGS.find(m => m.id === modelId)
+  return config?.icon || 'i-lucide-bot'
+}
 
-  const model = useCookie<string>('model', { default: () => 'lab-assistant' })
+export function useModels() {
+  // Default to first Lab Assistant model
+  const model = useCookie<string>('model', {
+    default: () => MODEL_CONFIGS[0]!.id
+  })
+
+  const currentModel = computed(() =>
+    MODEL_CONFIGS.find(m => m.id === model.value) || MODEL_CONFIGS[0]!
+  )
 
   return {
-    models,
+    models: MODEL_CONFIGS,
     model,
-    formatModelName
+    currentModel,
+    formatModelName,
+    getModelIcon
   }
 }
