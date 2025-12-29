@@ -36,24 +36,23 @@ const {
   files,
   isUploading,
   uploadedFiles,
-  rotatedFilesInfo,
-  rotationResultsReactive,
-  getRotationResultsByIds,
+  currentRotationResults,
   addFiles,
   removeFile,
   clearFiles,
-  clearRotationResults
+  clearRotationResults,
+  hasPendingRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
-// Store rotation info per message ID so it persists after files are cleared
-// Using plain object for better Vue reactivity in templates
-const messageRotationInfo = ref<Record<string, Array<{
+// Store rotation info to display as tool calls in AI messages
+const pendingRotationResults = ref<Array<{
   fileName: string
   rotation: number
   model: string | null
   timing: { modelMs?: number; totalMs?: number }
   rotatedUrl: string
-}>>>({})
+  state: string
+}>>([])
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -63,7 +62,6 @@ if (!data.value) {
 }
 
 // Transform messages to include parts if they only have content
-// IMPORTANT: This must be a static value, NOT a computed
 const transformedMessages = (data.value.messages || []).map((msg: any) => ({
   id: msg.id,
   role: msg.role,
@@ -81,27 +79,17 @@ const chat = new Chat({
     body: () => ({
       model: model.value,
       enabledTools: enabledTools.value,
-      showStats: showStats.value
+      showStats: showStats.value,
+      // Include rotation results so backend can stream them as tool calls
+      rotationResults: pendingRotationResults.value.length > 0 ? pendingRotationResults.value : undefined
     })
   }),
   onFinish() {
-    // Debug: Log message parts after completion
-    // Note: chat.messages is a reactive array, not a ref
-    const messages = chat.messages
-    console.log('[Chat] onFinish - Messages count:', messages?.length || 0)
-    console.log('[Chat] onFinish - Messages:', messages)
-    if (messages && messages.length > 0) {
-      const lastMsg = messages[messages.length - 1]
-      console.log('[Chat] onFinish - Last message id:', lastMsg?.id)
-      console.log('[Chat] onFinish - Last message role:', lastMsg?.role)
-      console.log('[Chat] onFinish - Parts count:', lastMsg?.parts?.length || 0)
-      console.log('[Chat] onFinish - Parts types:', lastMsg?.parts?.map((p: any) => p.type) || [])
-      console.log('[Chat] onFinish - Parts:', JSON.stringify(lastMsg?.parts?.slice(0, 5), null, 2))
-      console.log('[Chat] onFinish - Content preview:', typeof lastMsg?.content === 'string' ? lastMsg.content.slice(0, 200) : lastMsg?.content)
-    }
+    // Clear pending rotation results after message is complete
+    pendingRotationResults.value = []
+    clearRotationResults()
 
     // Refresh chat list to get the generated title
-    // Title generation is async, refresh multiple times to catch it
     setTimeout(refreshSidebar, 1000)
     setTimeout(refreshSidebar, 3000)
     setTimeout(refreshSidebar, 6000)
@@ -117,8 +105,10 @@ const chat = new Chat({
   }
 })
 
-// Track pending file IDs and their associated message ID for rotation tracking
-const pendingFileIds = ref<{ messageId: string | null; fileIds: string[] }>({ messageId: null, fileIds: [] })
+// Check if we're waiting for rotations before we can submit
+const isWaitingForRotations = computed(() => {
+  return files.value.length > 0 && hasPendingRotations.value
+})
 
 // IMPORTANT: handleSubmit must have required Event parameter
 async function handleSubmit(e: Event) {
@@ -128,21 +118,20 @@ async function handleSubmit(e: Event) {
 
   // Allow sending with just files OR just text OR both
   if ((textToSend || hasFiles) && !isUploading.value) {
-    // Save file IDs for rotation tracking (even if rotations aren't complete yet)
-    const currentFileIds = files.value.map(f => f.id)
-    if (currentFileIds.length > 0) {
-      // Already completed rotations - save immediately
-      const completedRotations = rotatedFilesInfo.value
-      if (completedRotations.length > 0) {
-        console.log('[Chat] Some rotations already completed:', completedRotations.length)
-      }
-      // Track file IDs for rotations that may complete later
-      pendingFileIds.value = { messageId: null, fileIds: currentFileIds }
-      console.log('[Chat] Tracking file IDs for rotation:', currentFileIds)
+    // Capture rotation results BEFORE clearing files
+    const rotationResults = currentRotationResults.value.filter(r => r.state === 'completed')
+    if (rotationResults.length > 0) {
+      pendingRotationResults.value = rotationResults.map(r => ({
+        fileName: r.fileName,
+        rotation: r.rotation,
+        model: r.model,
+        timing: r.timing,
+        rotatedUrl: r.rotatedUrl,
+        state: r.state
+      }))
     }
 
     chat.sendMessage({
-      // Use space as fallback when sending files-only (AI SDK requirement)
       text: textToSend || (hasFiles ? ' ' : ''),
       files: hasFiles ? uploadedFiles.value : undefined
     })
@@ -151,94 +140,6 @@ async function handleSubmit(e: Event) {
   }
 }
 
-// Debug: Watch chat status changes
-watch(() => chat.status, (newStatus) => {
-  console.log('[Chat] Status changed to:', newStatus)
-})
-
-// Debug: Watch for any message changes
-watch(() => chat.messages, (newMessages) => {
-  console.log('[Chat] Messages updated, count:', newMessages?.length || 0)
-  if (newMessages && newMessages.length > 0) {
-    const lastMsg = newMessages[newMessages.length - 1]
-    console.log('[Chat] Last message:', {
-      id: lastMsg?.id,
-      role: lastMsg?.role,
-      partsCount: lastMsg?.parts?.length || 0,
-      partTypes: lastMsg?.parts?.map((p: any) => p.type) || []
-    })
-    // Log first few parts of the last message
-    if (lastMsg?.parts) {
-      lastMsg.parts.slice(0, 5).forEach((part: any, idx: number) => {
-        console.log(`[Chat] Part ${idx}:`, {
-          type: part.type,
-          keys: Object.keys(part),
-          ...(part.type?.includes('tool') ? { toolName: part.toolName, state: part.state } : {})
-        })
-      })
-    }
-  }
-}, { deep: true })
-
-// Watch for new user messages to associate file IDs
-watch(() => chat.messages.length, (newLen, oldLen) => {
-  if (newLen > oldLen && pendingFileIds.value.fileIds.length > 0) {
-    // Find the latest user message
-    const latestUserMessage = [...chat.messages].reverse().find(m => m.role === 'user')
-    if (latestUserMessage && !pendingFileIds.value.messageId) {
-      pendingFileIds.value.messageId = latestUserMessage.id
-      console.log('[Chat] Associated file IDs with message:', latestUserMessage.id)
-
-      // Check if rotations are already complete
-      const results = getRotationResultsByIds(pendingFileIds.value.fileIds)
-      const completedResults = results.filter(r => r.state === 'completed')
-      if (completedResults.length > 0) {
-        messageRotationInfo.value[latestUserMessage.id] = completedResults.map(r => ({
-          fileName: r.fileName,
-          rotation: r.rotation,
-          model: r.model,
-          timing: r.timing,
-          rotatedUrl: r.rotatedUrl
-        }))
-        console.log('[Chat] Rotation info already available:', completedResults.length)
-      }
-    }
-  }
-})
-
-// Watch for rotation completions and update message rotation info
-// Use watchEffect for better reactivity tracking with Maps
-watchEffect(() => {
-  const rotationMap = rotationResultsReactive.value
-  const size = rotationMap.size
-
-  console.log('[Chat] watchEffect triggered, rotation map size:', size)
-  console.log('[Chat] pendingFileIds:', JSON.stringify(pendingFileIds.value))
-
-  if (pendingFileIds.value.messageId && pendingFileIds.value.fileIds.length > 0) {
-    const results = getRotationResultsByIds(pendingFileIds.value.fileIds)
-    console.log('[Chat] Results for file IDs:', results.map(r => ({ id: r.fileId, state: r.state, rotation: r.rotation })))
-    const completedResults = results.filter(r => r.state === 'completed')
-
-    if (completedResults.length > 0) {
-      messageRotationInfo.value[pendingFileIds.value.messageId] = completedResults.map(r => ({
-        fileName: r.fileName,
-        rotation: r.rotation,
-        model: r.model,
-        timing: r.timing,
-        rotatedUrl: r.rotatedUrl
-      }))
-      console.log('[Chat] Updated rotation info for message:', pendingFileIds.value.messageId, completedResults.length)
-
-      // If all rotations are complete, clear tracking
-      if (completedResults.length >= pendingFileIds.value.fileIds.length) {
-        console.log('[Chat] All rotations complete, clearing tracking')
-        pendingFileIds.value = { messageId: null, fileIds: [] }
-        clearRotationResults()
-      }
-    }
-  }
-})
 
 const copied = ref(false)
 
@@ -252,14 +153,24 @@ function copy(e: MouseEvent, message: UIMessage) {
   }, 2000)
 }
 
-// Refocus the input after adding files
+// Refocus the input after adding files - use nextTick and multiple attempts for reliability
 function focusInput() {
-  requestAnimationFrame(() => {
+  nextTick(() => {
     const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
     if (textarea) {
       textarea.focus()
+      // Also set cursor to end of text
+      const len = textarea.value.length
+      textarea.setSelectionRange(len, len)
     }
   })
+  // Backup attempt after a short delay
+  setTimeout(() => {
+    const textarea = document.querySelector('[data-chat-prompt] textarea') as HTMLTextAreaElement
+    if (textarea && document.activeElement !== textarea) {
+      textarea.focus()
+    }
+  }, 100)
 }
 
 // Handle clipboard paste for images
@@ -409,6 +320,71 @@ function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result'
   return 'pending'
 }
 
+// Helpers to extract rotation result data from tool part
+function getRotationFromResult(part: any): number {
+  const output = part.output || part.result
+  if (typeof output === 'object' && output !== null) {
+    return output.rotation || 0
+  }
+  if (typeof output === 'string') {
+    try {
+      const parsed = JSON.parse(output)
+      return parsed.rotation || 0
+    } catch {
+      return 0
+    }
+  }
+  return 0
+}
+
+function getRotatedUrlFromResult(part: any): string {
+  const output = part.output || part.result
+  if (typeof output === 'object' && output !== null) {
+    return output.rotatedUrl || ''
+  }
+  if (typeof output === 'string') {
+    try {
+      const parsed = JSON.parse(output)
+      return parsed.rotatedUrl || ''
+    } catch {
+      return ''
+    }
+  }
+  return ''
+}
+
+function getModelFromResult(part: any): string | null {
+  const output = part.output || part.result
+  if (typeof output === 'object' && output !== null) {
+    return output.model || null
+  }
+  if (typeof output === 'string') {
+    try {
+      const parsed = JSON.parse(output)
+      return parsed.model || null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+function getTimingFromResult(part: any): { modelMs?: number; totalMs?: number } | undefined {
+  const output = part.output || part.result
+  if (typeof output === 'object' && output !== null) {
+    return output.timing || undefined
+  }
+  if (typeof output === 'string') {
+    try {
+      const parsed = JSON.parse(output)
+      return parsed.timing || undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
 function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }>): MessageStep[] {
   const steps: MessageStep[] = []
   let currentStep: MessageStep | null = null
@@ -462,15 +438,6 @@ function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }
 }
 
 onMounted(() => {
-  // Debug: Log initial Chat state
-  console.log('[Chat] Mounted. Initial state:', {
-    id: chat.id,
-    status: chat.status,
-    messagesCount: chat.messages?.length || 0,
-    initialMessagesCount: transformedMessages.length
-  })
-  console.log('[Chat] Initial messages:', chat.messages)
-
   // Auto-trigger AI response for messages from main page (only user message, no response yet)
   if (data.value?.messages.length === 1) {
     chat.regenerate()
@@ -541,19 +508,6 @@ onUnmounted(() => {
                 />
               </template>
 
-              <!-- Show rotation info for user messages that had images rotated -->
-              <template v-if="messageRotationInfo[message.id]">
-                <ToolImageRotation
-                  v-for="(info, idx) in messageRotationInfo[message.id]"
-                  :key="`rotation-${message.id}-${idx}`"
-                  :file-name="info.fileName"
-                  :rotation="info.rotation"
-                  :rotated-url="info.rotatedUrl"
-                  :model="info.model"
-                  :timing="info.timing"
-                  @click-image="handleRotationImageClick"
-                />
-              </template>
             </template>
 
             <!-- Assistant messages: show enumerated steps with reasoning and tools -->
@@ -585,7 +539,18 @@ onUnmounted(() => {
                     :parser-options="{ highlight: false }"
                     class="*:first:mt-0 *:last:mb-0"
                   />
-                  <!-- Handle both 'tool-invocation' and 'tool-{toolName}' patterns from AI SDK -->
+                  <!-- Special handling for rotation tool - show with thumbnail -->
+                  <ToolImageRotation
+                    v-else-if="isToolPart(part) && (part.type === 'tool-detect_image_rotation' || (part as any).toolName === 'detect_image_rotation')"
+                    :file-name="(part as any).input?.fileName || (part as any).args?.fileName || 'imagen'"
+                    :rotation="getRotationFromResult(part)"
+                    :rotated-url="getRotatedUrlFromResult(part)"
+                    :model="getModelFromResult(part)"
+                    :timing="getTimingFromResult(part)"
+                    :state="getToolState(part) === 'result' ? 'completed' : 'running'"
+                    @click-image="handleRotationImageClick"
+                  />
+                  <!-- Handle other tool calls -->
                   <ToolLabTool
                     v-else-if="isToolPart(part)"
                     :name="(part as any).toolName || part.type?.replace?.('tool-', '')"

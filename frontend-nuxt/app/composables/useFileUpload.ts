@@ -242,6 +242,15 @@ export function useFileUploadWithStatus(_chatId: string) {
     })
   }
 
+  // Check if there are any images with pending rotations
+  const hasPendingRotations = computed(() => {
+    return files.value.some(f => {
+      if (!f.file.type.startsWith('image/')) return false
+      const result = rotationResults.value.get(f.id)
+      return result && (result.state === 'pending' || result.state === 'processing')
+    })
+  })
+
   // Watch for rotation completions (reactive)
   const rotationResultsReactive = computed(() => {
     // Return a new object when rotationResults changes to trigger reactivity
@@ -307,6 +316,7 @@ export function useFileUploadWithStatus(_chatId: string) {
     rotationResultsReactive,
     getRotationResultsByIds,
     hasCompletedRotations,
+    hasPendingRotations,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,

@@ -984,11 +984,20 @@ async def detect_rotation(request: RotationRequest):
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 
+class RotationResult(BaseModel):
+    fileName: str
+    rotation: int
+    model: Optional[str] = None
+    timing: Optional[dict] = None
+    rotatedUrl: str
+    state: str
+
 class AISdkChatRequest(BaseModel):
     messages: List[dict]
     chatId: Optional[str] = None
     model: Optional[str] = None
     showStats: bool = True
+    rotationResults: Optional[List[RotationResult]] = None
 
 
 @app.post("/api/chat/aisdk")
@@ -1125,6 +1134,35 @@ async def chat_aisdk(request: AISdkChatRequest):
             # Start the message
             yield adapter.start_message()
 
+            # Stream rotation tool calls if any images were auto-rotated
+            if request.rotationResults:
+                yield adapter.start_step()
+                for rot in request.rotationResults:
+                    tool_call_id = f"call_rotation_{uuid.uuid4().hex[:8]}"
+                    # Stream as a completed tool call
+                    yield adapter.tool_status(
+                        "detect_image_rotation",
+                        "start",
+                        {"fileName": rot.fileName},
+                        tool_call_id=tool_call_id
+                    )
+                    # Build result with rotation info
+                    result = {
+                        "fileName": rot.fileName,
+                        "rotation": rot.rotation,
+                        "rotatedUrl": rot.rotatedUrl,
+                        "model": rot.model,
+                        "timing": rot.timing or {}
+                    }
+                    yield adapter.tool_status(
+                        "detect_image_rotation",
+                        "end",
+                        tool_call_id=tool_call_id,
+                        result=result
+                    )
+                    logger.info(f"[AI SDK] Streamed rotation result: {rot.fileName} -> {rot.rotation}°")
+                yield adapter.finish_step()
+
             async for event in graph.astream_events(
                 initial_state,
                 config,
@@ -1161,33 +1199,22 @@ async def chat_aisdk(request: AISdkChatRequest):
                     chunk = event["data"].get("chunk")
                     if chunk and hasattr(chunk, 'content') and chunk.content:
                         content = chunk.content
-                        # Log content structure for debugging
-                        content_type = type(content).__name__
-                        if isinstance(content, list) and content:
-                            logger.debug(f"[AI SDK] Stream content type: list, parts: {[type(p).__name__ for p in content[:3]]}")
-                        elif isinstance(content, str):
-                            logger.debug(f"[AI SDK] Stream content type: str, len: {len(content)}")
 
                         if isinstance(content, list):
                             # Handle multipart content (text and thinking/reasoning)
                             for part in content:
                                 if isinstance(part, dict):
                                     part_type = part.get('type', '')
-                                    logger.debug(f"[AI SDK] Part type: {part_type}, keys: {list(part.keys())}")
                                     if part_type == 'text':
                                         text = part.get('text', '')
                                         if text:
                                             full_response.append(text)
                                             yield adapter.text_delta(text)
                                     elif part_type == 'thinking' or part_type == 'reasoning':
-                                        # Gemini 3 Flash thinking mode - stream as reasoning
+                                        # Stream reasoning/thinking content
                                         thinking_text = part.get('thinking', '') or part.get('text', '')
                                         if thinking_text:
-                                            logger.info(f"[AI SDK] REASONING detected: {thinking_text[:100]}...")
                                             yield adapter.reasoning_delta(thinking_text)
-                                    else:
-                                        # Log unknown part types
-                                        logger.info(f"[AI SDK] Unknown part type: {part_type}, part: {str(part)[:200]}")
                         elif isinstance(content, str) and content:
                             full_response.append(content)
                             yield adapter.text_delta(content)

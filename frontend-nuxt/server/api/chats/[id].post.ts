@@ -177,11 +177,22 @@ export default defineEventHandler(async (event) => {
     id: z.string()
   }).parse)
 
-  const { messages, model, enabledTools, showStats = true } = await readValidatedBody(event, z.object({
+  const { messages, model, enabledTools, showStats = true, rotationResults } = await readValidatedBody(event, z.object({
     messages: z.array(z.any()),
     model: z.string().optional(),
     enabledTools: z.array(z.string()).optional(),
-    showStats: z.boolean().optional()
+    showStats: z.boolean().optional(),
+    rotationResults: z.array(z.object({
+      fileName: z.string(),
+      rotation: z.number(),
+      model: z.string().nullable(),
+      timing: z.object({
+        modelMs: z.number().optional(),
+        totalMs: z.number().optional()
+      }).optional(),
+      rotatedUrl: z.string(),
+      state: z.string()
+    })).optional()
   }).parse)
 
   // Get chat to verify it exists
@@ -240,7 +251,8 @@ export default defineEventHandler(async (event) => {
         chatId,
         model: model || 'lab-assistant',
         tools: enabledTools,
-        showStats
+        showStats,
+        rotationResults: rotationResults || undefined
       })
     })
   } catch (error) {
@@ -262,8 +274,6 @@ export default defineEventHandler(async (event) => {
   // Collect response while streaming for database storage
   const reader = response.body.getReader()
   let fullResponse = ''
-  let eventCount = 0
-  const eventTypes: Record<string, number> = {}
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -276,41 +286,23 @@ export default defineEventHandler(async (event) => {
 
           controller.enqueue(value)
 
-          // Parse stream to collect text for storage AND debug events
+          // Parse stream to collect text for storage
           const text = decoder.decode(value, { stream: true })
           for (const line of text.split('\n')) {
             if (line.startsWith('data: ')) {
-              const rawData = line.slice(6)
-              eventCount++
-
               try {
-                const parsed = JSON.parse(rawData)
-                const eventType = parsed.type || 'unknown'
-                eventTypes[eventType] = (eventTypes[eventType] || 0) + 1
-
-                // Log ALL non-text-delta events for debugging
-                if (eventType !== 'text-delta') {
-                  console.log(`[Stream Event ${eventCount}] ${eventType}:`, JSON.stringify(parsed).slice(0, 200))
-                }
-
+                const parsed = JSON.parse(line.slice(6))
                 if (parsed.type === 'text-delta' && parsed.delta) {
                   fullResponse += parsed.delta
                 }
               } catch {
-                // Log non-JSON data (like [DONE])
-                if (rawData.trim() && rawData.trim() !== '[DONE]') {
-                  console.log(`[Stream Event ${eventCount}] Raw data:`, rawData.slice(0, 100))
-                }
+                // Skip non-JSON lines
               }
             }
           }
         }
 
         controller.close()
-
-        // Log stream summary
-        console.log('[API/chat] Stream complete. Event summary:', eventTypes)
-        console.log(`[API/chat] Total events: ${eventCount}`)
 
         // Save assistant response to database
         if (fullResponse) {
