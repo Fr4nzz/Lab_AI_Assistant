@@ -151,6 +151,35 @@ async function handleSubmit(e: Event) {
   }
 }
 
+// Debug: Watch chat status changes
+watch(() => chat.status, (newStatus) => {
+  console.log('[Chat] Status changed to:', newStatus)
+})
+
+// Debug: Watch for any message changes
+watch(() => chat.messages, (newMessages) => {
+  console.log('[Chat] Messages updated, count:', newMessages?.length || 0)
+  if (newMessages && newMessages.length > 0) {
+    const lastMsg = newMessages[newMessages.length - 1]
+    console.log('[Chat] Last message:', {
+      id: lastMsg?.id,
+      role: lastMsg?.role,
+      partsCount: lastMsg?.parts?.length || 0,
+      partTypes: lastMsg?.parts?.map((p: any) => p.type) || []
+    })
+    // Log first few parts of the last message
+    if (lastMsg?.parts) {
+      lastMsg.parts.slice(0, 5).forEach((part: any, idx: number) => {
+        console.log(`[Chat] Part ${idx}:`, {
+          type: part.type,
+          keys: Object.keys(part),
+          ...(part.type?.includes('tool') ? { toolName: part.toolName, state: part.state } : {})
+        })
+      })
+    }
+  }
+}, { deep: true })
+
 // Watch for new user messages to associate file IDs
 watch(() => chat.messages.length, (newLen, oldLen) => {
   if (newLen > oldLen && pendingFileIds.value.fileIds.length > 0) {
@@ -364,6 +393,22 @@ interface MessageStep {
   isFinal: boolean
 }
 
+// Helper to check if a part is a tool call (handles both 'tool-invocation' and 'tool-{toolName}' patterns)
+function isToolPart(part: { type: string }): boolean {
+  return part.type === 'tool-invocation' || (part.type?.startsWith?.('tool-') && part.type !== 'tool-invocation')
+}
+
+// Helper to get tool state from AI SDK part
+function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result' | 'error' {
+  // AI SDK uses: 'input-streaming', 'input-available', 'output-available', 'output-error'
+  const state = part.state || part.status
+  if (state === 'input-streaming' || state === 'partial-call') return 'partial-call'
+  if (state === 'input-available' || state === 'call') return 'call'
+  if (state === 'output-available' || state === 'result') return 'result'
+  if (state === 'output-error' || state === 'error') return 'error'
+  return 'pending'
+}
+
 function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }>): MessageStep[] {
   const steps: MessageStep[] = []
   let currentStep: MessageStep | null = null
@@ -382,8 +427,9 @@ function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }
         parts: [],
         isFinal: false
       }
-    } else if (part.type === 'tool-invocation') {
+    } else if (isToolPart(part)) {
       // Add tool to current step or create new step
+      // Handle both 'tool-invocation' and 'tool-{toolName}' patterns
       if (!currentStep) {
         stepNumber++
         currentStep = { stepNumber, parts: [], isFinal: false }
@@ -416,6 +462,15 @@ function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }
 }
 
 onMounted(() => {
+  // Debug: Log initial Chat state
+  console.log('[Chat] Mounted. Initial state:', {
+    id: chat.id,
+    status: chat.status,
+    messagesCount: chat.messages?.length || 0,
+    initialMessagesCount: transformedMessages.length
+  })
+  console.log('[Chat] Initial messages:', chat.messages)
+
   // Auto-trigger AI response for messages from main page (only user message, no response yet)
   if (data.value?.messages.length === 1) {
     chat.regenerate()
@@ -506,7 +561,7 @@ onUnmounted(() => {
               <template v-for="step in groupMessageParts(message.parts)" :key="`${message.id}-step-${step.stepNumber}`">
                 <!-- Step indicator for multi-step responses -->
                 <div
-                  v-if="groupMessageParts(message.parts).length > 1 && (step.reasoning || step.parts.some(p => p.type === 'tool-invocation'))"
+                  v-if="groupMessageParts(message.parts).length > 1 && (step.reasoning || step.parts.some(p => isToolPart(p)))"
                   class="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-3 mb-1"
                 >
                   <span class="font-mono">{{ step.stepNumber }}.</span>
@@ -530,12 +585,13 @@ onUnmounted(() => {
                     :parser-options="{ highlight: false }"
                     class="*:first:mt-0 *:last:mb-0"
                   />
+                  <!-- Handle both 'tool-invocation' and 'tool-{toolName}' patterns from AI SDK -->
                   <ToolLabTool
-                    v-else-if="part.type === 'tool-invocation'"
-                    :name="(part as any).toolName"
-                    :args="(part as any).args || {}"
-                    :result="(part as any).result"
-                    :state="(part as any).state || 'pending'"
+                    v-else-if="isToolPart(part)"
+                    :name="(part as any).toolName || part.type?.replace?.('tool-', '')"
+                    :args="(part as any).args || (part as any).input || {}"
+                    :result="(part as any).result || (part as any).output"
+                    :state="getToolState(part)"
                   />
                   <FileAvatar
                     v-else-if="part.type === 'file'"
