@@ -5,8 +5,18 @@ const toast = useToast()
 const input = ref('')
 const loading = ref(false)
 const chatId = generateUUID()
+const showCamera = ref(false)
+const chatPromptRef = ref<{ inputRef: { el: HTMLTextAreaElement } } | null>(null)
 
 const { model } = useModels()
+
+const {
+  isRecording,
+  isPreparing,
+  startRecording,
+  stopRecording,
+  cancelRecording
+} = useAudioRecorder()
 
 const {
   dropzoneRef,
@@ -18,6 +28,45 @@ const {
   removeFile,
   clearFiles
 } = useFileUploadWithStatus(chatId)
+
+// Microphone recording handlers
+async function toggleRecording() {
+  if (isRecording.value) {
+    const audioFile = await stopRecording()
+    if (audioFile) {
+      addFiles([audioFile])
+      toast.add({
+        title: 'Audio grabado',
+        description: 'Grabación de audio agregada',
+        icon: 'i-lucide-mic',
+        color: 'success'
+      })
+    }
+  } else {
+    try {
+      await startRecording()
+    } catch {
+      toast.add({
+        title: 'Error',
+        description: 'No se pudo acceder al micrófono',
+        icon: 'i-lucide-mic-off',
+        color: 'error'
+      })
+    }
+  }
+}
+
+// Camera capture handler
+function handleCameraCapture(file: File) {
+  addFiles([file])
+  showCamera.value = false
+  toast.add({
+    title: 'Foto capturada',
+    description: 'Imagen agregada',
+    icon: 'i-lucide-camera',
+    color: 'success'
+  })
+}
 
 // Handle clipboard paste for images
 function handlePaste(e: ClipboardEvent) {
@@ -47,6 +96,10 @@ function handlePaste(e: ClipboardEvent) {
       icon: 'i-lucide-image',
       color: 'success'
     })
+    // Fix focus after paste - small delay to ensure DOM updates
+    setTimeout(() => {
+      chatPromptRef.value?.inputRef?.el?.focus()
+    }, 50)
   }
 }
 
@@ -130,9 +183,10 @@ const quickChats = [
         </h1>
 
         <UChatPrompt
+          ref="chatPromptRef"
           v-model="input"
           :status="loading ? 'streaming' : 'ready'"
-          :disabled="isUploading"
+          :disabled="isRecording"
           class="[view-transition-name:chat-prompt]"
           variant="subtle"
           :ui="{ base: 'px-1.5' }"
@@ -148,6 +202,7 @@ const quickChats = [
                 :preview-url="fileWithStatus.previewUrl"
                 :status="fileWithStatus.status"
                 :error="fileWithStatus.error"
+                :rotation="fileWithStatus.rotation"
                 removable
                 @remove="removeFile(fileWithStatus.id)"
               />
@@ -157,12 +212,43 @@ const quickChats = [
           <template #footer>
             <div class="flex items-center gap-1">
               <FileUploadButton @files-selected="addFiles($event)" />
+
+              <!-- Microphone button -->
+              <UTooltip :text="isRecording ? 'Detener grabación' : 'Grabar audio'">
+                <UButton
+                  :icon="isRecording ? 'i-lucide-square' : 'i-lucide-mic'"
+                  :color="isRecording ? 'error' : 'neutral'"
+                  variant="ghost"
+                  size="sm"
+                  :loading="isPreparing"
+                  @click="toggleRecording"
+                />
+              </UTooltip>
+
+              <!-- Camera button -->
+              <UTooltip text="Capturar foto">
+                <UButton
+                  icon="i-lucide-camera"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  @click="showCamera = true"
+                />
+              </UTooltip>
+
               <ModelSelect v-model="model" />
             </div>
 
-            <UChatPromptSubmit color="neutral" size="sm" :disabled="isUploading" />
+            <UChatPromptSubmit color="neutral" size="sm" :disabled="isUploading || isRecording" />
           </template>
         </UChatPrompt>
+
+        <!-- Camera capture overlay -->
+        <CameraCapture
+          v-if="showCamera"
+          @capture="handleCameraCapture"
+          @close="showCamera = false"
+        />
 
         <div class="flex flex-wrap gap-2">
           <UButton

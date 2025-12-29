@@ -22,6 +22,7 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
+  const { detectRotation, clearRotation, clearAllRotations } = useImageRotation()
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -47,7 +48,7 @@ export function useFileUploadWithStatus(_chatId: string) {
 
     files.value = [...files.value, ...filesWithStatus]
 
-    // Convert files to base64
+    // Convert files to base64 (this is the "upload" part)
     const uploadPromises = filesWithStatus.map(async (fileWithStatus) => {
       const index = files.value.findIndex(f => f.id === fileWithStatus.id)
       if (index === -1) return
@@ -55,10 +56,34 @@ export function useFileUploadWithStatus(_chatId: string) {
       try {
         const base64Data = await fileToBase64(fileWithStatus.file)
 
+        // Mark as uploaded immediately - user can continue interacting
         files.value[index] = {
           ...files.value[index]!,
           status: 'uploaded',
           base64Data
+        }
+
+        // Start rotation detection in background for images (non-blocking)
+        if (fileWithStatus.file.type.startsWith('image/')) {
+          detectRotation(
+            fileWithStatus.id,
+            base64Data,
+            fileWithStatus.file.type,
+            fileWithStatus.previewUrl
+          ).then((result) => {
+            // Update file with rotation info when detection completes
+            const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
+            if (currentIndex !== -1 && result.rotation !== 0) {
+              files.value[currentIndex] = {
+                ...files.value[currentIndex]!,
+                rotation: result.rotation,
+                rotatedBase64: result.rotatedBase64
+              }
+              console.log('[useFileUpload] Rotation detected:', result.rotation, 'for file:', fileWithStatus.id)
+            }
+          }).catch((error) => {
+            console.error('[useFileUpload] Rotation detection error:', error)
+          })
         }
       } catch (error) {
         const errorMessage = (error as Error).message || 'Error al procesar archivo'
@@ -90,16 +115,22 @@ export function useFileUploadWithStatus(_chatId: string) {
   )
 
   // Format files for AI SDK message parts
+  // Uses rotated base64 if rotation was detected and applied
   const uploadedFiles = computed(() =>
     files.value
       .filter(f => f.status === 'uploaded' && f.base64Data)
-      .map(f => ({
-        type: 'file' as const,
-        mediaType: f.file.type,
-        url: `data:${f.file.type};base64,${f.base64Data}`,
-        data: f.base64Data!,
-        name: f.file.name
-      }))
+      .map(f => {
+        // Use rotated data if available, otherwise original
+        const base64 = f.rotatedBase64 || f.base64Data!
+        return {
+          type: 'file' as const,
+          mediaType: f.file.type,
+          url: `data:${f.file.type};base64,${base64}`,
+          data: base64,
+          name: f.file.name,
+          rotation: f.rotation || 0
+        }
+      })
   )
 
   function removeFile(id: string) {
@@ -107,12 +138,14 @@ export function useFileUploadWithStatus(_chatId: string) {
     if (!file) return
 
     URL.revokeObjectURL(file.previewUrl)
+    clearRotation(id)
     files.value = files.value.filter(f => f.id !== id)
   }
 
   function clearFiles() {
     if (files.value.length === 0) return
     files.value.forEach(fileWithStatus => URL.revokeObjectURL(fileWithStatus.previewUrl))
+    clearAllRotations()
     files.value = []
   }
 

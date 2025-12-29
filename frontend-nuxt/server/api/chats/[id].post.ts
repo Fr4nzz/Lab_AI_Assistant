@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getChat, addMessage, updateChatTitle } from '../../utils/db'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { getBestTitleModel, getLatencySortedProviderBody } from '../../utils/openrouter-models'
 
 defineRouteMeta({
   openAPI: {
@@ -20,9 +21,11 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
     return
   }
 
-  console.log('[API/chat] Generating title with OpenRouter...')
-
   try {
+    // Get best available free model for title generation
+    const modelId = await getBestTitleModel()
+    console.log('[API/chat] Generating title with:', modelId)
+
     const openrouter = createOpenRouter({
       apiKey: config.openrouterApiKey
     })
@@ -61,10 +64,14 @@ Ahora genera un título para este mensaje:
 Título:`
 
     const { text } = await generateText({
-      model: openrouter('mistralai/mistral-small-3.1-24b-instruct-2503:free'),
+      model: openrouter(modelId),
       prompt,
       temperature: 0.3,
-      maxTokens: 20
+      maxTokens: 20,
+      // Use latency-sorted provider routing for faster responses
+      experimental_providerMetadata: {
+        openrouter: getLatencySortedProviderBody()
+      }
     })
 
     // Clean up the title - remove any markdown or unwanted formatting

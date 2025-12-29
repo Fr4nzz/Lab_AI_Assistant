@@ -5,6 +5,8 @@ export interface FileWithStatus {
   status: 'uploading' | 'uploaded' | 'error'
   base64Data?: string
   error?: string
+  rotation?: number
+  rotatedBase64?: string
 }
 
 export const FILE_UPLOAD_CONFIG = {
