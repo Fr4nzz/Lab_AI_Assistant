@@ -1,4 +1,10 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { config } from 'dotenv'
+import { resolve } from 'path'
+
+// Load root .env file (parent of frontend-nuxt)
+config({ path: resolve(__dirname, '../.env') })
+
 export default defineNuxtConfig({
   modules: [
     '@nuxt/eslint',

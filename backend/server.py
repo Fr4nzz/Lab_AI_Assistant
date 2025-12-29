@@ -766,6 +766,221 @@ async def get_exams():
 
 
 # ============================================================
+# IMAGE ROTATION DETECTION ENDPOINT
+# ============================================================
+
+class RotationRequest(BaseModel):
+    imageDataUrl: str
+
+# Cache for free vision models (refresh every 10 minutes)
+_vision_models_cache: List[str] = []
+_vision_models_cache_time: float = 0
+
+async def get_free_vision_models() -> List[str]:
+    """Get top free vision models from OpenRouter API."""
+    global _vision_models_cache, _vision_models_cache_time
+    import time
+    import httpx
+
+    # Check cache (10 minute TTL)
+    if _vision_models_cache and (time.time() - _vision_models_cache_time) < 600:
+        return _vision_models_cache
+
+    if not settings.openrouter_api_key:
+        logger.warning("[Rotation] No OpenRouter API key configured")
+        return []
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                timeout=10.0
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Filter for free vision models
+            free_vision = []
+            for model in data.get("data", []):
+                model_id = model.get("id", "")
+                pricing = model.get("pricing", {})
+                modality = model.get("architecture", {}).get("modality", "")
+
+                # Check if free (prompt and completion cost 0)
+                prompt_cost = float(pricing.get("prompt", "1") or "1")
+                completion_cost = float(pricing.get("completion", "1") or "1")
+                is_free = prompt_cost == 0 and completion_cost == 0
+
+                # Check if vision capable
+                is_vision = "image" in modality or "multimodal" in modality.lower()
+
+                if is_free and is_vision and ":free" in model_id:
+                    free_vision.append(model_id)
+
+            # Sort by preference (nvidia and mistral models tend to be faster)
+            def sort_key(m):
+                if "nvidia" in m.lower():
+                    return 0
+                if "mistral" in m.lower():
+                    return 1
+                if "gemma" in m.lower():
+                    return 2
+                return 3
+
+            free_vision.sort(key=sort_key)
+
+            _vision_models_cache = free_vision[:3]  # Top 3
+            _vision_models_cache_time = time.time()
+            logger.info(f"[Rotation] Found {len(free_vision)} free vision models, using top 3: {_vision_models_cache}")
+            return _vision_models_cache
+
+    except Exception as e:
+        logger.error(f"[Rotation] Failed to fetch vision models: {e}")
+        return []
+
+ROTATION_PROMPT = """Analyze this image and determine if it needs rotation to make text readable.
+
+TASK: Determine the rotation needed so text reads left-to-right, top-to-bottom.
+
+RULES:
+- Return ONLY a single number: 0, 90, 180, or 270
+- 0 = Image is correctly oriented (text is readable)
+- 90 = Rotate 90° clockwise (text is currently sideways, reading bottom-to-top)
+- 180 = Rotate 180° (text is upside down)
+- 270 = Rotate 270° clockwise / 90° counter-clockwise (text is sideways, reading top-to-bottom)
+
+GUIDANCE:
+- Look at any text, numbers, logos, or writing in the image
+- If no text is visible, look at natural orientation cues (faces, objects)
+- If the image appears correctly oriented, return 0
+
+IMPORTANT: Respond with ONLY the number (0, 90, 180, or 270). No other text."""
+
+@app.post("/api/detect-rotation")
+async def detect_rotation(request: RotationRequest):
+    """
+    Detect if an image needs rotation using free OpenRouter vision models.
+    Returns the rotation degrees needed (0, 90, 180, or 270).
+    """
+    import time
+    import httpx
+
+    start_time = time.time()
+
+    if not settings.openrouter_api_key:
+        return {
+            "rotation": 0,
+            "model": None,
+            "success": False,
+            "error": "OpenRouter API key not configured"
+        }
+
+    # Parse image data URL
+    if not request.imageDataUrl.startswith("data:"):
+        return {
+            "rotation": 0,
+            "model": None,
+            "success": False,
+            "error": "Invalid image data URL format"
+        }
+
+    parts = request.imageDataUrl.split(",", 1)
+    if len(parts) != 2:
+        return {
+            "rotation": 0,
+            "model": None,
+            "success": False,
+            "error": "Invalid image data URL format"
+        }
+
+    mime_match = parts[0].replace("data:", "").replace(";base64", "")
+    base64_data = parts[1]
+    image_size_kb = len(base64_data) * 0.75 / 1024
+
+    logger.info(f"[Rotation] Starting detection (image: {image_size_kb:.0f}KB)")
+
+    # Get free vision models
+    models = await get_free_vision_models()
+    if not models:
+        return {
+            "rotation": 0,
+            "model": None,
+            "success": False,
+            "error": "No free vision models available"
+        }
+
+    # Try each model with fallback
+    async with httpx.AsyncClient() as client:
+        for model_id in models:
+            model_start = time.time()
+            logger.info(f"[Rotation] Trying: {model_id}")
+
+            try:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.openrouter_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model_id,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": ROTATION_PROMPT},
+                                    {"type": "image_url", "image_url": {"url": request.imageDataUrl}}
+                                ]
+                            }
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 10,
+                        "provider": {"sort": "latency"}
+                    },
+                    timeout=60.0
+                )
+
+                model_time = int((time.time() - model_start) * 1000)
+
+                if response.status_code != 200:
+                    logger.warning(f"[Rotation] {model_id} returned {response.status_code}")
+                    continue
+
+                data = response.json()
+                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+                # Parse rotation from response
+                cleaned = ''.join(c for c in text.strip() if c.isdigit())
+                if cleaned:
+                    rotation = int(cleaned)
+                    if rotation in [0, 90, 180, 270]:
+                        total_time = int((time.time() - start_time) * 1000)
+                        logger.info(f"[Rotation] Result: {rotation}° (model: {model_time}ms, total: {total_time}ms)")
+                        return {
+                            "rotation": rotation,
+                            "model": model_id,
+                            "success": True,
+                            "timing": {"modelMs": model_time, "totalMs": total_time}
+                        }
+
+                logger.warning(f"[Rotation] Invalid response from {model_id}: '{text}'")
+
+            except Exception as e:
+                logger.warning(f"[Rotation] {model_id} failed: {e}")
+
+    total_time = int((time.time() - start_time) * 1000)
+    logger.warning(f"[Rotation] All models failed ({total_time}ms)")
+    return {
+        "rotation": 0,
+        "model": None,
+        "success": False,
+        "error": "All vision models failed",
+        "timing": {"totalMs": total_time}
+    }
+
+
+# ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 
