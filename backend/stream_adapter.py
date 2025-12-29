@@ -4,14 +4,19 @@ AI SDK UI Message Stream Protocol v1 Adapter.
 Converts LangGraph events to AI SDK v6 UI Message Stream Protocol format.
 Documentation: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 
-Stream Format (SSE) - Supported by @ai-sdk/vue Chat class:
-- data: {"type":"text-delta","textDelta":"content"}
-- data: {"type":"error","error":"message"}
-- data: {"type":"finish","finishReason":"stop","usage":{}}
+Stream Format (SSE):
+- data: {"type":"text-start","id":"xxx"}
+- data: {"type":"text-delta","id":"xxx","delta":"content"}
+- data: {"type":"text-end","id":"xxx"}
+- data: {"type":"reasoning-start","id":"xxx"}
+- data: {"type":"reasoning-delta","id":"xxx","delta":"content"}
+- data: {"type":"reasoning-end","id":"xxx"}
+- data: {"type":"tool-input-start","toolCallId":"xxx","toolName":"xxx"}
+- data: {"type":"tool-input-available","toolCallId":"xxx","toolName":"xxx","input":{}}
+- data: {"type":"start-step"}
+- data: {"type":"finish-step"}
+- data: {"type":"finish"}
 - data: [DONE]
-
-Note: The Chat class validates event types strictly. Only text-delta, error,
-and finish are supported. Tool calls are shown as formatted text.
 """
 import json
 import uuid
@@ -22,8 +27,11 @@ class StreamAdapter:
     """Converts LangGraph events to AI SDK v6 UI Message Stream Protocol"""
 
     def __init__(self):
-        self.message_id = f"msg_{uuid.uuid4().hex[:12]}"
+        self.message_id = f"msg_{uuid.uuid4().hex}"
+        self.text_id: Optional[str] = None
+        self.reasoning_id: Optional[str] = None
         self.current_step = 0
+        self.active_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
 
     def _sse(self, data: Any) -> str:
         """Format data as SSE event"""
@@ -35,56 +43,122 @@ class StreamAdapter:
         """Start a new assistant message"""
         return ""
 
-    def text_delta(self, content: str) -> str:
-        """Stream a text chunk"""
+    def start_step(self) -> str:
+        """Start a new step"""
+        self.current_step += 1
+        return self._sse({"type": "start-step"})
+
+    def finish_step(self) -> str:
+        """Finish current step"""
+        result = ""
+        # End any open text or reasoning blocks
+        if self.text_id:
+            result += self.text_end()
+        if self.reasoning_id:
+            result += self.reasoning_end()
+        result += self._sse({"type": "finish-step"})
+        return result
+
+    def text_start(self) -> str:
+        """Start a text block"""
+        self.text_id = f"text_{uuid.uuid4().hex[:12]}"
         return self._sse({
-            "type": "text-delta",
-            "textDelta": content
+            "type": "text-start",
+            "id": self.text_id
         })
 
-    def step_indicator(self, step_num: int) -> str:
-        """Show step number as text (workaround since step events aren't supported)"""
-        self.current_step = step_num
-        # Don't emit anything - we'll include step in tool display
-        return ""
+    def text_delta(self, content: str) -> str:
+        """Stream a text chunk"""
+        result = ""
+        # Auto-start text block if not started
+        if not self.text_id:
+            result += self.text_start()
+        result += self._sse({
+            "type": "text-delta",
+            "id": self.text_id,
+            "delta": content
+        })
+        return result
+
+    def text_end(self) -> str:
+        """End a text block"""
+        if not self.text_id:
+            return ""
+        result = self._sse({
+            "type": "text-end",
+            "id": self.text_id
+        })
+        self.text_id = None
+        return result
+
+    def reasoning_start(self) -> str:
+        """Start a reasoning block"""
+        self.reasoning_id = f"reasoning_{uuid.uuid4().hex[:12]}"
+        return self._sse({
+            "type": "reasoning-start",
+            "id": self.reasoning_id
+        })
+
+    def reasoning_delta(self, content: str) -> str:
+        """Stream reasoning/thinking content"""
+        result = ""
+        # Auto-start reasoning block if not started
+        if not self.reasoning_id:
+            result += self.reasoning_start()
+        result += self._sse({
+            "type": "reasoning-delta",
+            "id": self.reasoning_id,
+            "delta": content
+        })
+        return result
+
+    def reasoning_end(self) -> str:
+        """End a reasoning block"""
+        if not self.reasoning_id:
+            return ""
+        result = self._sse({
+            "type": "reasoning-end",
+            "id": self.reasoning_id
+        })
+        self.reasoning_id = None
+        return result
+
+    def tool_start(self, tool_call_id: str, tool_name: str) -> str:
+        """Start a tool call"""
+        self.active_tool_calls[tool_call_id] = tool_name
+        return self._sse({
+            "type": "tool-input-start",
+            "toolCallId": tool_call_id,
+            "toolName": tool_name
+        })
+
+    def tool_input_available(self, tool_call_id: str, tool_name: str, args: dict) -> str:
+        """Signal tool input is available"""
+        return self._sse({
+            "type": "tool-input-available",
+            "toolCallId": tool_call_id,
+            "toolName": tool_name,
+            "input": args
+        })
 
     def tool_status(self, tool_name: str, status: str = "start", args: Optional[dict] = None,
                     tool_call_id: Optional[str] = None, result: Optional[Any] = None) -> str:
-        """
-        Stream tool status as formatted text.
-        The Chat class doesn't support tool-call events, so we display as text.
-        """
+        """Stream tool status using AI SDK protocol"""
         if status == "start":
-            # Show tool being called with step number and args
-            step_prefix = f"**[{self.current_step}]** " if self.current_step > 0 else ""
-            params = []
-            if args:
-                for k, v in args.items():
-                    if isinstance(v, str):
-                        display_v = v if len(v) < 50 else v[:47] + "..."
-                        params.append(f"{k}={display_v}")
-                    elif isinstance(v, list):
-                        if len(v) <= 10:
-                            params.append(f"{k}={v}")
-                        else:
-                            items = ', '.join(str(x) for x in v[:10])
-                            params.append(f"{k}=[{items}... +{len(v)-10} more]")
-                    elif isinstance(v, (int, float, bool)):
-                        params.append(f"{k}={v}")
-            param_str = f" ({', '.join(params)})" if params else ""
-            text = f"{step_prefix}🔧 **{tool_name}**{param_str}\n"
+            # Generate tool call ID if not provided
+            if not tool_call_id:
+                tool_call_id = f"call_{uuid.uuid4().hex[:12]}"
+
+            # Emit tool-input-start followed by tool-input-available
+            output = self.tool_start(tool_call_id, tool_name)
+            output += self.tool_input_available(tool_call_id, tool_name, args or {})
+            return output
         else:  # end
-            text = f"✓ {tool_name} completado\n\n"
-
-        return self.text_delta(text)
-
-    def reasoning_text(self, content: str) -> str:
-        """
-        Stream reasoning/thinking as formatted text.
-        The Chat class doesn't support reasoning events, so we display as collapsible text.
-        """
-        # Format as a blockquote for visual distinction
-        return self.text_delta(f"> 💭 {content}\n")
+            # Find and remove the tool call
+            if tool_call_id and tool_call_id in self.active_tool_calls:
+                del self.active_tool_calls[tool_call_id]
+            # No specific end event needed - the tool result is handled by the model
+            return ""
 
     def error(self, message: str) -> str:
         """Stream an error"""
@@ -95,11 +169,14 @@ class StreamAdapter:
 
     def finish(self, reason: str = "stop", usage: Optional[dict] = None) -> str:
         """Stream finish signal and close stream"""
-        result = self._sse({
-            "type": "finish",
-            "finishReason": reason,
-            "usage": usage or {}
-        })
+        result = ""
+        # End any open blocks
+        if self.text_id:
+            result += self.text_end()
+        if self.reasoning_id:
+            result += self.reasoning_end()
+        # Send finish event
+        result += self._sse({"type": "finish"})
         # Send DONE marker to signal end of stream
         result += "data: [DONE]\n\n"
         return result
