@@ -37,6 +37,16 @@ function getFileName(url: string): string {
   }
 }
 
+// Helper to map AI SDK tool states to LabTool component states
+function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result' | 'error' {
+  const state = part.state || part.status
+  if (state === 'input-streaming' || state === 'partial-call') return 'partial-call'
+  if (state === 'input-available' || state === 'call') return 'call'
+  if (state === 'output-available' || state === 'result') return 'result'
+  if (state === 'output-error' || state === 'error') return 'error'
+  return 'pending'
+}
+
 const {
   dropzoneRef,
   isDragging,
@@ -239,9 +249,9 @@ onUnmounted(() => {
               <ToolLabTool
                 v-else-if="part.type === 'tool-invocation'"
                 :name="(part as any).toolName"
-                :args="(part as any).args || {}"
-                :result="(part as any).result"
-                :state="(part as any).state || 'pending'"
+                :args="(part as any).args || (part as any).input || {}"
+                :result="(part as any).result || (part as any).output"
+                :state="getToolState(part)"
               />
               <FileAvatar
                 v-else-if="part.type === 'file'"
