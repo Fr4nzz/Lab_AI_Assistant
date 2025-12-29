@@ -8,18 +8,17 @@ export interface ModelConfig {
 }
 
 // Available models configuration
-// Lab Assistant models use Gemini via the backend with tools
-// Non-Lab Assistant models could use OpenRouter directly (future)
+// Lab Assistant models use Gemini via the backend with API key rotation
 export const MODEL_CONFIGS: ModelConfig[] = [
   {
-    id: 'gemini-2.5-flash-preview-05-20',
-    displayName: 'Lab Assistant (Gemini 2.5 Flash)',
+    id: 'gemini-3-flash-preview',
+    displayName: 'Lab Assistant (Gemini 3 Flash)',
     icon: 'i-lucide-flask-conical',
     isLabAssistant: true
   },
   {
-    id: 'gemini-2.0-flash',
-    displayName: 'Lab Assistant (Gemini 2.0 Flash)',
+    id: 'gemini-flash-latest',
+    displayName: 'Lab Assistant (Gemini 2.5 Flash)',
     icon: 'i-lucide-flask-conical',
     isLabAssistant: true
   }
