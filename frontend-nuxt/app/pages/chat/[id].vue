@@ -86,8 +86,10 @@ const chat = new Chat({
   }),
   onFinish() {
     // Debug: Log message parts after completion
-    const messages = chat.messages.value
+    // Note: chat.messages is a reactive array, not a ref
+    const messages = chat.messages
     console.log('[Chat] onFinish - Messages count:', messages?.length || 0)
+    console.log('[Chat] onFinish - Messages:', messages)
     if (messages && messages.length > 0) {
       const lastMsg = messages[messages.length - 1]
       console.log('[Chat] onFinish - Last message id:', lastMsg?.id)
