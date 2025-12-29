@@ -22,7 +22,14 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
-  const { detectRotation, clearRotation, clearAllRotations } = useImageRotation()
+  const {
+    detectRotation,
+    clearRotation,
+    clearAllRotations,
+    allRotationStates,
+    hasPendingRotations,
+    waitForAllRotations
+  } = useImageRotation()
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -67,6 +74,7 @@ export function useFileUploadWithStatus(_chatId: string) {
         if (fileWithStatus.file.type.startsWith('image/')) {
           detectRotation(
             fileWithStatus.id,
+            fileWithStatus.file.name,
             base64Data,
             fileWithStatus.file.type,
             fileWithStatus.previewUrl
@@ -79,7 +87,7 @@ export function useFileUploadWithStatus(_chatId: string) {
                 rotation: result.rotation,
                 rotatedBase64: result.rotatedBase64
               }
-              console.log('[useFileUpload] Rotation detected:', result.rotation, 'for file:', fileWithStatus.id)
+              console.log('[useFileUpload] Rotation detected:', result.rotation, 'for file:', fileWithStatus.file.name)
             }
           }).catch((error) => {
             console.error('[useFileUpload] Rotation detection error:', error)
@@ -161,6 +169,10 @@ export function useFileUploadWithStatus(_chatId: string) {
     uploadedFiles,
     addFiles: uploadFiles,
     removeFile,
-    clearFiles
+    clearFiles,
+    // Expose rotation states for UI display
+    rotationStates: allRotationStates,
+    hasPendingRotations,
+    waitForAllRotations
   }
 }

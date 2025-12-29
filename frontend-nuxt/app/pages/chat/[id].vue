@@ -128,7 +128,10 @@ const {
   uploadedFiles,
   addFiles,
   removeFile,
-  clearFiles
+  clearFiles,
+  rotationStates,
+  hasPendingRotations,
+  waitForAllRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
@@ -176,6 +179,13 @@ const chat = new Chat({
 async function handleSubmit(e: Event) {
   e.preventDefault()
   if (input.value.trim() && !isRecording.value) {
+    // Wait for any pending rotation detections before sending
+    if (hasPendingRotations.value) {
+      console.log('[Chat] Waiting for rotation detection to complete...')
+      await waitForAllRotations()
+      console.log('[Chat] Rotation detection complete, sending message')
+    }
+
     chat.sendMessage({
       text: input.value,
       files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
@@ -432,20 +442,31 @@ onUnmounted(() => {
           :ui="{ base: 'px-1.5' }"
           @submit="handleSubmit"
         >
-          <template v-if="files.length > 0" #header>
-            <div class="flex flex-wrap gap-2">
-              <FileAvatar
-                v-for="fileWithStatus in files"
-                :key="fileWithStatus.id"
-                :name="fileWithStatus.file.name"
-                :type="fileWithStatus.file.type"
-                :preview-url="fileWithStatus.previewUrl"
-                :status="fileWithStatus.status"
-                :error="fileWithStatus.error"
-                :rotation="fileWithStatus.rotation"
-                removable
-                @remove="removeFile(fileWithStatus.id)"
-              />
+          <template v-if="files.length > 0 || rotationStates.length > 0" #header>
+            <div class="flex flex-col gap-3">
+              <!-- File previews -->
+              <div v-if="files.length > 0" class="flex flex-wrap gap-2">
+                <FileAvatar
+                  v-for="fileWithStatus in files"
+                  :key="fileWithStatus.id"
+                  :name="fileWithStatus.file.name"
+                  :type="fileWithStatus.file.type"
+                  :preview-url="fileWithStatus.previewUrl"
+                  :status="fileWithStatus.status"
+                  :error="fileWithStatus.error"
+                  :rotation="fileWithStatus.rotation"
+                  removable
+                  @remove="removeFile(fileWithStatus.id)"
+                />
+              </div>
+              <!-- Rotation detection tools -->
+              <div v-if="rotationStates.length > 0" class="space-y-1">
+                <ToolImageRotation
+                  v-for="rotState in rotationStates"
+                  :key="rotState.fileId"
+                  :rotation-state="rotState"
+                />
+              </div>
             </div>
           </template>
 
@@ -480,7 +501,7 @@ onUnmounted(() => {
             </div>
 
             <UChatPromptSubmit
-              :status="chat.status"
+              :status="hasPendingRotations ? 'streaming' : chat.status"
               :disabled="isUploading || isRecording"
               color="neutral"
               size="sm"
