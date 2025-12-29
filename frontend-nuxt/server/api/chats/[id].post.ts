@@ -210,8 +210,14 @@ export default defineEventHandler(async (event) => {
       })
 
       // Generate title for new chats (fire and forget)
-      if (!chat.title || chat.title === 'Nuevo Chat') {
-        generateTitle(chatId, textContent).catch(console.error)
+      console.log(`[API/chat] Chat title check - current title: "${chat.title}", type: ${typeof chat.title}`)
+      const needsTitle = !chat.title || chat.title === 'Nuevo Chat' || chat.title.trim() === ''
+      console.log(`[API/chat] Needs title generation: ${needsTitle}`)
+      if (needsTitle) {
+        console.log('[API/chat] Triggering title generation...')
+        generateTitle(chatId, textContent).catch((err) => {
+          console.error('[API/chat] Title generation error:', err)
+        })
       }
     }
   }
