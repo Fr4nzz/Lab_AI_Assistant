@@ -169,11 +169,8 @@ class StreamAdapter:
         if self.text_id:
             result += self.text_end()
 
-        # Send finish event
-        finish_data = {"type": "finish", "finishReason": reason}
-        if usage:
-            finish_data["usage"] = usage
-        result += self._sse(finish_data)
+        # Send finish event (AI SDK doesn't accept usage in finish event)
+        result += self._sse({"type": "finish", "finishReason": reason})
 
         # Send DONE marker to signal end of stream
         result += "data: [DONE]\n\n"
