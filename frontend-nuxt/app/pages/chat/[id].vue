@@ -37,6 +37,24 @@ function getFileName(url: string): string {
   }
 }
 
+// Helper to check if a part is a tool call (handles both 'tool-invocation' and 'tool-{toolName}' patterns)
+function isToolPart(part: { type: string }): boolean {
+  return part.type === 'tool-invocation' || (part.type?.startsWith?.('tool-') && part.type !== 'tool-invocation')
+}
+
+// Helper to extract tool name from a part
+function getToolName(part: any): string {
+  // For 'tool-invocation' type, toolName is in the part
+  if (part.type === 'tool-invocation') {
+    return part.toolName || 'unknown'
+  }
+  // For 'tool-{toolName}' format, extract from type
+  if (part.type?.startsWith?.('tool-')) {
+    return part.type.replace('tool-', '')
+  }
+  return 'unknown'
+}
+
 // Helper to map AI SDK tool states to LabTool component states
 function getToolState(part: any): 'pending' | 'partial-call' | 'call' | 'result' | 'error' {
   const state = part.state || part.status
@@ -245,10 +263,10 @@ onUnmounted(() => {
                 :parser-options="{ highlight: false }"
                 class="*:first:mt-0 *:last:mb-0"
               />
-              <!-- Lab tool invocations -->
+              <!-- Lab tool invocations (handles both 'tool-invocation' and 'tool-{toolName}' formats) -->
               <ToolLabTool
-                v-else-if="part.type === 'tool-invocation'"
-                :name="(part as any).toolName"
+                v-else-if="isToolPart(part)"
+                :name="getToolName(part)"
                 :args="(part as any).args || (part as any).input || {}"
                 :result="(part as any).result || (part as any).output"
                 :state="getToolState(part)"
