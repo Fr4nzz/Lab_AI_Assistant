@@ -923,12 +923,19 @@ async def chat_aisdk(request: AISdkChatRequest):
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
+                    run_id = event.get("run_id", "")
+                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
                     logger.info(f"[AI SDK] Tool: {tool_name}")
-                    yield adapter.tool_status(tool_name, "start", tool_input)
+                    yield adapter.tool_status(tool_name, "start", tool_input, tool_call_id=tool_call_id)
 
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    yield adapter.tool_status(tool_name, "end")
+                    run_id = event.get("run_id", "")
+                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
+                    tool_output = event.get("data", {}).get("output", "")
+                    result_str = str(tool_output)[:500] if tool_output else "completed"
+                    logger.info(f"[AI SDK] Tool end: {tool_name}")
+                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_str)
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
