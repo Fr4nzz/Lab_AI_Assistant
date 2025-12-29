@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { getChat, addMessage, updateChatTitle } from '../../utils/db'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getBestTitleModel, getLatencySortedProviderBody } from '../../utils/openrouter-models'
+import { getBestTitleModel } from '../../utils/openrouter-models'
 
 defineRouteMeta({
   openAPI: {
@@ -67,11 +67,7 @@ Título:`
       model: openrouter(modelId),
       prompt,
       temperature: 0.3,
-      maxTokens: 20,
-      // Use latency-sorted provider routing for faster responses
-      experimental_providerMetadata: {
-        openrouter: getLatencySortedProviderBody()
-      }
+      maxTokens: 20
     })
 
     // Clean up the title - remove any markdown or unwanted formatting

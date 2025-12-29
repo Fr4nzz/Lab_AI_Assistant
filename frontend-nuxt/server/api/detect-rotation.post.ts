@@ -2,7 +2,6 @@ import { z } from 'zod'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { getBestVisionModel } from '../utils/openrouter-vision-models'
-import { getLatencySortedProviderBody } from '../utils/openrouter-models'
 
 defineRouteMeta({
   openAPI: {
@@ -70,10 +69,7 @@ Just respond with the number, nothing else.`
         }
       ],
       temperature: 0.1,
-      maxTokens: 10,
-      experimental_providerMetadata: {
-        openrouter: getLatencySortedProviderBody()
-      }
+      maxTokens: 10
     })
 
     // Parse the rotation value
