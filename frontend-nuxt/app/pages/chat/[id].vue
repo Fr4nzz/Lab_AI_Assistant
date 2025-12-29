@@ -18,6 +18,7 @@ const { model } = useModels()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
 const { refreshSidebar } = useSidebarRefresh()
+const tts = useTTS()
 
 function getFileName(url: string): string {
   try {
@@ -45,15 +46,7 @@ const {
   waitForRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
-// Store rotation info to display as tool calls in AI messages
-const pendingRotationResults = ref<Array<{
-  fileName: string
-  rotation: number
-  model: string | null
-  timing: { modelMs?: number; totalMs?: number }
-  rotatedUrl: string
-  state: string
-}>>([])
+// NOTE: Removed pendingRotationResults ref - now passing rotation data directly via sendMessage options.body
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
   cache: 'force-cache'
@@ -77,21 +70,15 @@ const chat = new Chat({
   messages: transformedMessages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    body: () => {
-      // Log when body is built to debug timing
-      console.log('[Transport body] Building request, pendingRotationResults:', JSON.stringify(pendingRotationResults.value))
-      return {
-        model: model.value,
-        enabledTools: enabledTools.value,
-        showStats: showStats.value,
-        // Include rotation results so backend can stream them as tool calls
-        rotationResults: pendingRotationResults.value.length > 0 ? pendingRotationResults.value : undefined
-      }
-    }
+    // NOTE: rotationResults is now passed via sendMessage options.body, not here
+    body: () => ({
+      model: model.value,
+      enabledTools: enabledTools.value,
+      showStats: showStats.value
+    })
   }),
   onFinish() {
-    // Clear pending rotation results after message is complete
-    pendingRotationResults.value = []
+    // Clear rotation results after message is complete
     clearRotationResults()
 
     // Refresh chat list to get the generated title
@@ -124,67 +111,42 @@ async function handleSubmit(e: Event) {
   const textToSend = input.value.trim()
   const hasFiles = uploadedFiles.value.length > 0
 
-  console.log('[handleSubmit] Called with:', {
-    textToSend: textToSend.slice(0, 50),
-    hasFiles,
-    filesCount: files.value.length,
-    uploadedFilesCount: uploadedFiles.value.length,
-    isUploading: isUploading.value,
-    isWaitingForRotationsState: isWaitingForRotationsState.value,
-    hasPendingRotations: hasPendingRotations.value,
-    currentRotationResults: currentRotationResults.value.map(r => ({ fileName: r.fileName, state: r.state }))
-  })
+  // Early exit if nothing to send or busy
+  if ((!textToSend && !hasFiles) || isUploading.value || isWaitingForRotationsState.value) {
+    return
+  }
 
-  // Allow sending with just files OR just text OR both
-  if ((textToSend || hasFiles) && !isUploading.value && !isWaitingForRotationsState.value) {
-    // Check if we have pending rotations - if so, wait for them
-    if (hasPendingRotations.value) {
-      console.log('[handleSubmit] Waiting for pending rotations...')
-      isWaitingForRotationsState.value = true
-      toast.add({
-        title: 'Procesando imágenes',
-        description: 'Esperando detección de rotación...',
-        icon: 'i-lucide-rotate-cw',
-        color: 'info',
-        duration: 3000
-      })
+  // Check if we have pending rotations - if so, wait for them
+  let rotationResults: Array<{
+    fileName: string
+    rotation: number
+    model: string | null
+    timing: { modelMs?: number; totalMs?: number }
+    rotatedUrl: string
+    state: string
+  }> = []
 
-      try {
-        // Wait for all rotations to complete (max 60 seconds)
-        const rotationResults = await waitForRotations(60000)
+  if (hasPendingRotations.value) {
+    isWaitingForRotationsState.value = true
+    toast.add({
+      title: 'Procesando imágenes',
+      description: 'Esperando detección de rotación...',
+      icon: 'i-lucide-rotate-cw',
+      color: 'info',
+      duration: 3000
+    })
 
-        // Store rotation results for backend to stream as tool calls
-        if (rotationResults.length > 0) {
-          pendingRotationResults.value = rotationResults.map(r => ({
-            fileName: r.fileName,
-            rotation: r.rotation,
-            model: r.model,
-            timing: r.timing,
-            rotatedUrl: r.rotatedUrl,
-            state: r.state
-          }))
-        }
-
-        // Now send the message with updated files (they may have been rotated)
-        chat.sendMessage({
-          text: textToSend || (hasFiles ? ' ' : ''),
-          files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
-        })
-        input.value = ''
-        clearFiles()
-      } finally {
-        isWaitingForRotationsState.value = false
-      }
-      return
+    try {
+      // Wait for all rotations to complete (max 60 seconds)
+      rotationResults = await waitForRotations(60000)
+    } finally {
+      isWaitingForRotationsState.value = false
     }
-
-    // No pending rotations - send immediately
-    // Capture any completed rotation results BEFORE clearing files
-    const rotationResults = currentRotationResults.value.filter(r => r.state === 'completed')
-    console.log('[handleSubmit] Found completed rotation results:', rotationResults.length, rotationResults.map(r => ({ fileName: r.fileName, rotation: r.rotation })))
-
-    if (rotationResults.length > 0) {
-      pendingRotationResults.value = rotationResults.map(r => ({
+  } else {
+    // No pending rotations - capture any completed results
+    rotationResults = currentRotationResults.value
+      .filter(r => r.state === 'completed')
+      .map(r => ({
         fileName: r.fileName,
         rotation: r.rotation,
         model: r.model,
@@ -192,17 +154,25 @@ async function handleSubmit(e: Event) {
         rotatedUrl: r.rotatedUrl,
         state: r.state
       }))
-      console.log('[handleSubmit] Set pendingRotationResults:', JSON.stringify(pendingRotationResults.value))
-    }
-
-    console.log('[handleSubmit] About to sendMessage, pendingRotationResults.value.length:', pendingRotationResults.value.length)
-    chat.sendMessage({
-      text: textToSend || (hasFiles ? ' ' : ''),
-      files: hasFiles ? uploadedFiles.value : undefined
-    })
-    input.value = ''
-    clearFiles()
   }
+
+  // Build message
+  const message = {
+    text: textToSend || ' ',
+    files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
+  }
+
+  // Pass rotation data via sendMessage OPTIONS (not transport body)
+  // This ensures the data is sent with THIS specific request
+  const options = rotationResults.length > 0
+    ? { body: { rotationResults } }
+    : undefined
+
+  chat.sendMessage(message, options)
+
+  // Clean up
+  input.value = ''
+  clearFiles()
 }
 
 
@@ -216,6 +186,29 @@ function copy(e: MouseEvent, message: UIMessage) {
   setTimeout(() => {
     copied.value = false
   }, 2000)
+}
+
+// Per-message regeneration (inspired by Lobe Chat)
+function regenerateMessage(messageId: string) {
+  const messages = chat.messages
+  const messageIndex = messages.findIndex(m => m.id === messageId)
+
+  if (messageIndex === -1) return
+
+  // Find the user message that triggered this response
+  let userMessageIndex = messageIndex - 1
+  while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+    userMessageIndex--
+  }
+
+  if (userMessageIndex < 0) return
+
+  // Remove messages from this assistant message onward
+  const newMessages = messages.slice(0, messageIndex)
+
+  // Set the new message history and regenerate
+  chat.setMessages(newMessages)
+  chat.regenerate()
 }
 
 // Refocus the input after adding files - use multiple strategies for reliability
@@ -552,9 +545,8 @@ onUnmounted(() => {
           should-auto-scroll
           :messages="chat.messages"
           :status="chat.status"
-          :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copiar', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
           :spacing-offset="160"
-          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
+          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6 [&_[data-chat-message]]:group"
         >
           <template #content="{ message }">
             <!-- User messages: show files and rotation info -->
@@ -635,6 +627,40 @@ onUnmounted(() => {
                     @click="handleFileClick((part as any).url, getFileName((part as any).url))"
                   />
                 </template>
+
+                <!-- Message actions for assistant messages (per-message) -->
+                <div
+                  v-if="chat.status !== 'streaming'"
+                  class="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <UTooltip text="Regenerar">
+                    <UButton
+                      icon="i-lucide-rotate-ccw"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="regenerateMessage(message.id)"
+                    />
+                  </UTooltip>
+                  <UTooltip text="Copiar">
+                    <UButton
+                      :icon="copied ? 'i-lucide-copy-check' : 'i-lucide-copy'"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="copy($event, message)"
+                    />
+                  </UTooltip>
+                  <UTooltip v-if="tts.isSupported.value" :text="tts.isSpeakingMessage(message.id) ? 'Detener' : 'Leer en voz alta'">
+                    <UButton
+                      :icon="tts.isSpeakingMessage(message.id) ? 'i-lucide-square' : 'i-lucide-volume-2'"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      @click="tts.isSpeakingMessage(message.id) ? tts.stop() : tts.speak(getTextFromMessage(message), message.id)"
+                    />
+                  </UTooltip>
+                </div>
               </template>
             </template>
           </template>

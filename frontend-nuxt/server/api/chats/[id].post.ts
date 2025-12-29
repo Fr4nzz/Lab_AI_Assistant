@@ -4,6 +4,13 @@ import { getTopFreeModels } from '../../utils/openrouter-models'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 
+// Startup validation - warn if API key not configured
+const startupConfig = useRuntimeConfig()
+if (!startupConfig.openrouterApiKey) {
+  console.warn('[API/chat] WARNING: OPENROUTER_API_KEY not configured - title generation will be disabled')
+  console.warn('[API/chat] Add OPENROUTER_API_KEY to frontend-nuxt/.env to enable auto-generated chat titles')
+}
+
 defineRouteMeta({
   openAPI: {
     description: 'Send message to AI and stream response.',
@@ -48,34 +55,22 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
     apiKey: config.openrouterApiKey
   })
 
-  // Prompt with clear instructions and few-shot examples
-  const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
+  // Prompt based on Lobe Chat's approach - simple and direct
+  const prompt = `You are a professional conversation summarizer. Generate a concise title that captures the essence of the conversation.
 
-REGLAS ESTRICTAS:
-- Genera SOLO el título, sin explicaciones
-- El título debe tener entre 2-5 palabras en español
-- NO uses markdown (**, ##, etc.)
-- NO uses comillas ni puntuación especial
-- NO empieces con "Título:" ni similar
-- El título debe describir el tema principal del mensaje
+Rules:
+- Output ONLY the title text, no explanations or additional context
+- Maximum 5 words
+- Maximum 50 characters
+- No punctuation marks
+- Use the language: Spanish
+- The title should accurately reflect the main topic
+- Keep it short and to the point
 
-EJEMPLOS:
-Mensaje: "Busca la orden del paciente Juan Pérez"
-Título: Búsqueda orden Juan Pérez
-
-Mensaje: "Quiero ver los resultados del hemograma de la orden 12345"
-Título: Resultados hemograma
-
-Mensaje: "Necesito agregar un examen de glucosa a la orden existente"
-Título: Agregar examen glucosa
-
-Mensaje: "¿Cuáles son los exámenes disponibles para perfil lipídico?"
-Título: Exámenes perfil lipídico
-
-Ahora genera un título para este mensaje:
+Conversation message:
 "${messageContent.slice(0, 300)}"
 
-Título:`
+Title:`
 
   // Get top 3 free models dynamically
   const freeModels = await getTopFreeModels(config.openrouterApiKey, 3)
