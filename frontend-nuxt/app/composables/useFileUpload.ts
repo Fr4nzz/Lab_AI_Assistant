@@ -251,6 +251,82 @@ export function useFileUploadWithStatus(_chatId: string) {
     })
   })
 
+  // Wait for all pending rotations to complete
+  // Returns a promise that resolves when all rotations are done
+  function waitForRotations(timeoutMs = 60000): Promise<FileRotationState[]> {
+    return new Promise((resolve, reject) => {
+      const imageFileIds = files.value
+        .filter(f => f.file.type.startsWith('image/'))
+        .map(f => f.id)
+
+      if (imageFileIds.length === 0) {
+        resolve([])
+        return
+      }
+
+      const startTime = Date.now()
+
+      // Check immediately
+      const checkComplete = () => {
+        const results: FileRotationState[] = []
+        let allDone = true
+
+        for (const id of imageFileIds) {
+          const result = rotationResults.value.get(id)
+          if (result) {
+            if (result.state === 'pending' || result.state === 'processing') {
+              allDone = false
+            } else {
+              results.push(result)
+            }
+          } else {
+            // No result yet, still pending
+            allDone = false
+          }
+        }
+
+        if (allDone) {
+          return results
+        }
+
+        // Check timeout
+        if (Date.now() - startTime > timeoutMs) {
+          // Return whatever we have
+          return imageFileIds
+            .map(id => rotationResults.value.get(id))
+            .filter((r): r is FileRotationState => r !== undefined)
+        }
+
+        return null // Not done yet
+      }
+
+      // Initial check
+      const initial = checkComplete()
+      if (initial !== null) {
+        resolve(initial)
+        return
+      }
+
+      // Poll for completion
+      const interval = setInterval(() => {
+        const result = checkComplete()
+        if (result !== null) {
+          clearInterval(interval)
+          resolve(result)
+        }
+      }, 200) // Check every 200ms
+
+      // Timeout cleanup
+      setTimeout(() => {
+        clearInterval(interval)
+        const finalResults = imageFileIds
+          .map(id => rotationResults.value.get(id))
+          .filter((r): r is FileRotationState => r !== undefined && r.state === 'completed')
+        resolve(finalResults)
+      }, timeoutMs)
+    })
+  }
+
   // Watch for rotation completions (reactive)
   const rotationResultsReactive = computed(() => {
     // Return a new object when rotationResults changes to trigger reactivity
@@ -317,6 +393,7 @@ export function useFileUploadWithStatus(_chatId: string) {
     getRotationResultsByIds,
     hasCompletedRotations,
     hasPendingRotations,
+    waitForRotations,
     addFiles: uploadFiles,
     removeFile,
     clearFiles,
