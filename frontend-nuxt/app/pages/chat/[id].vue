@@ -42,8 +42,7 @@ const {
   removeFile,
   clearFiles,
   clearRotationResults,
-  hasPendingRotations,
-  waitForRotations
+  hasPendingRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
 // Rotation data to be sent with next message (stored in ref for transport body access)
@@ -107,30 +106,14 @@ const chat = new Chat({
   }
 })
 
-// Computed: is submission currently disabled?
-const isSubmitDisabled = computed(() => {
-  const disabled = isUploading.value || hasPendingRotations.value
-  console.log('[isSubmitDisabled]', { isUploading: isUploading.value, hasPendingRotations: hasPendingRotations.value, result: disabled })
-  return disabled
-})
-
 // Handle form submission
 // NOTE: UChatPrompt @submit does NOT pass a native event - don't use e.preventDefault()
 async function handleSubmit() {
   const textToSend = input.value.trim()
   const hasFiles = uploadedFiles.value.length > 0
 
-  console.log('[handleSubmit] Called:', {
-    text: textToSend.slice(0, 30),
-    hasFiles,
-    filesCount: files.value.length,
-    hasPendingRotations: hasPendingRotations.value,
-    currentRotationResults: currentRotationResults.value.map(r => ({ name: r.fileName, state: r.state }))
-  })
-
-  // Early exit if nothing to send
+  // Allow sending with just files OR just text OR both
   if (!textToSend && !hasFiles) {
-    console.log('[handleSubmit] Nothing to send, returning')
     return
   }
 
@@ -145,8 +128,6 @@ async function handleSubmit() {
       rotatedUrl: r.rotatedUrl,
       state: r.state
     }))
-
-  console.log('[handleSubmit] Rotation data to send:', rotationData.length, rotationData.map(r => ({ name: r.fileName, rotation: r.rotation })))
 
   // Set rotation data in ref so transport body() can access it
   pendingRotationData.value = rotationData.length > 0 ? rotationData : undefined
@@ -253,7 +234,8 @@ async function handlePaste(e: ClipboardEvent) {
       color: 'success',
       duration: 1500
     })
-    focusInput()
+    // Keep focus on input after paste - use setTimeout to ensure focus after toast
+    setTimeout(() => focusInput(), 50)
   }
 }
 
@@ -658,36 +640,27 @@ onUnmounted(() => {
         <UChatPrompt
           v-model="input"
           :error="chat.error"
-          :disabled="isSubmitDisabled"
-          :placeholder="hasPendingRotations ? 'Detectando orientación de imagen...' : 'Escribe un mensaje...'"
+          :disabled="isRecording"
           variant="subtle"
           class="sticky bottom-0 [view-transition-name:chat-prompt] rounded-b-none z-10"
           :ui="{ base: 'px-1.5' }"
           @submit="handleSubmit"
         >
-          <template v-if="files.length > 0 || hasPendingRotations" #header>
-            <div class="flex flex-col gap-2">
-              <!-- Files preview -->
-              <div v-if="files.length > 0" class="flex flex-wrap gap-2">
-                <FileAvatar
-                  v-for="fileWithStatus in files"
-                  :key="fileWithStatus.id"
-                  :name="fileWithStatus.file.name"
-                  :type="fileWithStatus.file.type"
-                  :preview-url="fileWithStatus.previewUrl"
-                  :status="fileWithStatus.status"
-                  :error="fileWithStatus.error"
-                  :rotation="fileWithStatus.rotation"
-                  removable
-                  @remove="removeFile(fileWithStatus.id)"
-                  @click="handleFileClick(fileWithStatus.previewUrl, fileWithStatus.file.name)"
-                />
-              </div>
-              <!-- Rotation detection in progress indicator -->
-              <div v-if="hasPendingRotations" class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
-                <UIcon name="i-lucide-loader-2" class="w-4 h-4 animate-spin" />
-                <span>Detectando orientación de imagen...</span>
-              </div>
+          <template v-if="files.length > 0" #header>
+            <div class="flex flex-wrap gap-2">
+              <FileAvatar
+                v-for="fileWithStatus in files"
+                :key="fileWithStatus.id"
+                :name="fileWithStatus.file.name"
+                :type="fileWithStatus.file.type"
+                :preview-url="fileWithStatus.previewUrl"
+                :status="fileWithStatus.status"
+                :error="fileWithStatus.error"
+                :rotation="fileWithStatus.rotation"
+                removable
+                @remove="removeFile(fileWithStatus.id)"
+                @click="handleFileClick(fileWithStatus.previewUrl, fileWithStatus.file.name)"
+              />
             </div>
           </template>
 
@@ -731,7 +704,6 @@ onUnmounted(() => {
 
             <UChatPromptSubmit
               :status="chat.status"
-              :disabled="isSubmitDisabled"
               color="neutral"
               size="sm"
               @stop="chat.stop()"
