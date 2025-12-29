@@ -77,13 +77,17 @@ const chat = new Chat({
   messages: transformedMessages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${data.value.id}`,
-    body: () => ({
-      model: model.value,
-      enabledTools: enabledTools.value,
-      showStats: showStats.value,
-      // Include rotation results so backend can stream them as tool calls
-      rotationResults: pendingRotationResults.value.length > 0 ? pendingRotationResults.value : undefined
-    })
+    body: () => {
+      // Log when body is built to debug timing
+      console.log('[Transport body] Building request, pendingRotationResults:', JSON.stringify(pendingRotationResults.value))
+      return {
+        model: model.value,
+        enabledTools: enabledTools.value,
+        showStats: showStats.value,
+        // Include rotation results so backend can stream them as tool calls
+        rotationResults: pendingRotationResults.value.length > 0 ? pendingRotationResults.value : undefined
+      }
+    }
   }),
   onFinish() {
     // Clear pending rotation results after message is complete
@@ -177,6 +181,8 @@ async function handleSubmit(e: Event) {
     // No pending rotations - send immediately
     // Capture any completed rotation results BEFORE clearing files
     const rotationResults = currentRotationResults.value.filter(r => r.state === 'completed')
+    console.log('[handleSubmit] Found completed rotation results:', rotationResults.length, rotationResults.map(r => ({ fileName: r.fileName, rotation: r.rotation })))
+
     if (rotationResults.length > 0) {
       pendingRotationResults.value = rotationResults.map(r => ({
         fileName: r.fileName,
@@ -186,8 +192,10 @@ async function handleSubmit(e: Event) {
         rotatedUrl: r.rotatedUrl,
         state: r.state
       }))
+      console.log('[handleSubmit] Set pendingRotationResults:', JSON.stringify(pendingRotationResults.value))
     }
 
+    console.log('[handleSubmit] About to sendMessage, pendingRotationResults.value.length:', pendingRotationResults.value.length)
     chat.sendMessage({
       text: textToSend || (hasFiles ? ' ' : ''),
       files: hasFiles ? uploadedFiles.value : undefined
