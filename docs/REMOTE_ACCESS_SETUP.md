@@ -24,7 +24,7 @@ Cloudflare Tunnel creates a secure connection from your local machine to the int
 
 **No account, no domain, completely free!**
 
-1. Make sure Lab Assistant is running (`start-dev.bat`)
+1. Make sure Lab Assistant is running (`Lab_Assistant.bat`)
 
 2. Run the quick tunnel script:
    ```batch
@@ -184,7 +184,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ### For Testing (5 minutes)
 
-1. Start app: `.\start-dev.bat`
+1. Start app: `.\Lab_Assistant.bat`
 2. Start tunnel: `.\cloudflare-quick-tunnel.bat`
 3. Share the `trycloudflare.com` URL
 4. ✅ Done! (No auth, anyone with URL can access)
@@ -194,7 +194,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 1. Configure `.env` with Google OAuth credentials
 2. Add your email to `ADMIN_EMAILS`
 3. Add allowed users to `ALLOWED_EMAILS`
-4. Start app: `.\start-dev.bat`
+4. Start app: `.\Lab_Assistant.bat`
 5. Start tunnel: `.\cloudflare-quick-tunnel.bat` or use persistent tunnel
 6. ✅ Done! (Only authorized Google accounts can access)
 
@@ -212,7 +212,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - For Quick Tunnels, update the URI when URL changes
 
 ### Tunnel URL not working
-- Make sure `start-dev.bat` is running first (app on localhost:3000)
+- Make sure `Lab_Assistant.bat` is running first (app on localhost:3000)
 - Keep the tunnel terminal window open
 - Check for firewall blocking cloudflared
 
@@ -264,7 +264,7 @@ WHATSAPP_NOTIFY_PHONE=+1234567890
 
 ```batch
 # Start the app first
-.\start-dev.bat
+.\Lab_Assistant.bat
 
 # Start tunnel with WhatsApp notification (uses phone from .env)
 .\cloudflare-quick-tunnel-notify.bat
