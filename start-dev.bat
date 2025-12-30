@@ -21,21 +21,11 @@ shift
 goto :parse_args
 :done_args
 
-:: Kill existing processes on ports 8000 and 3000 (for restart/update scenarios)
+:: Kill existing processes on ports 8000, 3000, and 24678 (for restart/update scenarios)
 echo Checking for existing processes...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000.*LISTENING"') do (
-    echo Stopping existing backend process (PID: %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000.*LISTENING"') do (
-    echo Stopping existing frontend process (PID: %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
-:: Also kill Vite HMR WebSocket port
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":24678.*LISTENING"') do (
-    echo Stopping existing Vite HMR process (PID: %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping backend (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping frontend (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping Vite HMR (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
 :: Small delay to ensure ports are released
 timeout /t 2 /nobreak >nul
