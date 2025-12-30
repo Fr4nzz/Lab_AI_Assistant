@@ -140,10 +140,17 @@ class ChatResponse(BaseModel):
 # ============================================================
 
 browser: Optional[BrowserManager] = None
-graph = None
+graphs: dict = {}  # Dictionary of graphs, keyed by model name
 checkpointer = None
 initial_orders_context: str = ""  # Store initial orders for context
 orders_context_sent: bool = False  # Track if we've sent valid orders context
+
+# Available models (must match frontend MODEL_CONFIGS)
+AVAILABLE_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-flash-latest",
+]
+DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
 # ============================================================
@@ -431,11 +438,15 @@ async def lifespan(app: FastAPI):
     # For production, use AsyncSqliteSaver or PostgresSaver
     checkpointer = MemorySaver()
 
-    # Build and compile graph
-    builder = create_lab_agent(browser)
-    graph = compile_agent(builder, checkpointer)
+    # Build and compile a graph for each available model
+    for model_name in AVAILABLE_MODELS:
+        logger.info(f"[Startup] Creating graph for model: {model_name}")
+        builder = create_lab_agent(browser, model_name=model_name)
+        graphs[model_name] = compile_agent(builder, checkpointer)
+        logger.info(f"[Startup] Graph for {model_name} ready")
 
     print(f"Lab Assistant ready! Browser at: {browser.page.url}")
+    print(f"Available models: {', '.join(AVAILABLE_MODELS)}")
 
     yield
 
@@ -475,7 +486,8 @@ async def health_check():
     return {
         "status": "ok",
         "browser_url": browser.page.url if browser and browser.page else None,
-        "graph_ready": graph is not None
+        "graphs_ready": list(graphs.keys()),
+        "default_model": DEFAULT_MODEL
     }
 
 
@@ -537,6 +549,11 @@ async def chat(
         human_msg = HumanMessage(content=content)
 
     try:
+        # Use default model graph (this endpoint doesn't accept model parameter)
+        graph = graphs.get(DEFAULT_MODEL)
+        if not graph:
+            raise ValueError(f"Default graph '{DEFAULT_MODEL}' not found")
+
         # Invoke graph - it will loop internally until done
         result = await graph.ainvoke(
             {"messages": [human_msg]},
@@ -584,6 +601,9 @@ async def chat_stream(request: ChatRequest):
     thread_id = request.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
+    # Use default model graph (this endpoint doesn't accept model parameter)
+    graph = graphs.get(DEFAULT_MODEL)
+
     async def generate():
         try:
             async for event in graph.astream_events(
@@ -628,6 +648,9 @@ async def get_history(thread_id: str):
     Returns list of messages with role and content.
     """
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Use default graph for state retrieval (all graphs share the same checkpointer)
+    graph = graphs.get(DEFAULT_MODEL)
 
     try:
         state = await graph.aget_state(config)
@@ -765,6 +788,24 @@ async def get_exams():
     return {"exams": [{"codigo": e["codigo"], "nombre": e["nombre"]} for e in _cached_exams]}
 
 
+@app.get("/api/usage")
+async def get_usage():
+    """Get current usage stats for all models."""
+    from models import get_usage_stats, get_daily_limit, get_num_api_keys
+
+    stats = get_usage_stats()
+    daily_limit = get_daily_limit()
+    num_keys = get_num_api_keys()
+
+    return {
+        "date": stats.get("date"),
+        "models": stats.get("models", {}),
+        "dailyLimit": daily_limit,
+        "numApiKeys": num_keys,
+        "freePerKey": 20  # Google AI Studio free tier limit per key
+    }
+
+
 # ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
@@ -790,6 +831,14 @@ async def chat_aisdk(request: AISdkChatRequest):
 
     thread_id = request.chatId or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Select the appropriate graph based on requested model
+    model_name = request.model or DEFAULT_MODEL
+    if model_name not in graphs:
+        logger.warning(f"[AI SDK] Unknown model '{model_name}', using default: {DEFAULT_MODEL}")
+        model_name = DEFAULT_MODEL
+    graph = graphs[model_name]
+    logger.info(f"[AI SDK] Using model: {model_name}")
 
     # Convert messages to LangChain format
     conversation_messages = []
@@ -900,12 +949,15 @@ async def chat_aisdk(request: AISdkChatRequest):
             full_response = []
             total_input_tokens = 0
             total_output_tokens = 0
-            step_counter = 0  # Track LLM calls
+            ai_responses = 0  # Track actual AI responses (for usage tracking)
 
             # Gemini pricing (per 1M tokens)
             # Gemini Flash: $0.075 input, $0.30 output
             INPUT_PRICE_PER_1M = 0.075
             OUTPUT_PRICE_PER_1M = 0.30
+
+            # Import usage tracking
+            from models import increment_usage, get_usage_stats, get_daily_limit
 
             # Start the message
             yield adapter.start_message()
@@ -917,10 +969,7 @@ async def chat_aisdk(request: AISdkChatRequest):
             ):
                 event_type = event.get("event", "")
 
-                if event_type == "on_chat_model_start":
-                    step_counter += 1
-
-                elif event_type == "on_tool_start":
+                if event_type == "on_tool_start":
                     tool_name = event.get("name", "unknown")
                     tool_input = event.get("data", {}).get("input", {})
                     run_id = event.get("run_id", "")
@@ -951,6 +1000,10 @@ async def chat_aisdk(request: AISdkChatRequest):
                 elif event_type == "on_chat_model_end":
                     output = event.get("data", {}).get("output")
                     if output:
+                        # Count this as an AI response and increment usage
+                        ai_responses += 1
+                        increment_usage(model_name)
+
                         # Handle usage metadata
                         usage = getattr(output, 'usage_metadata', None)
                         if usage and isinstance(usage, dict):
@@ -977,11 +1030,16 @@ async def chat_aisdk(request: AISdkChatRequest):
             total_cost = input_cost + output_cost
 
             if request.showStats:
+                # Get current usage stats for this model
+                usage_stats = get_usage_stats()
+                daily_limit = get_daily_limit()
+                model_usage = usage_stats.get("models", {}).get(model_name, 0)
+
                 # Send usage summary at the end
-                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                usage_summary = f"\n\n---\n📊 **Stats**: {ai_responses} prompts ({model_usage}/{daily_limit} today)"
                 if total_tokens > 0:
-                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
-                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out"
+                    usage_summary += f" | ${total_cost:.6f}"
                 usage_summary += "\n"
 
                 yield adapter.text_delta(usage_summary)
@@ -998,7 +1056,7 @@ async def chat_aisdk(request: AISdkChatRequest):
 
             # Log summary
             response_preview = ''.join(full_response)[:100]
-            logger.info(f"[AI SDK] Done: {step_counter} LLM calls, {total_tokens} tokens, response: {response_preview}...")
+            logger.info(f"[AI SDK] Done: {ai_responses} AI responses, {total_tokens} tokens, response: {response_preview}...")
 
         except Exception as e:
             logger.error(f"[AI SDK] Error: {e}", exc_info=True)
@@ -1107,6 +1165,12 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
+    # Select the appropriate graph based on requested model
+    # The request.model from OpenAI format may differ from our internal model names
+    model_name = request.model if request.model in graphs else DEFAULT_MODEL
+    graph = graphs[model_name]
+    logger.info(f"[OpenAI] Using model: {model_name}")
+
     # Convert OpenAI-format messages to LangGraph messages
     # This preserves full conversation history from the frontend
     conversation_messages = []
@@ -1193,11 +1257,13 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"  # Same ID for all chunks
             created_time = int(time_module.time())  # Unix timestamp
 
-            # Step tracking for enumeration
-            step_counter = 0
+            # Track AI responses (for usage tracking)
+            ai_responses = 0
             total_input_tokens = 0
             total_output_tokens = 0
-            seen_run_ids = set()  # Track unique LLM calls to avoid double counting
+
+            # Import usage tracking
+            from models import increment_usage, get_usage_stats, get_daily_limit
 
             # Gemini pricing (per 1M tokens) - adjust based on model
             # Gemini 3 Flash Preview: $0.50 input, $3.00 output (incl. thinking tokens)
@@ -1248,19 +1314,9 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 ):
                     event_type = event.get("event", "")
 
-                    # Track LLM calls for step enumeration (avoid double counting from wrapper)
+                    # Note: AI response counting now done in on_chat_model_end
                     if event_type == "on_chat_model_start":
-                        run_id = event.get("run_id", "")
-                        # Only count if this is a new run_id (wrapper and inner model share same run_id parent)
-                        # Check metadata to see if this is the actual Gemini call
-                        metadata = event.get("metadata", {})
-                        model_name = event.get("name", "")
-                        # Only count events from the actual ChatGoogleGenerativeAI, not the wrapper
-                        if "ChatGoogleGenerativeAI" in model_name or "gemini" in model_name.lower():
-                            if run_id and run_id not in seen_run_ids:
-                                seen_run_ids.add(run_id)
-                                step_counter += 1
-                                logger.info(f"[Step {step_counter}] LLM call started (run_id: {run_id[:8]})")
+                        pass  # Used for debugging only if needed
 
                     # Stream tool calls to show "thinking" in LobeChat
                     if event_type == "on_tool_start":
@@ -1269,8 +1325,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                         logger.info(f"TOOL CALL: {tool_name}")
                         logger.debug(f"  Input: {json.dumps(tool_input, ensure_ascii=False)[:500]}")
 
-                        # Send tool call as a "thinking" step to frontend with step number
-                        tool_display = f"**[{step_counter}]** 🔧 **{tool_name}**"
+                        # Send tool call as a "thinking" step to frontend
+                        tool_display = f"🔧 **{tool_name}**"
                         if tool_input:
                             # Show ALL parameters
                             params = []
@@ -1353,8 +1409,12 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                     elif event_type == "on_chat_model_end":
                         output = event.get("data", {}).get("output")
 
-                        # Try to extract token usage from response
                         if output:
+                            # Count this as an AI response and increment usage
+                            ai_responses += 1
+                            increment_usage(model_name)
+
+                            # Try to extract token usage from response
                             # Check for usage_metadata on AIMessage (it's a dict, not object)
                             # LangChain format: {'input_tokens': X, 'output_tokens': Y, 'total_tokens': Z}
                             usage = getattr(output, 'usage_metadata', None)
@@ -1367,7 +1427,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                     # Log thinking tokens if available
                                     output_details = usage.get('output_token_details', {})
                                     thinking_tokens = output_details.get('reasoning', 0) if output_details else 0
-                                    logger.info(f"[Step {step_counter}] Tokens: in={input_tokens}, out={output_tokens}" +
+                                    logger.info(f"[AI {ai_responses}] Tokens: in={input_tokens}, out={output_tokens}" +
                                                (f" (thinking={thinking_tokens})" if thinking_tokens else ""))
 
                             # Also check response_metadata for langchain (Google-specific format)
@@ -1381,7 +1441,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                                 if (input_tokens or output_tokens) and not usage:
                                     total_input_tokens += input_tokens
                                     total_output_tokens += output_tokens
-                                    logger.info(f"[Step {step_counter}] Tokens (from response_meta): in={input_tokens}, out={output_tokens}")
+                                    logger.info(f"[AI {ai_responses}] Tokens (from response_meta): in={input_tokens}, out={output_tokens}")
 
                         if output and hasattr(output, 'content') and output.content:
                             content = output.content
@@ -1413,11 +1473,16 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 output_cost = (total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
                 total_cost = input_cost + output_cost
 
+                # Get current usage stats for this model
+                usage_stats = get_usage_stats()
+                daily_limit = get_daily_limit()
+                model_usage = usage_stats.get("models", {}).get(model_name, 0)
+
                 # Send usage summary at the end
-                usage_summary = f"\n\n---\n📊 **Stats**: {step_counter} LLM calls"
+                usage_summary = f"\n\n---\n📊 **Stats**: {ai_responses} prompts ({model_usage}/{daily_limit} today)"
                 if total_tokens > 0:
-                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out = {total_tokens:,}"
-                    usage_summary += f" | Est. cost: ${total_cost:.6f}"
+                    usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out"
+                    usage_summary += f" | ${total_cost:.6f}"
                 usage_summary += "\n"
 
                 data = {
@@ -1433,7 +1498,7 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 }
                 yield f"data: {json.dumps(data)}\n\n"
 
-                logger.info(f"[Usage] Steps: {step_counter}, Input: {total_input_tokens}, Output: {total_output_tokens}, Cost: ${total_cost:.6f}")
+                logger.info(f"[Usage] AI responses: {ai_responses}, Input: {total_input_tokens}, Output: {total_output_tokens}, Cost: ${total_cost:.6f}")
 
                 # Send final chunk with finish_reason to signal completion
                 final_chunk = {

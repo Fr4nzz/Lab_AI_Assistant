@@ -1,10 +1,10 @@
 import { getChats } from '../utils/db'
+import { requireSessionOrInternal } from '../utils/internalAuth'
 
 export default defineEventHandler(async (event) => {
-  const session = await getUserSession(event)
+  // Verify user is authenticated (OAuth or internal API key)
+  await requireSessionOrInternal(event)
 
-  // Get user ID from session (authenticated user or anonymous session)
-  const userId = session.user?.id || session.id
-
-  return await getChats(userId)
+  // Return ALL chats (shared across all users)
+  return await getChats()
 })

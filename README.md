@@ -13,13 +13,13 @@ AI-powered assistant for clinical laboratory staff to enter exam results in labo
 ## Architecture
 
 ```
-User (Next.js) → FastAPI Backend → Gemini AI → Playwright Browser
-                                        ↓
-                             Tool calls (search, edit, etc.)
-                                        ↓
-                             Browser fills forms
-                                        ↓
-                             User clicks "Save"
+User (Nuxt) → FastAPI Backend → Gemini AI → Playwright Browser
+                                      ↓
+                           Tool calls (search, edit, etc.)
+                                      ↓
+                           Browser fills forms
+                                      ↓
+                           User clicks "Save"
 ```
 
 ## Quick Start
@@ -47,46 +47,34 @@ cp .env.example .env
 GEMINI_API_KEYS=key1,key2,key3
 ```
 
-### 3. Configure frontend
+### 3. Start
 
-```bash
-# Copy frontend env
-cp frontend/.env.local.example frontend/.env.local
+**Double-click `Lab_Assistant.bat`** (Windows)
 
-# Edit frontend/.env.local with:
-OPENROUTER_API_KEY=sk-or-v1-xxxxx  # For topic naming (get from https://openrouter.ai/keys)
-```
+The launcher will:
+- Check for Python and Node.js (offer to install if missing)
+- Install all dependencies automatically
+- Start Backend, Frontend, and optionally Telegram Bot
 
-### 4. Start
+### 4. Open the app
 
-**Option A: Double-click `start-dev.bat`** (Windows)
-
-**Option B: Manual**
-```bash
-# Terminal 1 - Backend
-cd backend
-pip install -r requirements.txt
-python server.py
-
-# Terminal 2 - Frontend
-cd frontend
-npm install
-npm run dev
-```
-
-This starts:
-- **Backend** on http://localhost:8000
-- **Frontend** on http://localhost:3000
-
-### 5. Open the app
-
-1. Go to http://localhost:3000
+1. Browser opens automatically to http://localhost:3000
 2. Login to the lab system in the browser window that opens
 3. Start chatting!
 
+### Optional: Desktop Shortcut & Autostart
+
+```batch
+# Create desktop shortcut with icon
+.\setup-shortcut.bat
+
+# Enable autostart on PC boot
+.\setup-autostart.bat
+```
+
 ## Configuration
 
-### Environment Variables
+### Environment Variables (`.env`)
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -94,13 +82,8 @@ This starts:
 | `GEMINI_MODEL` | Model to use | `gemini-2.0-flash` |
 | `BROWSER_CHANNEL` | Browser to use | `msedge`, `chrome`, `chromium` |
 | `TARGET_URL` | Lab system URL | `https://laboratoriofranz.orion-labs.com/` |
-
-### Frontend Environment (frontend/.env.local)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OPENROUTER_API_KEY` | For topic naming | `sk-or-v1-xxx` |
-| `BACKEND_URL` | Backend URL | `http://localhost:8000` |
+| `OPENROUTER_API_KEY` | For chat title naming | `sk-or-v1-xxx` |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | `123456:ABC...` |
 
 ## Usage
 
@@ -132,19 +115,20 @@ This starts:
 ```
 Lab_AI_Assistant/
 ├── backend/
-│   ├── server.py           # FastAPI server (OpenAI-compatible)
+│   ├── server.py           # FastAPI server
 │   ├── models.py           # Gemini wrapper with key rotation
 │   ├── browser_manager.py  # Playwright browser control
 │   ├── prompts.py          # System prompt
 │   └── graph/
 │       ├── agent.py        # LangGraph agent
 │       └── tools.py        # Tool definitions
-├── frontend/
-│   ├── src/
-│   │   ├── app/            # Next.js app router
-│   │   └── components/     # React components
-│   └── .env.local          # Frontend config
-├── start-dev.bat           # Windows launcher
+├── frontend-nuxt/
+│   ├── app/                # Nuxt app (components, pages)
+│   └── server/             # Server API routes
+├── telegram_bot/           # Telegram bot integration
+├── Lab_Assistant.bat       # Windows launcher
+├── setup-shortcut.bat      # Create desktop shortcut
+├── setup-autostart.bat     # Enable autostart on boot
 ├── .env.example            # Example configuration
 └── README.md
 ```
@@ -167,6 +151,16 @@ Add more API keys to `GEMINI_API_KEYS` in `.env`. The system rotates automatical
 ### Browser not opening
 
 Make sure Microsoft Edge is installed, or change `BROWSER_CHANNEL` to `chrome` or `chromium`.
+
+## Remote Access & Authentication
+
+Want to access Lab Assistant from anywhere (not just your local network)?
+
+See **[Remote Access Setup Guide](docs/REMOTE_ACCESS_SETUP.md)** for:
+- Cloudflare Tunnel setup (expose to internet)
+- Google OAuth authentication
+- Admin and user access control
+- All required API keys and where to get them
 
 ## License
 

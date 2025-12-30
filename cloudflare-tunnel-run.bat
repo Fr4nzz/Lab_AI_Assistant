@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 title Cloudflare Tunnel - Lab Assistant
 echo.
 echo ========================================
@@ -7,31 +8,60 @@ echo ========================================
 echo.
 
 :: Check if cloudflared is installed
+set "CLOUDFLARED_CMD="
 where cloudflared >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Error: cloudflared not found.
-    echo Please run cloudflare-tunnel-setup.bat first.
-    pause
-    exit /b 1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    goto :check_config
 )
 
-:: Check if config exists
+:: Check common install locations
+if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+    goto :check_config
+)
+
+echo cloudflared not found.
+echo.
+echo Options:
+echo   1. Run cloudflare-tunnel-setup.bat to install and configure
+echo   2. Run cloudflare-quick-tunnel.bat for instant free access
+echo.
+pause
+exit /b 1
+
+:check_config
+:: Check if named tunnel is configured
 if not exist "%USERPROFILE%\.cloudflared\config.yml" (
-    echo Error: Tunnel not configured.
-    echo Please run cloudflare-tunnel-setup.bat first.
+    echo No named tunnel configured.
+    echo.
+    echo For a quick free tunnel (URL changes each restart^), run:
+    echo   cloudflare-quick-tunnel.bat
+    echo.
+    echo For a persistent URL, you need a domain. Run:
+    echo   cloudflare-tunnel-setup.bat
+    echo.
     pause
     exit /b 1
 )
 
-:: Extract tunnel name from config
-for /f "tokens=2" %%i in ('findstr /i "tunnel:" "%USERPROFILE%\.cloudflared\config.yml"') do set TUNNEL_NAME=%%i
-
-:: Get tunnel ID
-for /f "tokens=1" %%i in ('cloudflared tunnel list ^| findstr /i "%TUNNEL_NAME%"') do set TUNNEL_ID=%%i
-
-echo Tunnel URL: https://%TUNNEL_ID%.cfargotunnel.com
-echo.
-echo Starting tunnel... Press Ctrl+C to stop.
+:: Named tunnel exists - run it
+echo Named tunnel configuration found.
 echo.
 
-cloudflared tunnel run %TUNNEL_NAME%
+:: Try to get tunnel info (may fail if config has issues)
+set "TUNNEL_NAME="
+for /f "usebackq tokens=2" %%i in (`type "%USERPROFILE%\.cloudflared\config.yml" ^| findstr /i "^tunnel:"`) do set TUNNEL_NAME=%%i
+
+if "!TUNNEL_NAME!"=="" (
+    echo Warning: Could not read tunnel name from config.
+    echo Running tunnel with config file...
+    echo.
+    %CLOUDFLARED_CMD% tunnel run
+) else (
+    echo Tunnel: !TUNNEL_NAME!
+    echo.
+    echo Starting tunnel... Press Ctrl+C to stop.
+    echo.
+    %CLOUDFLARED_CMD% tunnel run !TUNNEL_NAME!
+)
