@@ -221,6 +221,11 @@ defineShortcuts({
           </UButton>
         </div>
 
+        <!-- Admin Panel (non-collapsed) -->
+        <div v-if="!collapsed" class="border-t border-default pt-2 mt-2">
+          <SidebarAdminPanel />
+        </div>
+
         <!-- Collapsed state icons -->
         <div v-if="collapsed" class="mt-auto space-y-1">
           <UTooltip text="Herramientas">

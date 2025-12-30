@@ -1,23 +1,22 @@
 import { findOrCreateUser, useDB } from '../../utils/db'
 import { eq } from 'drizzle-orm'
 import * as schema from '../../db/schema'
+import { isAllowedEmail, isAdminEmail } from '../../utils/adminConfig'
 
 export default defineOAuthGoogleEventHandler({
   async onSuccess(event, { user: googleUser }) {
-    const config = useRuntimeConfig()
     const session = await getUserSession(event)
 
-    // Check if email is in allowed list (if configured)
-    const allowedEmails = config.allowedEmails
-    if (allowedEmails) {
-      const emailList = allowedEmails.split(',').map((e: string) => e.trim().toLowerCase())
-      if (!emailList.includes(googleUser.email?.toLowerCase())) {
-        console.error('Email not in allowed list:', googleUser.email)
-        throw createError({
-          statusCode: 403,
-          message: 'Email not authorized'
-        })
-      }
+    // Check if email is in allowed list (admins are always allowed)
+    const email = googleUser.email?.toLowerCase() || ''
+    const isAdmin = isAdminEmail(email)
+
+    if (!isAdmin && !isAllowedEmail(email)) {
+      console.error('Email not in allowed list:', googleUser.email)
+      throw createError({
+        statusCode: 403,
+        message: 'Email not authorized'
+      })
     }
 
     // Find or create user

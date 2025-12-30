@@ -49,6 +49,7 @@ export default defineNuxtConfig({
     backendUrl: process.env.BACKEND_URL || 'http://localhost:8000',
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
     allowedEmails: process.env.ALLOWED_EMAILS || '',
+    adminEmails: process.env.ADMIN_EMAILS || '',
     databasePath: process.env.DATABASE_PATH || './data/lab-assistant.db',
 
     // OAuth configuration
