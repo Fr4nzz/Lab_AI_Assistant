@@ -24,17 +24,24 @@ goto :parse_args
 :: Kill existing processes on ports 8000, 3000, and 24678 (for restart/update scenarios)
 echo Checking for existing processes...
 
-:: Kill existing terminal windows by title using PowerShell (most reliable method)
-:: This finds cmd.exe windows with "Lab Assistant" in title and closes them
-powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' } | ForEach-Object { $_.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 100; if (!$_.HasExited) { $_.Kill() } }" 2>nul
-
-:: Also kill any Python/Node processes on our ports
+:: First kill processes on our ports (this stops the servers)
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
+:: Small delay to let processes terminate
+timeout /t 1 /nobreak >nul
+
+:: Now close the cmd windows that hosted them (they stay open because of /k flag)
+:: Use taskkill with window titles - this is more reliable than CloseMainWindow
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F 2>nul
+
+:: Also try the PowerShell method as backup for any windows with "Lab Assistant" in title
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant Launcher' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+
 :: Delay to ensure windows close and ports are released
-timeout /t 2 /nobreak >nul
+timeout /t 1 /nobreak >nul
 
 :: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
 set "NETWORK_IPS="
