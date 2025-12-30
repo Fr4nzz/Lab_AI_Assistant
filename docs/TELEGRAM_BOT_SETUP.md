@@ -133,7 +133,7 @@ This allows the bot to generate clickable links to view chats in the web UI.
 The bot requires the backend to be running:
 
 ```batch
-.\start-dev.bat
+.\Lab_Assistant.bat
 ```
 
 ### 3.2 Start the Telegram Bot
@@ -276,7 +276,7 @@ Your model selection is saved and will be used for all future conversations unti
 ### Bot doesn't respond
 
 1. **Check token:** Verify `TELEGRAM_BOT_TOKEN` in `.env` is correct
-2. **Check backend:** Make sure `start-dev.bat` is running
+2. **Check backend:** Make sure `Lab_Assistant.bat` is running
 3. **Check logs:** Look at the terminal running the bot for errors
 
 ### "User not allowed" error
