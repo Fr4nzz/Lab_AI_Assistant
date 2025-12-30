@@ -60,7 +60,7 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
-    """Handle 'new chat' buttons (cotizar, pasar, custom)."""
+    """Handle 'new chat' buttons (cotizar, pasar, caption, custom)."""
     images = context.user_data.get("pending_images", [])
 
     if action == "custom":
@@ -72,12 +72,22 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         )
         return
 
-    # Get predefined prompt
-    prompt = PROMPTS.get(action, f"Analiza esta imagen: {action}")
+    # Handle "caption" action - use the caption the user sent with the image
+    if action == "caption":
+        caption = context.user_data.get("pending_caption")
+        if not caption:
+            await query.edit_message_text("❌ No hay mensaje guardado. Usa otra opción.")
+            return
+        prompt = caption
+        # Use first part of caption as title (up to 50 chars)
+        title = caption[:50] if len(caption) <= 50 else caption[:47] + "..."
+    else:
+        # Get predefined prompt
+        prompt = PROMPTS.get(action, f"Analiza esta imagen: {action}")
+        title = "Cotización" if action == "cotizar" else "Pasar datos" if action == "pasar" else action
 
     # Create new chat (now async)
     backend = BackendService()
-    title = "Cotización" if action == "cotizar" else "Pasar datos" if action == "pasar" else action
 
     try:
         chat_id = await backend.create_chat(title=title)
@@ -88,6 +98,7 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
 
         context.user_data["current_chat_id"] = chat_id
         context.user_data["pending_images"] = []
+        context.user_data["pending_caption"] = None  # Clear caption after use
 
         # Show processing message
         await query.edit_message_text("⏳ Procesando...")
