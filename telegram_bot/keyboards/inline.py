@@ -4,17 +4,33 @@ from typing import List, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-def build_photo_options_keyboard(recent_chats: List[Tuple[str, str]] = None) -> InlineKeyboardMarkup:
+def build_photo_options_keyboard(
+    recent_chats: List[Tuple[str, str]] = None,
+    caption: str = None
+) -> InlineKeyboardMarkup:
     """Build keyboard for photo options.
 
     Args:
         recent_chats: List of (chat_id, title) tuples for recent chats
+        caption: Optional caption text sent with the photo
     """
-    keyboard = [
+    keyboard = []
+
+    # If user sent a caption with the image, offer to use it directly
+    if caption:
+        # Truncate caption for display
+        max_display = 25
+        display_text = caption[:max_display] + "..." if len(caption) > max_display else caption
+        keyboard.append([
+            InlineKeyboardButton(f"📨 Nuevo chat: {display_text}", callback_data="new:caption")
+        ])
+
+    # Standard options
+    keyboard.extend([
         [InlineKeyboardButton("📝 Nuevo chat: Cotizar", callback_data="new:cotizar")],
         [InlineKeyboardButton("📋 Nuevo chat: Pasar datos", callback_data="new:pasar")],
         [InlineKeyboardButton("✏️ Nuevo chat: Escribe el prompt", callback_data="new:custom")],
-    ]
+    ])
 
     # Add recent chats if available
     if recent_chats:

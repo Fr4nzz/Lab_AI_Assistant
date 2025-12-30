@@ -38,6 +38,7 @@ async def collect_media_group(update: Update, context: ContextTypes.DEFAULT_TYPE
             "photos": [],
             "chat_id": message.chat_id,
             "user_id": user_id,
+            "caption": message.caption,  # Capture caption from first photo
             "processed": False,
         }
         # Schedule processing after delay to collect all photos
@@ -74,17 +75,19 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     group_data["processed"] = True
     photos = group_data["photos"]
     chat_id = group_data["chat_id"]
+    caption = group_data.get("caption")
 
     if not photos:
         return
 
-    logger.info(f"Processing media group {group_id} with {len(photos)} photos")
+    logger.info(f"Processing media group {group_id} with {len(photos)} photos, caption: {caption[:30] if caption else 'None'}...")
 
-    # Store photos in user context for later use
+    # Store photos and caption in user context for later use
     # Access via application's user_data
     app_user_data = context.application.user_data.setdefault(user_id, {})
     app_user_data["pending_images"] = photos
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
+    app_user_data["pending_caption"] = caption  # Store caption for "caption" action
 
     # Get recent chats for keyboard (now async)
     backend = BackendService()
@@ -93,11 +96,18 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     finally:
         await backend.close()
 
-    # Build and send keyboard
-    keyboard = build_photo_options_keyboard(recent_chats)
+    # Build and send keyboard (pass caption if present)
+    keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+
+    # Customize message based on whether caption was provided
+    if caption:
+        text = f"📸 Recibí {len(photos)} imagen(es) con mensaje. ¿Qué deseas hacer?"
+    else:
+        text = f"📸 Recibí {len(photos)} imagen(es). ¿Qué deseas hacer?"
+
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"📸 Recibí {len(photos)} imagen(es). ¿Qué deseas hacer?",
+        text=text,
         reply_markup=keyboard
     )
 
@@ -105,7 +115,7 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process a single photo immediately."""
     message = update.message
-    user_id = message.from_user.id
+    caption = message.caption
 
     # Download photo
     try:
@@ -113,9 +123,10 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         file = await context.bot.get_file(photo.file_id)
         photo_bytes = await file.download_as_bytearray()
 
-        # Store in user context
+        # Store in user context (including caption)
         context.user_data["pending_images"] = [bytes(photo_bytes)]
         context.user_data["pending_chat_id"] = None
+        context.user_data["pending_caption"] = caption  # Store caption for "caption" action
 
         # Get recent chats (now async)
         backend = BackendService()
@@ -124,12 +135,16 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         finally:
             await backend.close()
 
-        # Build and send keyboard
-        keyboard = build_photo_options_keyboard(recent_chats)
-        await message.reply_text(
-            text="📸 Recibí la imagen. ¿Qué deseas hacer?",
-            reply_markup=keyboard
-        )
+        # Build and send keyboard (pass caption if present)
+        keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+
+        # Customize message based on whether caption was provided
+        if caption:
+            text = "📸 Recibí la imagen con mensaje. ¿Qué deseas hacer?"
+        else:
+            text = "📸 Recibí la imagen. ¿Qué deseas hacer?"
+
+        await message.reply_text(text=text, reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Failed to process photo: {e}")
