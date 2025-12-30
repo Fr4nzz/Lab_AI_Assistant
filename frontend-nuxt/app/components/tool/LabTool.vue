@@ -47,6 +47,11 @@ const toolInfo: Record<string, { label: string; icon: string; activeLabel: strin
     label: 'Pregunta al usuario',
     activeLabel: 'Esperando respuesta...',
     icon: 'i-lucide-message-circle'
+  },
+  'image-rotation': {
+    label: 'Corrección de orientación',
+    activeLabel: 'Corrigiendo orientación de imágenes...',
+    icon: 'i-lucide-rotate-cw'
   }
 }
 

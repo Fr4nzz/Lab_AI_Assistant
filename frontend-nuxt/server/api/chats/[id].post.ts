@@ -1,8 +1,16 @@
 import { z } from 'zod'
+import { randomUUID } from 'crypto'
 import { getChat, addMessage, updateChatTitle } from '../../utils/db'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { getBestTitleModel } from '../../utils/openrouter-models'
+import { NuxtStreamAdapter, createStreamHeaders } from '../../utils/streamAdapter'
+import {
+  extractImageParts,
+  processImagesForRotation,
+  replaceImageParts,
+  type ImagePart
+} from '../../utils/imageRotation'
 
 defineRouteMeta({
   openAPI: {
@@ -120,14 +128,14 @@ function convertMessagesForBackend(messages: any[]) {
       if (hasMedia) {
         const content = msg.parts.map((part: any) => {
           if (part.type === 'text') return { type: 'text', text: part.text }
-          if (part.mimeType?.startsWith('audio/') || part.mimeType?.startsWith('video/')) {
-            return { type: 'media', data: part.data, mime_type: part.mimeType }
+          if (part.mediaType?.startsWith('audio/') || part.mediaType?.startsWith('video/')) {
+            return { type: 'media', data: part.data, mime_type: part.mediaType }
           }
           if (part.url) {
             return { type: 'image_url', image_url: { url: part.url } }
           }
-          if (part.data && part.mimeType) {
-            return { type: 'image_url', image_url: { url: `data:${part.mimeType};base64,${part.data}` } }
+          if (part.data && part.mediaType) {
+            return { type: 'image_url', image_url: { url: `data:${part.mediaType};base64,${part.data}` } }
           }
           return null
         }).filter(Boolean)
@@ -146,9 +154,175 @@ function convertMessagesForBackend(messages: any[]) {
   })
 }
 
+// Create stream that handles image rotation before proxying to backend
+async function createRotationAwareStream(
+  config: ReturnType<typeof useRuntimeConfig>,
+  chatId: string,
+  messages: any[],
+  imageParts: ImagePart[],
+  model: string | undefined,
+  enabledTools: string[] | undefined,
+  showStats: boolean
+): Promise<ReadableStream> {
+  const adapter = new NuxtStreamAdapter()
+  const encoder = new TextEncoder()
+  const backendUrl = config.backendUrl || 'http://localhost:8000'
+
+  return new ReadableStream({
+    async start(controller) {
+      let fullResponse = ''
+
+      try {
+        // 1. Start the message
+        controller.enqueue(encoder.encode(adapter.startMessage()))
+
+        // 2. Emit image-rotation tool start
+        const toolCallId = `call_rotation_${randomUUID().slice(0, 8)}`
+        controller.enqueue(encoder.encode(adapter.toolStart(toolCallId, 'image-rotation')))
+        controller.enqueue(encoder.encode(adapter.toolInputAvailable(toolCallId, 'image-rotation', {
+          images: imageParts.map(p => p.name || 'image'),
+          count: imageParts.length
+        })))
+
+        // 3. Process images for rotation
+        console.log(`[API/chat] Processing ${imageParts.length} images for rotation`)
+        const { results, processedImages } = await processImagesForRotation(imageParts)
+
+        // Count how many were actually rotated
+        const rotatedCount = results.filter(r => r.applied).length
+        const detectedCount = results.filter(r => r.originalRotation !== 0).length
+
+        // 4. Emit tool output with results
+        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(toolCallId, {
+          processed: results.length,
+          rotated: rotatedCount,
+          detected: detectedCount,
+          results: results.map(r => ({
+            name: r.name,
+            rotation: r.originalRotation,
+            applied: r.applied
+          }))
+        })))
+
+        // 5. Emit file parts for rotated images (thumbnails in chat)
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i]
+          if (result && result.originalRotation !== 0) {
+            const processedImage = processedImages[i]
+            if (processedImage && processedImage.url) {
+              controller.enqueue(encoder.encode(adapter.filePart(
+                processedImage.url,
+                processedImage.mediaType
+              )))
+            }
+          }
+        }
+
+        // 6. Replace images in the last message with processed versions
+        const lastMessage = messages[messages.length - 1]
+        if (lastMessage?.parts) {
+          lastMessage.parts = replaceImageParts(lastMessage.parts, processedImages)
+        }
+
+        // 7. Convert and forward to backend
+        const backendMessages = convertMessagesForBackend(messages)
+
+        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated images`)
+
+        const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: backendMessages,
+            chatId,
+            model: model || 'lab-assistant',
+            tools: enabledTools,
+            showStats
+          })
+        })
+
+        if (!response.ok || !response.body) {
+          controller.enqueue(encoder.encode(adapter.error('Backend not available')))
+          controller.enqueue(encoder.encode(adapter.finish('error')))
+          controller.close()
+          return
+        }
+
+        // 8. Pipe backend stream, filtering out its "start" event (we already sent one)
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let skipStart = true
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const text = decoder.decode(value, { stream: true })
+
+          // Filter out the backend's "start" event since we already sent one
+          if (skipStart) {
+            const lines = text.split('\n')
+            const filteredLines = lines.filter(line => {
+              if (line.startsWith('data: ')) {
+                try {
+                  const parsed = JSON.parse(line.slice(6))
+                  if (parsed.type === 'start') {
+                    skipStart = false
+                    return false // Skip this line
+                  }
+                } catch {
+                  // Not JSON, keep it
+                }
+              }
+              return true
+            })
+            const filteredText = filteredLines.join('\n')
+            if (filteredText.trim()) {
+              controller.enqueue(encoder.encode(filteredText))
+            }
+          } else {
+            controller.enqueue(value)
+          }
+
+          // Collect text for database storage
+          for (const line of text.split('\n')) {
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.slice(6))
+                if (parsed.type === 'text-delta' && parsed.delta) {
+                  fullResponse += parsed.delta
+                }
+              } catch {
+                // Skip non-JSON lines
+              }
+            }
+          }
+        }
+
+        controller.close()
+
+        // Save assistant response to database
+        if (fullResponse) {
+          await addMessage({
+            chatId,
+            role: 'assistant',
+            content: fullResponse
+          })
+          console.log('[API/chat] Saved assistant response, length:', fullResponse.length)
+        }
+      } catch (error) {
+        console.error('[API/chat] Stream error:', error)
+        controller.enqueue(encoder.encode(adapter.error(String(error))))
+        controller.enqueue(encoder.encode(adapter.finish('error')))
+        controller.close()
+      }
+    }
+  })
+}
+
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
-  const session = await getUserSession(event)
+  await getUserSession(event)
 
   const { id: chatId } = await getValidatedRouterParams(event, z.object({
     id: z.string()
@@ -185,11 +359,31 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Convert messages to backend format (multimodal support)
-  const backendMessages = convertMessagesForBackend(messages)
+  // Check for images in the last user message
+  const imageParts = lastMessage?.parts ? extractImageParts(lastMessage.parts) : []
 
-  // Proxy to Python backend
+  // If we have images, use rotation-aware streaming
+  if (imageParts.length > 0) {
+    console.log(`[API/chat] Found ${imageParts.length} images, processing rotation`)
+
+    const stream = await createRotationAwareStream(
+      config,
+      chatId,
+      messages,
+      imageParts,
+      model,
+      enabledTools,
+      showStats
+    )
+
+    return new Response(stream, {
+      headers: createStreamHeaders(chatId)
+    })
+  }
+
+  // No images - proceed with standard backend proxy
   const backendUrl = config.backendUrl || 'http://localhost:8000'
+  const backendMessages = convertMessagesForBackend(messages)
 
   console.log(`[API/chat] Proxying to backend: ${backendUrl}/api/chat/aisdk`)
 
@@ -273,12 +467,6 @@ export default defineEventHandler(async (event) => {
 
   // Return stream with AI SDK headers
   return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'x-vercel-ai-ui-message-stream': 'v1',
-      'X-Chat-Id': chatId,
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    }
+    headers: createStreamHeaders(chatId)
   })
 })
