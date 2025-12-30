@@ -168,6 +168,16 @@ Add more API keys to `GEMINI_API_KEYS` in `.env`. The system rotates automatical
 
 Make sure Microsoft Edge is installed, or change `BROWSER_CHANNEL` to `chrome` or `chromium`.
 
+## Remote Access & Authentication
+
+Want to access Lab Assistant from anywhere (not just your local network)?
+
+See **[Remote Access Setup Guide](docs/REMOTE_ACCESS_SETUP.md)** for:
+- Cloudflare Tunnel setup (expose to internet)
+- Google OAuth authentication
+- Admin and user access control
+- All required API keys and where to get them
+
 ## License
 
 MIT
