@@ -70,11 +70,21 @@ def send_whatsapp(phone: str, message: str, is_group: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(description="Start Quick Tunnel and notify via WhatsApp")
-    parser.add_argument("phone", help="Phone number with country code (e.g., +1234567890) or group ID")
+    parser.add_argument("phone", nargs="?", default=None, help="Phone number with country code (e.g., +1234567890) or group ID")
     parser.add_argument("--group", "-g", action="store_true", help="Send to WhatsApp group instead of individual")
     parser.add_argument("--port", "-p", type=int, default=3000, help="Local port to tunnel (default: 3000)")
     parser.add_argument("--no-notify", action="store_true", help="Don't send WhatsApp notification")
     args = parser.parse_args()
+
+    # Get phone from argument or environment variable
+    phone = args.phone or os.environ.get("WHATSAPP_NOTIFY_PHONE")
+    if not phone and not args.no_notify:
+        print("Error: No phone number provided.")
+        print("Either:")
+        print("  1. Set WHATSAPP_NOTIFY_PHONE in frontend-nuxt/.env")
+        print("  2. Pass phone as argument: python cloudflare-quick-tunnel-notify.py +1234567890")
+        print("  3. Use --no-notify to skip WhatsApp notification")
+        sys.exit(1)
 
     # Find cloudflared
     cloudflared = find_cloudflared()
@@ -119,10 +129,10 @@ def main():
                     print()
 
                     # Send WhatsApp notification
-                    if not args.no_notify:
+                    if not args.no_notify and phone:
                         message = f"🔗 Lab Assistant URL:\n{tunnel_url}\n\n(Quick Tunnel - URL may change on restart)"
-                        print(f"Sending to WhatsApp: {args.phone}")
-                        send_whatsapp(args.phone, message, args.group)
+                        print(f"Sending to WhatsApp: {phone}")
+                        send_whatsapp(phone, message, args.group)
 
                     print()
                     print("Tunnel is running. Press Ctrl+C to stop.")

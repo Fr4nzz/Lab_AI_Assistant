@@ -157,6 +157,9 @@ ADMIN_EMAILS=your-admin-email@gmail.com
 
 # Optional: OpenRouter API key for chat topic naming
 OPENROUTER_API_KEY=sk-or-v1-xxxxx
+
+# Optional: WhatsApp phone for tunnel URL notifications (with country code)
+WHATSAPP_NOTIFY_PHONE=+1234567890
 ```
 
 ### 3.3 Generate Session Password
@@ -251,17 +254,25 @@ Want to automatically receive the tunnel URL on WhatsApp when it starts?
 1. **WhatsApp Web logged in** - Go to [web.whatsapp.com](https://web.whatsapp.com) and scan the QR code
 2. **Keep the browser open** - The script will use this session
 
+### Configuration
+
+Add your phone number to `frontend-nuxt/.env`:
+```bash
+WHATSAPP_NOTIFY_PHONE=+1234567890
+```
+
 ### Usage
 
 ```batch
 # Start the app first
 .\start-dev.bat
 
-# Start tunnel with WhatsApp notification
+# Start tunnel with WhatsApp notification (uses phone from .env)
+.\cloudflare-quick-tunnel-notify.bat
+
+# Or override with a different phone number
 .\cloudflare-quick-tunnel-notify.bat +51987654321
 ```
-
-Replace `+51987654321` with your phone number (with country code).
 
 ### What happens:
 
