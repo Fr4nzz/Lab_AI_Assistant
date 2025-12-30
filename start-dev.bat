@@ -24,18 +24,21 @@ goto :parse_args
 :: Kill existing processes on ports 8000, 3000, and 24678 (for restart/update scenarios)
 echo Checking for existing processes...
 
-:: Kill existing terminal windows by title (prevents accumulating windows on updates)
-:: Uses PowerShell to find windows with titles starting with "Lab Assistant -"
-powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -like 'Lab Assistant - Backend*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -like 'Lab Assistant - Frontend*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+:: Kill existing terminal windows by title using taskkill (more reliable than PowerShell)
+:: The /F flag forces termination, /FI filters by window title
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F >nul 2>&1
 
-:: Also kill by port in case window titles changed
+:: Also try PowerShell method as fallback (catches processes where title changed)
+powershell -NoProfile -Command "Get-Process cmd -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+
+:: Kill by port as final fallback
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
-:: Small delay to ensure ports are released
-timeout /t 2 /nobreak >nul
+:: Delay to ensure windows close and ports are released
+timeout /t 3 /nobreak >nul
 
 :: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
 set "NETWORK_IPS="
