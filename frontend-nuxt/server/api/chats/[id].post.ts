@@ -327,45 +327,41 @@ async function createRotationAwareStream(
         const rotatedCount = results.filter(r => r.applied).length
         const detectedCount = results.filter(r => r.originalRotation !== 0).length
 
-        // 4. Emit tool output with results
-        const toolOutput = {
+        // 4. Emit tool output with results (include thumbnail URLs for display)
+        const toolOutput: Record<string, unknown> = {
           processed: results.length,
           rotated: rotatedCount,
           detected: detectedCount,
-          results: results.map(r => ({
-            name: r.name,
-            rotation: r.originalRotation,
-            applied: r.applied
-          }))
+          results: results.map((r, i) => {
+            const result: Record<string, unknown> = {
+              name: r.name,
+              rotation: r.originalRotation,
+              applied: r.applied
+            }
+            // Include thumbnail URL for rotated images (for display in LabTool)
+            if (r.applied && r.originalRotation !== 0) {
+              const processedImage = processedImages[i]
+              if (processedImage?.url) {
+                result.thumbnailUrl = processedImage.url
+                result.mediaType = processedImage.mediaType
+              }
+            }
+            return result
+          })
         }
         controller.enqueue(encoder.encode(adapter.toolOutputAvailable(rotationToolCallId, toolOutput)))
         collector.toolOutputAvailable(rotationToolCallId, toolOutput)
 
-        // 5. Emit file parts for rotated images (thumbnails in chat)
-        for (let i = 0; i < results.length; i++) {
-          const result = results[i]
-          // Show thumbnail when rotation was applied (image is now corrected)
-          if (result && result.applied && result.originalRotation !== 0) {
-            const processedImage = processedImages[i]
-            if (processedImage && processedImage.url) {
-              const filename = processedImage.name || `rotated-image-${i + 1}.jpg`
-              controller.enqueue(encoder.encode(adapter.filePart(
-                processedImage.url,
-                processedImage.mediaType,
-                filename
-              )))
-              collector.addFile(processedImage.url, processedImage.mediaType)
-            }
-          }
-        }
+        // Note: File parts cannot be emitted as stream events (not valid in AI SDK protocol)
+        // The rotated image thumbnails are included in the tool output above
 
-        // 6. Replace images in the last message with processed versions
+        // 5. Replace images in the last message with processed versions
         const lastMessage = messages[messages.length - 1]
         if (lastMessage?.parts) {
           lastMessage.parts = replaceImageParts(lastMessage.parts, processedImages)
         }
 
-        // 7. Convert and forward to backend
+        // 6. Convert and forward to backend
         const backendMessages = convertMessagesForBackend(messages)
 
         console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated images`)
@@ -389,7 +385,7 @@ async function createRotationAwareStream(
           return
         }
 
-        // 8. Pipe backend stream, properly handling SSE format
+        // 7. Pipe backend stream, properly handling SSE format
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let skipStartEvent = true
