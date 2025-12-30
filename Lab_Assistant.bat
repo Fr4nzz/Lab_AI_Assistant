@@ -90,13 +90,8 @@ where npm >nul 2>&1
 if %errorlevel% equ 0 (
     set "NPM_OK=1"
 ) else (
-    :: Check common npm paths
-    if exist "C:\Program Files\nodejs\npm.cmd" (
-        set "NPM_OK=1"
-    )
-    if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\npm.cmd" (
-        set "NPM_OK=1"
-    )
+    if exist "C:\Program Files\nodejs\npm.cmd" set "NPM_OK=1"
+    if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\npm.cmd" set "NPM_OK=1"
 )
 if not defined NPM_OK (
     if defined NODE_OK (
@@ -280,12 +275,12 @@ if defined NEED_INSTALL (
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
         pip show python-telegram-bot >nul 2>&1
-        if %errorlevel% neq 0 (
+        if !errorlevel! neq 0 (
             echo   Installing Telegram bot dependencies...
             pip install -r "%SCRIPT_DIR%telegram_bot\requirements.txt" -q 2>nul
         )
         pip show httpx-sse >nul 2>&1
-        if %errorlevel% neq 0 (
+        if !errorlevel! neq 0 (
             pip install httpx-sse -q 2>nul
         )
     )
@@ -397,7 +392,7 @@ goto :eof
 :start_cloudflare_tunnel
 set "CLOUDFLARED_CMD="
 where cloudflared >nul 2>&1
-if %errorlevel% equ 0 (
+if !errorlevel! equ 0 (
     set "CLOUDFLARED_CMD=cloudflared"
     goto :run_tunnel
 )
@@ -408,7 +403,7 @@ if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
 echo   Installing cloudflared...
 winget install Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements >nul 2>&1
 where cloudflared >nul 2>&1
-if %errorlevel% equ 0 (
+if !errorlevel! equ 0 (
     set "CLOUDFLARED_CMD=cloudflared"
     goto :run_tunnel
 )
