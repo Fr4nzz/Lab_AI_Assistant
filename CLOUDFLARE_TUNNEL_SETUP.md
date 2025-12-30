@@ -30,10 +30,10 @@ The setup will:
 
 ### Step 2: Start the Tunnel
 
-**Option A: With start-dev.bat (Recommended)**
+**Option A: With Lab_Assistant.bat (Recommended)**
 
 ```batch
-start-dev.bat
+Lab_Assistant.bat
 ```
 
 When prompted, press `Y` to start the tunnel with the application.
@@ -41,7 +41,7 @@ When prompted, press `Y` to start the tunnel with the application.
 Or use the `--tunnel` flag to start automatically:
 
 ```batch
-start-dev.bat --tunnel
+Lab_Assistant.bat --tunnel
 ```
 
 **Option B: Standalone**
@@ -66,9 +66,9 @@ The tunnel ID is shown during setup and in the startup summary.
 | `cloudflare-tunnel-setup.bat` | First-time setup (run once) |
 | `cloudflare-tunnel-run.bat` | Start tunnel manually |
 | `cloudflare-tunnel-service.bat` | Install as Windows service (auto-start) |
-| `start-dev.bat` | Start app with optional tunnel |
-| `start-dev.bat --tunnel` | Start app + tunnel automatically |
-| `start-dev.bat --no-tunnel` | Start app without tunnel prompt |
+| `Lab_Assistant.bat` | Start app with optional tunnel |
+| `Lab_Assistant.bat --tunnel` | Start app + tunnel automatically |
+| `Lab_Assistant.bat --no-tunnel` | Start app without tunnel prompt |
 
 ## Installing as Windows Service
 
