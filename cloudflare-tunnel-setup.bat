@@ -7,24 +7,54 @@ echo    Cloudflare Tunnel - First Time Setup
 echo ========================================
 echo.
 
-:: Check if cloudflared is installed
+:: Check if cloudflared is installed (check PATH and common locations)
+set "CLOUDFLARED_CMD="
 where cloudflared >nul 2>&1
-if %errorlevel% neq 0 (
-    echo cloudflared not found. Installing via winget...
-    winget install Cloudflare.cloudflared
-    if %errorlevel% neq 0 (
-        echo.
-        echo Failed to install. Please install manually:
-        echo https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
-        pause
-        exit /b 1
-    )
-    echo.
-    echo Installed successfully. Please restart this script.
-    pause
-    exit /b 0
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    goto :cloudflared_found
 )
 
+:: Check common install locations
+if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+    goto :cloudflared_found
+)
+if exist "%ProgramFiles%\cloudflared\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%ProgramFiles%\cloudflared\cloudflared.exe"
+    goto :cloudflared_found
+)
+
+:: Not found - try to install
+echo cloudflared not found. Installing via winget...
+winget install Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements
+
+:: Check again after install
+where cloudflared >nul 2>&1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    goto :cloudflared_found
+)
+if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+    goto :cloudflared_found
+)
+
+:: Still not found - tell user to restart shell
+echo.
+echo ========================================
+echo    Installation Complete!
+echo ========================================
+echo.
+echo cloudflared was installed but your shell needs to reload PATH.
+echo.
+echo Please CLOSE this window and run the script again:
+echo    .\cloudflare-tunnel-setup.bat
+echo.
+pause
+exit /b 0
+
+:cloudflared_found
 echo cloudflared is installed.
 echo.
 
@@ -35,7 +65,7 @@ if exist "%USERPROFILE%\.cloudflared\cert.pem" (
     echo Step 1: Login to Cloudflare
     echo A browser window will open. Log in and authorize.
     echo.
-    cloudflared tunnel login
+    %CLOUDFLARED_CMD% tunnel login
     if %errorlevel% neq 0 (
         echo Login failed. Please try again.
         pause
@@ -48,13 +78,13 @@ set TUNNEL_NAME=lab-assistant
 set /p TUNNEL_NAME="Enter tunnel name (default: lab-assistant): "
 
 :: Check if tunnel exists
-cloudflared tunnel list | findstr /i "%TUNNEL_NAME%" >nul 2>&1
+%CLOUDFLARED_CMD% tunnel list | findstr /i "%TUNNEL_NAME%" >nul 2>&1
 if %errorlevel% equ 0 (
     echo Tunnel '%TUNNEL_NAME%' already exists.
 ) else (
     echo.
     echo Step 2: Creating tunnel '%TUNNEL_NAME%'...
-    cloudflared tunnel create %TUNNEL_NAME%
+    %CLOUDFLARED_CMD% tunnel create %TUNNEL_NAME%
     if %errorlevel% neq 0 (
         echo Failed to create tunnel.
         pause
@@ -63,7 +93,7 @@ if %errorlevel% equ 0 (
 )
 
 :: Get tunnel ID
-for /f "tokens=1" %%i in ('cloudflared tunnel list ^| findstr /i "%TUNNEL_NAME%"') do set TUNNEL_ID=%%i
+for /f "tokens=1" %%i in ('%CLOUDFLARED_CMD% tunnel list ^| findstr /i "%TUNNEL_NAME%"') do set TUNNEL_ID=%%i
 echo Tunnel ID: %TUNNEL_ID%
 
 :: Create config file
