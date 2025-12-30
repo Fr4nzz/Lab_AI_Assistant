@@ -6,14 +6,13 @@ This guide explains how to set up Lab Assistant for remote access from any netwo
 
 To access Lab Assistant from outside your local network, you need:
 1. **Cloudflare Tunnel** - Exposes your local app to the internet (free)
-2. **Google OAuth** - Handles user authentication
+2. **Google OAuth** - Handles user authentication (optional but recommended for security)
 3. **Environment Configuration** - API keys and admin settings
 
 ## Prerequisites
 
 - Lab Assistant running locally (see main README)
 - A Google account (for OAuth setup)
-- A Cloudflare account (free tier works)
 
 ---
 
@@ -21,85 +20,65 @@ To access Lab Assistant from outside your local network, you need:
 
 Cloudflare Tunnel creates a secure connection from your local machine to the internet without opening ports or configuring your router.
 
-### 1.1 Install Cloudflared
+### Option A: Quick Tunnel (Easiest - Recommended for Testing)
 
-**Option A: Using the setup script (Windows)**
-```batch
-cloudflare-tunnel-setup.bat
-```
-This will install cloudflared via winget if not present.
+**No account, no domain, completely free!**
 
-**Option B: Manual installation**
-- Download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
-- Or via winget: `winget install Cloudflare.cloudflared`
+1. Make sure Lab Assistant is running (`start-dev.bat`)
 
-### 1.2 Login to Cloudflare
-
-```batch
-cloudflared tunnel login
-```
-A browser window opens. Log in to your Cloudflare account and authorize the connection.
-
-### 1.3 Create a Tunnel
-
-Run the setup script or manually:
-
-```batch
-:: Run the interactive setup
-cloudflare-tunnel-setup.bat
-```
-
-Or manually:
-```batch
-cloudflared tunnel create lab-assistant
-```
-
-### 1.4 Get Your Tunnel URL
-
-After setup, you'll get a permanent URL like:
-```
-https://xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.cfargotunnel.com
-```
-
-This URL points to your local `http://localhost:3000`.
-
-### 1.5 Running the Tunnel
-
-**Option A: Manual (for testing)**
-```batch
-cloudflare-tunnel-run.bat
-```
-
-**Option B: Windows Service (runs at startup)**
-```batch
-cloudflare-tunnel-service.bat
-```
-
-### 1.6 Custom Domain (Optional)
-
-To use a custom domain like `lab.yourdomain.com`:
-
-1. Add your domain to Cloudflare (free)
-2. Edit `%USERPROFILE%\.cloudflared\config.yml`:
-   ```yaml
-   tunnel: lab-assistant
-   credentials-file: C:\Users\YourUser\.cloudflared\xxxxx.json
-
-   ingress:
-     - hostname: lab.yourdomain.com
-       service: http://localhost:3000
-     - service: http_status:404
+2. Run the quick tunnel script:
+   ```batch
+   .\cloudflare-quick-tunnel.bat
    ```
-3. Create a CNAME record in Cloudflare DNS:
-   - Name: `lab`
-   - Target: `your-tunnel-id.cfargotunnel.com`
-   - Proxied: Yes
+
+3. Look for the URL in the output:
+   ```
+   Your quick tunnel is ready!
+   https://random-words-here.trycloudflare.com
+   ```
+
+4. Share this URL - anyone can access your app!
+
+**Limitations of Quick Tunnels:**
+- URL changes every time you restart the tunnel
+- No SLA/uptime guarantee (meant for testing)
+- 200 concurrent request limit
+- Keep the terminal window open
+
+> **Note**: Quick Tunnels work with our app's streaming chat because we use POST requests. See [Cloudflare Quick Tunnels docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/).
+
+### Option B: Persistent Tunnel (Requires Domain)
+
+For a **persistent URL** that never changes, you need a domain added to Cloudflare.
+
+**Requirements:**
+- A domain you own (can buy cheaply from [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/), Namecheap, etc.)
+- Or a free subdomain from services like [FreeDNS](https://freedns.afraid.org/)
+
+**Setup steps:**
+
+1. Add your domain to Cloudflare (free account)
+2. Run the setup script:
+   ```batch
+   .\cloudflare-tunnel-setup.bat
+   ```
+3. Follow the prompts to:
+   - Login to Cloudflare
+   - Create a tunnel
+   - Configure the route
+
+4. Run the tunnel:
+   ```batch
+   .\cloudflare-tunnel-run.bat
+   ```
+
+For detailed instructions, see [Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
 ---
 
-## Step 2: Google OAuth Setup
+## Step 2: Google OAuth Setup (Optional but Recommended)
 
-Google OAuth allows users to log in with their Google account. Only emails you whitelist can access the app.
+If you're exposing the app to the internet, you should enable authentication so only authorized users can access it.
 
 ### 2.1 Create Google Cloud Project
 
@@ -110,15 +89,13 @@ Google OAuth allows users to log in with their Google account. Only emails you w
 ### 2.2 Configure OAuth Consent Screen
 
 1. Go to **APIs & Services** > **OAuth consent screen**
-2. Select **External** user type (unless you have Google Workspace)
-3. Fill in the required fields:
+2. Select **External** user type
+3. Fill in required fields:
    - App name: `Lab Assistant`
    - User support email: your email
    - Developer contact: your email
-4. Click **Save and Continue**
-5. **Scopes**: Add `email`, `profile`, `openid`
-6. **Test users**: Add your email (required for "Testing" status)
-7. Click **Save and Continue**
+4. **Scopes**: Add `email`, `profile`, `openid`
+5. **Test users**: Add your email (required while in "Testing" status)
 
 ### 2.3 Create OAuth Credentials
 
@@ -129,59 +106,53 @@ Google OAuth allows users to log in with their Google account. Only emails you w
 5. **Authorized JavaScript origins**:
    ```
    http://localhost:3000
-   https://your-tunnel-id.cfargotunnel.com
+   https://your-tunnel-url.trycloudflare.com
    ```
-   (Add your custom domain if using one)
 
 6. **Authorized redirect URIs**:
    ```
    http://localhost:3000/auth/google
-   https://your-tunnel-id.cfargotunnel.com/auth/google
+   https://your-tunnel-url.trycloudflare.com/auth/google
    ```
 
-7. Click **Create**
-8. **Copy the Client ID and Client Secret** - you'll need these!
+7. Click **Create** and copy the **Client ID** and **Client Secret**
 
-### 2.4 Publish the App (Optional but Recommended)
+> **Note for Quick Tunnels**: Since the URL changes, you'll need to update the redirect URIs each time. For production, use a persistent tunnel with a fixed domain.
 
-While in "Testing" status, only test users you manually add can log in. To allow any Google account:
+### 2.4 Publish the App (Optional)
+
+While in "Testing" status, only manually-added test users can log in. To allow any Google account:
 
 1. Go to **OAuth consent screen**
 2. Click **PUBLISH APP**
-3. Confirm the verification notice
-
-> Note: For internal use, "Testing" status is fine - just add all your users to the test users list.
 
 ---
 
 ## Step 3: Environment Configuration
 
-### 3.1 Create Frontend Environment File
+### 3.1 Create Environment File
 
 ```batch
 cd frontend-nuxt
 copy .env.example .env
 ```
 
-### 3.2 Edit `.env` File
-
-Open `frontend-nuxt/.env` and configure:
+### 3.2 Configure `.env` File
 
 ```bash
-# Session security (generate a random 32+ character string)
-# You can use: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Session security (REQUIRED - generate a random 32+ character string)
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 NUXT_SESSION_PASSWORD=your-super-secret-password-at-least-32-chars
 
-# Google OAuth (from Step 2.3)
+# Google OAuth (required for authentication)
 NUXT_OAUTH_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 NUXT_OAUTH_GOOGLE_CLIENT_SECRET=GOCSPX-your-client-secret
 
 # User Access Control
 # Comma-separated list of emails allowed to use the app
-# Leave empty to allow all authenticated users (not recommended)
 ALLOWED_EMAILS=user1@gmail.com,user2@gmail.com
 
-# Admin emails - can manage allowed users and update the app
+# Admin emails - can manage users and trigger updates
 ADMIN_EMAILS=your-admin-email@gmail.com
 
 # Optional: OpenRouter API key for chat topic naming
@@ -190,13 +161,9 @@ OPENROUTER_API_KEY=sk-or-v1-xxxxx
 
 ### 3.3 Generate Session Password
 
-Run this command to generate a secure session password:
-
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
-
-Or use any password generator to create a 32+ character random string.
 
 ---
 
@@ -204,32 +171,30 @@ Or use any password generator to create a 32+ character random string.
 
 | Key | Where to Get | Cost |
 |-----|--------------|------|
-| **Google OAuth Client ID/Secret** | [Google Cloud Console](https://console.cloud.google.com/) > APIs & Services > Credentials | Free |
-| **Cloudflare Account** | [Cloudflare Dashboard](https://dash.cloudflare.com/) | Free |
-| **Gemini API Keys** | [Google AI Studio](https://aistudio.google.com/apikey) | Free tier: 20 req/day/key |
-| **OpenRouter API Key** | [OpenRouter](https://openrouter.ai/keys) | Pay-per-use (very cheap) |
+| **Google OAuth** | [Google Cloud Console](https://console.cloud.google.com/) | Free |
+| **Gemini API Keys** | [Google AI Studio](https://aistudio.google.com/apikey) | Free (20/day/key) |
+| **OpenRouter API** | [OpenRouter](https://openrouter.ai/keys) | Pay-per-use |
+| **Cloudflare** | [Cloudflare Dashboard](https://dash.cloudflare.com/) | Free account |
 
 ---
 
-## Step 5: Final Checklist
+## Quick Start Summary
 
-- [ ] Cloudflare Tunnel is running (`cloudflare-tunnel-run.bat`)
-- [ ] Google OAuth credentials are configured in `.env`
-- [ ] `NUXT_SESSION_PASSWORD` is set (32+ characters)
-- [ ] `ADMIN_EMAILS` includes your email
-- [ ] `ALLOWED_EMAILS` includes all authorized users
-- [ ] Redirect URIs in Google Console include your tunnel URL
+### For Testing (5 minutes)
 
----
+1. Start app: `.\start-dev.bat`
+2. Start tunnel: `.\cloudflare-quick-tunnel.bat`
+3. Share the `trycloudflare.com` URL
+4. ✅ Done! (No auth, anyone with URL can access)
 
-## Testing the Setup
+### For Production (30 minutes)
 
-1. Start the app: `start-dev.bat`
-2. Start the tunnel: `cloudflare-tunnel-run.bat`
-3. Open your tunnel URL in a browser
-4. Click "Login with Google"
-5. Authenticate with an allowed email
-6. You should be redirected to the chat interface
+1. Configure `.env` with Google OAuth credentials
+2. Add your email to `ADMIN_EMAILS`
+3. Add allowed users to `ALLOWED_EMAILS`
+4. Start app: `.\start-dev.bat`
+5. Start tunnel: `.\cloudflare-quick-tunnel.bat` or use persistent tunnel
+6. ✅ Done! (Only authorized Google accounts can access)
 
 ---
 
@@ -237,49 +202,46 @@ Or use any password generator to create a 32+ character random string.
 
 ### "Email not authorized" error
 - Add the email to `ALLOWED_EMAILS` in `.env`
-- Or add to `ADMIN_EMAILS` (admins are always allowed)
-- Restart the frontend after changing `.env`
+- Admins are always allowed automatically
+- Restart frontend after changing `.env`
 
 ### OAuth redirect error
-- Verify the redirect URI in Google Console matches exactly:
-  `https://your-tunnel-url/auth/google`
-- Check for trailing slashes - they must match
+- Verify redirect URI matches exactly (including `https://`)
+- For Quick Tunnels, update the URI when URL changes
 
-### "Access blocked: App not verified"
-- You're using "Testing" status - add the user to test users in Google Console
-- Or publish the app (Step 2.4)
+### Tunnel URL not working
+- Make sure `start-dev.bat` is running first (app on localhost:3000)
+- Keep the tunnel terminal window open
+- Check for firewall blocking cloudflared
 
-### Tunnel not connecting
-- Check if cloudflared is running: `cloudflared tunnel list`
-- Verify config file: `%USERPROFILE%\.cloudflared\config.yml`
-- Try restarting: `cloudflare-tunnel-run.bat`
-
-### Session issues after restart
-- Make sure `NUXT_SESSION_PASSWORD` hasn't changed
-- Clear browser cookies and log in again
+### Streaming not working through tunnel
+- Our app uses POST for streaming, which works with Quick Tunnels
+- If issues persist, try a named tunnel instead
 
 ---
 
 ## Security Notes
 
-1. **Keep your `.env` file secret** - Never commit it to git
-2. **Use strong session password** - At least 32 random characters
+1. **Keep `.env` secret** - Never commit to git
+2. **Use OAuth for public access** - Don't expose without auth
 3. **Limit allowed emails** - Only add users who need access
-4. **Admin emails have special powers** - They can add/remove users and trigger updates
-5. **Cloudflare Tunnel is secure** - Traffic is encrypted end-to-end
+4. **Quick Tunnels are temporary** - URL changes provide some obscurity
+5. **Admin powers** - Admins can add/remove users and update the app
 
 ---
 
-## Quick Reference: Environment Variables
+## Scripts Reference
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NUXT_SESSION_PASSWORD` | Yes | Session encryption key (32+ chars) |
-| `NUXT_OAUTH_GOOGLE_CLIENT_ID` | Yes* | Google OAuth client ID |
-| `NUXT_OAUTH_GOOGLE_CLIENT_SECRET` | Yes* | Google OAuth client secret |
-| `ALLOWED_EMAILS` | Recommended | Comma-separated allowed emails |
-| `ADMIN_EMAILS` | Recommended | Comma-separated admin emails |
-| `OPENROUTER_API_KEY` | No | For auto-generating chat titles |
-| `BACKEND_URL` | No | Default: `http://localhost:8000` |
+| Script | Purpose |
+|--------|---------|
+| `cloudflare-quick-tunnel.bat` | Start free temporary tunnel (no setup needed) |
+| `cloudflare-tunnel-setup.bat` | Configure persistent tunnel (needs domain) |
+| `cloudflare-tunnel-run.bat` | Run configured persistent tunnel |
+| `cloudflare-tunnel-service.bat` | Install tunnel as Windows service |
 
-*Required for remote access with authentication
+## Sources
+
+- [Cloudflare Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+- [Cloudflare Tunnel Setup](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+- [TryCloudflare](https://try.cloudflare.com/)
+- [Quick Tunnel SSE Limitations](https://github.com/cloudflare/cloudflared/issues/1449) - Note: POST requests work fine
