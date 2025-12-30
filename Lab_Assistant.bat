@@ -237,15 +237,12 @@ echo [3/4] Loading configuration...
 
 :: Load environment variables from root .env file
 if exist "%SCRIPT_DIR%.env" (
-    for /f "usebackq tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
-        set "LINE=%%a"
-        if not "!LINE:~0,1!"=="#" if not "!LINE!"=="" (
-            set "%%a=%%b"
-        )
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
+        if not "%%a"=="" set "%%a=%%b"
     )
     echo   [OK] Loaded .env configuration
 ) else (
-    echo   [!] No .env file found (using defaults)
+    echo   [!] No .env file found - using defaults
 )
 
 :: Install backend dependencies
@@ -258,7 +255,7 @@ cd /d "%SCRIPT_DIR%"
 :: Install frontend dependencies if needed
 set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
-if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@nuxt\ui" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\nuxt" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_INSTALL=1"
 if defined INSTALL_DEPS set "NEED_INSTALL=1"
 
