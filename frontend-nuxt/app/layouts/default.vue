@@ -114,147 +114,153 @@ defineShortcuts({
       </template>
 
       <template #default="{ collapsed }">
-        <div class="flex flex-col gap-1.5">
-          <UButton
-            v-bind="collapsed ? { icon: 'i-lucide-plus' } : { label: 'Nuevo chat' }"
-            variant="soft"
-            block
-            to="/"
-            @click="open = false"
-          />
-
-          <template v-if="collapsed">
-            <UDashboardSearchButton collapsed />
-            <UDashboardSidebarCollapse />
-          </template>
-        </div>
-
-        <UNavigationMenu
-          v-if="!collapsed"
-          :items="items"
-          :collapsed="collapsed"
-          orientation="vertical"
-          :ui="{ link: 'overflow-hidden' }"
-        >
-          <template #chat-trailing="{ item }">
-            <div class="flex -mr-1.25 translate-x-full group-hover:translate-x-0 transition-transform">
+        <!-- Main flex container for the sidebar content -->
+        <div class="flex flex-col h-full overflow-hidden">
+          <!-- TOP: Sticky new chat button -->
+          <div class="shrink-0 pb-2">
+            <div class="flex flex-col gap-1.5">
               <UButton
-                icon="i-lucide-x"
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                class="text-muted hover:text-primary hover:bg-accented/50 focus-visible:bg-accented/50 p-0.5"
-                tabindex="-1"
-                @click.stop.prevent="deleteChat((item as any).id)"
+                v-bind="collapsed ? { icon: 'i-lucide-plus' } : { label: 'Nuevo chat' }"
+                variant="soft"
+                block
+                to="/"
+                @click="open = false"
               />
+
+              <template v-if="collapsed">
+                <UDashboardSearchButton collapsed />
+                <UDashboardSidebarCollapse />
+              </template>
             </div>
-          </template>
-        </UNavigationMenu>
+          </div>
 
-        <!-- Collapsible panels for Tools and Browser Tabs -->
-        <div v-if="!collapsed" class="mt-auto space-y-1 border-t border-default pt-2">
-          <!-- Tools toggle -->
-          <UCollapsible v-model:open="showTools">
-            <UButton
-              variant="ghost"
-              color="neutral"
-              block
-              class="justify-between"
-              :ui="{ trailingIcon: 'transition-transform' }"
-              :trailing-icon="showTools ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+          <!-- MIDDLE: Scrollable chat list -->
+          <div v-if="!collapsed" class="flex-1 overflow-y-auto min-h-0">
+            <UNavigationMenu
+              :items="items"
+              :collapsed="collapsed"
+              orientation="vertical"
+              :ui="{ link: 'overflow-hidden' }"
             >
-              <span class="flex items-center gap-2">
-                <UIcon name="i-lucide-wrench" class="w-4 h-4" />
-                Herramientas
-                <UBadge size="xs" color="neutral" variant="subtle">
-                  {{ enabledTools.length }}
-                </UBadge>
-              </span>
-            </UButton>
-            <template #content>
-              <SidebarToolToggles
-                :model-value="enabledTools"
-                @update:model-value="enabledTools = $event"
+              <template #chat-trailing="{ item }">
+                <div class="flex -mr-1.25 translate-x-full group-hover:translate-x-0 transition-transform">
+                  <UButton
+                    icon="i-lucide-x"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    class="text-muted hover:text-primary hover:bg-accented/50 focus-visible:bg-accented/50 p-0.5"
+                    tabindex="-1"
+                    @click.stop.prevent="deleteChat((item as any).id)"
+                  />
+                </div>
+              </template>
+            </UNavigationMenu>
+          </div>
+
+          <!-- BOTTOM: Sticky settings section with its own scroll -->
+          <div v-if="!collapsed" class="shrink-0 max-h-[50%] overflow-y-auto border-t border-default mt-2">
+            <div class="space-y-1 pt-2">
+              <!-- Tools toggle -->
+              <UCollapsible v-model:open="showTools">
+                <UButton
+                  variant="ghost"
+                  color="neutral"
+                  block
+                  class="justify-between"
+                  :ui="{ trailingIcon: 'transition-transform' }"
+                  :trailing-icon="showTools ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                >
+                  <span class="flex items-center gap-2">
+                    <UIcon name="i-lucide-wrench" class="w-4 h-4" />
+                    Herramientas
+                    <UBadge size="xs" color="neutral" variant="subtle">
+                      {{ enabledTools.length }}
+                    </UBadge>
+                  </span>
+                </UButton>
+                <template #content>
+                  <SidebarToolToggles
+                    :model-value="enabledTools"
+                    @update:model-value="enabledTools = $event"
+                  />
+                </template>
+              </UCollapsible>
+
+              <!-- Browser Tabs toggle -->
+              <UCollapsible v-model:open="showTabs">
+                <UButton
+                  variant="ghost"
+                  color="neutral"
+                  block
+                  class="justify-between"
+                  :ui="{ trailingIcon: 'transition-transform' }"
+                  :trailing-icon="showTabs ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                >
+                  <span class="flex items-center gap-2">
+                    <UIcon name="i-lucide-layout-grid" class="w-4 h-4" />
+                    Pestañas
+                  </span>
+                </UButton>
+                <template #content>
+                  <SidebarBrowserTabsPanel @open-editor="tabEditorOpen = true" />
+                </template>
+              </UCollapsible>
+
+              <!-- Stats toggle -->
+              <UButton
+                variant="ghost"
+                color="neutral"
+                block
+                class="justify-between"
+                @click="showStats = !showStats"
+              >
+                <span class="flex items-center gap-2">
+                  <UIcon name="i-lucide-bar-chart-2" class="w-4 h-4" />
+                  Mostrar estadísticas
+                </span>
+                <UIcon
+                  :name="showStats ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
+                  class="w-5 h-5"
+                  :class="showStats ? 'text-primary' : 'text-muted'"
+                />
+              </UButton>
+
+              <!-- Admin Panel -->
+              <SidebarAdminPanel />
+            </div>
+          </div>
+
+          <!-- Collapsed state icons -->
+          <div v-if="collapsed" class="mt-auto space-y-1">
+            <UTooltip text="Herramientas">
+              <UButton
+                icon="i-lucide-wrench"
+                variant="ghost"
+                color="neutral"
+                block
+                @click="showTools = !showTools"
               />
-            </template>
-          </UCollapsible>
-
-          <!-- Browser Tabs toggle -->
-          <UCollapsible v-model:open="showTabs">
-            <UButton
-              variant="ghost"
-              color="neutral"
-              block
-              class="justify-between"
-              :ui="{ trailingIcon: 'transition-transform' }"
-              :trailing-icon="showTabs ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-            >
-              <span class="flex items-center gap-2">
-                <UIcon name="i-lucide-layout-grid" class="w-4 h-4" />
-                Pestañas
-              </span>
-            </UButton>
-            <template #content>
-              <SidebarBrowserTabsPanel @open-editor="tabEditorOpen = true" />
-            </template>
-          </UCollapsible>
-        </div>
-
-        <!-- Stats toggle (non-collapsed) -->
-        <div v-if="!collapsed" class="border-t border-default pt-2 mt-2">
-          <UButton
-            variant="ghost"
-            color="neutral"
-            block
-            class="justify-between"
-            @click="showStats = !showStats"
-          >
-            <span class="flex items-center gap-2">
-              <UIcon name="i-lucide-bar-chart-2" class="w-4 h-4" />
-              Mostrar estadísticas
-            </span>
-            <UIcon
-              :name="showStats ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
-              class="w-5 h-5"
-              :class="showStats ? 'text-primary' : 'text-muted'"
-            />
-          </UButton>
-        </div>
-
-        <!-- Admin Panel (non-collapsed) -->
-        <div v-if="!collapsed" class="border-t border-default pt-2 mt-2">
-          <SidebarAdminPanel />
-        </div>
-
-        <!-- Collapsed state icons -->
-        <div v-if="collapsed" class="mt-auto space-y-1">
-          <UTooltip text="Herramientas">
-            <UButton
-              icon="i-lucide-wrench"
-              variant="ghost"
-              color="neutral"
-              block
-              @click="showTools = !showTools"
-            />
-          </UTooltip>
-          <UTooltip text="Pestañas del navegador">
-            <UButton
-              icon="i-lucide-layout-grid"
-              variant="ghost"
-              color="neutral"
-              block
-              @click="showTabs = !showTabs"
-            />
-          </UTooltip>
-          <UTooltip :text="showStats ? 'Ocultar estadísticas' : 'Mostrar estadísticas'">
-            <UButton
-              icon="i-lucide-bar-chart-2"
-              variant="ghost"
-              :color="showStats ? 'primary' : 'neutral'"
-              block
-              @click="showStats = !showStats"
-            />
-          </UTooltip>
+            </UTooltip>
+            <UTooltip text="Pestañas del navegador">
+              <UButton
+                icon="i-lucide-layout-grid"
+                variant="ghost"
+                color="neutral"
+                block
+                @click="showTabs = !showTabs"
+              />
+            </UTooltip>
+            <UTooltip :text="showStats ? 'Ocultar estadísticas' : 'Mostrar estadísticas'">
+              <UButton
+                icon="i-lucide-bar-chart-2"
+                variant="ghost"
+                :color="showStats ? 'primary' : 'neutral'"
+                block
+                @click="showStats = !showStats"
+              />
+            </UTooltip>
+          </div>
         </div>
       </template>
 
