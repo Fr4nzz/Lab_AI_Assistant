@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 title Lab Assistant
-echo.
+echo:
 echo ========================================
 echo        Lab Assistant Launcher
 echo ========================================
-echo.
+echo:
 
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
@@ -32,7 +32,7 @@ goto :parse_args
 :: STEP 1: Check Prerequisites
 :: ============================================
 echo [1/4] Checking prerequisites...
-echo.
+echo:
 
 :: Check if Python is available
 set "PYTHON_OK="
@@ -99,44 +99,44 @@ if not defined NPM_OK (
     )
 )
 
-echo.
+echo:
 
 :: If missing prerequisites, offer to install
 if not defined PYTHON_OK (
     echo ========================================
     echo  Python is required but not installed
     echo ========================================
-    echo.
+    echo:
     echo Options:
     echo   1. Install via winget - recommended
     echo   2. Open Python download page
     echo   3. Skip - I will install manually
-    echo.
+    echo:
     choice /c 123 /n /m "Choose option [1-3]: "
     if errorlevel 3 goto :skip_python
     if errorlevel 2 (
         echo Opening Python download page...
         start "" "https://www.python.org/downloads/"
-        echo.
+        echo:
         echo Please install Python, then restart this script.
         pause
         exit /b 1
     )
     if errorlevel 1 (
-        echo.
+        echo:
         echo Installing Python via winget...
         winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements
         if !errorlevel! equ 0 (
-            echo.
+            echo:
             echo [OK] Python installed successfully!
-            echo.
+            echo:
             echo IMPORTANT: Please close this window and open a NEW terminal,
             echo then run Lab_Assistant.bat again.
-            echo.
+            echo:
             pause
             exit /b 0
         ) else (
-            echo.
+            echo:
             echo [!] winget installation failed. Please install Python manually:
             start "" "https://www.python.org/downloads/"
             pause
@@ -150,37 +150,37 @@ if not defined NODE_OK (
     echo ========================================
     echo  Node.js is required but not installed
     echo ========================================
-    echo.
+    echo:
     echo Options:
     echo   1. Install via winget - recommended
     echo   2. Open Node.js download page
     echo   3. Skip - I will install manually
-    echo.
+    echo:
     choice /c 123 /n /m "Choose option [1-3]: "
     if errorlevel 3 goto :skip_node
     if errorlevel 2 (
         echo Opening Node.js download page...
         start "" "https://nodejs.org/"
-        echo.
+        echo:
         echo Please install Node.js LTS, then restart this script.
         pause
         exit /b 1
     )
     if errorlevel 1 (
-        echo.
+        echo:
         echo Installing Node.js via winget...
         winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
         if !errorlevel! equ 0 (
-            echo.
+            echo:
             echo [OK] Node.js installed successfully!
-            echo.
+            echo:
             echo IMPORTANT: Please close this window and open a NEW terminal,
             echo then run Lab_Assistant.bat again.
-            echo.
+            echo:
             pause
             exit /b 0
         ) else (
-            echo.
+            echo:
             echo [!] winget installation failed. Please install Node.js manually:
             start "" "https://nodejs.org/"
             pause
@@ -246,10 +246,10 @@ if exist "%SCRIPT_DIR%.env" (
 )
 
 :: Install backend dependencies
-echo.
-echo   Installing backend dependencies...
+echo:
+echo   Installing backend dependencies
 cd /d "%SCRIPT_DIR%backend"
-python -m pip install -r requirements.txt -q 2>nul
+pip install -r requirements.txt -q >nul 2>&1
 cd /d "%SCRIPT_DIR%"
 
 :: Install frontend dependencies if needed
@@ -260,7 +260,7 @@ if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_I
 if defined INSTALL_DEPS set "NEED_INSTALL=1"
 
 if defined NEED_INSTALL (
-    echo   Installing frontend dependencies (this may take a few minutes)...
+    echo   Installing frontend dependencies - this may take a few minutes
     cd /d "%SCRIPT_DIR%frontend-nuxt"
     call npm install
     cd /d "%SCRIPT_DIR%"
@@ -287,7 +287,7 @@ if defined TELEGRAM_BOT_TOKEN (
 :: STEP 4: Start Services
 :: ============================================
 echo [4/4] Starting services...
-echo.
+echo:
 
 :: Get network IPs for display
 set "NETWORK_IPS="
@@ -334,22 +334,22 @@ if not defined RESTART_MODE (
 :: ============================================
 :: Display Status
 :: ============================================
-echo.
+echo:
 echo ========================================
 echo      Lab Assistant is Running!
 echo ========================================
-echo.
+echo:
 echo  Local Access:
 echo    Frontend: http://localhost:3000
 echo    Backend:  http://localhost:8000
-echo.
+echo:
 echo  Network Access (LAN):
 if "!NETWORK_IPS!"=="" (
     echo    No network adapters found
 ) else (
     call :print_network_ips
 )
-echo.
+echo:
 echo  Services:
 echo    [*] Backend (FastAPI)
 echo    [*] Frontend (Nuxt)
@@ -359,10 +359,10 @@ if defined TELEGRAM_STARTED (
 if defined TUNNEL_STARTED (
     echo    [*] Cloudflare Tunnel
 ) else (
-    echo.
+    echo:
     echo  Tip: Run with --tunnel to enable remote access
 )
-echo.
+echo:
 echo ----------------------------------------
 echo  Press any key to close this window
 echo  (Services will keep running)
