@@ -50,6 +50,17 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
 
+:: Load environment variables from root .env file
+if exist "%SCRIPT_DIR%.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
+        :: Skip comments and empty lines
+        set "LINE=%%a"
+        if not "!LINE:~0,1!"=="#" if not "!LINE!"=="" (
+            set "%%a=%%b"
+        )
+    )
+)
+
 :: Check if Python is available
 where python >nul 2>&1
 if %errorlevel% neq 0 (
