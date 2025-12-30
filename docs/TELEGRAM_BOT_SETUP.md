@@ -78,6 +78,7 @@ Send these commands to BotFather:
 > help - Mostrar ayuda
 > chats - Ver chats recientes
 > new - Crear nuevo chat
+> model - Cambiar modelo de IA
 > cancel - Cancelar operación
 > ```
 
@@ -254,7 +255,19 @@ User sends photo(s)
 | `/help` | Show help message |
 | `/chats` | List recent chats |
 | `/new` | Start a new chat |
+| `/model` | Change AI model |
 | `/cancel` | Cancel current operation |
+
+### Model Selection
+
+The bot supports multiple AI models. Use `/model` to switch between:
+
+| Model | Description |
+|-------|-------------|
+| 🧠 Gemini 3 Flash | Reasoning model (default) - better for complex tasks |
+| ⚡ Gemini 2.5 Flash | Fast model - quicker responses |
+
+Your model selection is saved and will be used for all future conversations until changed.
 
 ---
 
