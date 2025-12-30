@@ -86,9 +86,12 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     app_user_data["pending_images"] = photos
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
 
-    # Get recent chats for keyboard
+    # Get recent chats for keyboard (now async)
     backend = BackendService()
-    recent_chats = backend.get_recent_chats(limit=3)
+    try:
+        recent_chats = await backend.get_recent_chats(limit=3)
+    finally:
+        await backend.close()
 
     # Build and send keyboard
     keyboard = build_photo_options_keyboard(recent_chats)
@@ -114,9 +117,12 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["pending_images"] = [bytes(photo_bytes)]
         context.user_data["pending_chat_id"] = None
 
-        # Get recent chats
+        # Get recent chats (now async)
         backend = BackendService()
-        recent_chats = backend.get_recent_chats(limit=3)
+        try:
+            recent_chats = await backend.get_recent_chats(limit=3)
+        finally:
+            await backend.close()
 
         # Build and send keyboard
         keyboard = build_photo_options_keyboard(recent_chats)

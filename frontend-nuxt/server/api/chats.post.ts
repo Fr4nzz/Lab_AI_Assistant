@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { createChat, addMessage } from '../utils/db'
+import { requireSessionOrInternal } from '../utils/internalAuth'
 
 export default defineEventHandler(async (event) => {
-  // Verify user is authenticated
-  await getUserSession(event)
+  // Verify user is authenticated (OAuth or internal API key)
+  await requireSessionOrInternal(event)
 
   const body = await readValidatedBody(event, z.object({
     id: z.string().optional(),

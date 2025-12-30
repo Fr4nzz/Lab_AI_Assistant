@@ -466,7 +466,9 @@ async function createRotationAwareStream(
 
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
-  await getUserSession(event)
+  // Verify user is authenticated (OAuth or internal API key)
+  const { requireSessionOrInternal } = await import('../../utils/internalAuth')
+  await requireSessionOrInternal(event)
 
   const { id: chatId } = await getValidatedRouterParams(event, z.object({
     id: z.string()

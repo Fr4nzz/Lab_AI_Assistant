@@ -75,62 +75,69 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
     # Get predefined prompt
     prompt = PROMPTS.get(action, f"Analiza esta imagen: {action}")
 
-    # Create new chat
+    # Create new chat (now async)
     backend = BackendService()
     title = "Cotización" if action == "cotizar" else "Pasar datos" if action == "pasar" else action
-    chat_id = backend.create_chat(title=title)
 
-    if not chat_id:
-        await query.edit_message_text("❌ Error al crear el chat.")
-        return
+    try:
+        chat_id = await backend.create_chat(title=title)
 
-    context.user_data["current_chat_id"] = chat_id
-    context.user_data["pending_images"] = []
+        if not chat_id:
+            await query.edit_message_text("❌ Error al crear el chat.")
+            return
 
-    # Show processing message
-    await query.edit_message_text("⏳ Procesando...")
+        context.user_data["current_chat_id"] = chat_id
+        context.user_data["pending_images"] = []
 
-    # Send to backend
-    tools_used = []
+        # Show processing message
+        await query.edit_message_text("⏳ Procesando...")
 
-    async def on_tool(tool_display: str):
-        tools_used.append(tool_display)
-        try:
-            await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
-        except Exception:
-            pass
+        # Send to backend
+        tools_used = []
 
-    response_text, tools = await backend.send_message(
-        chat_id=chat_id,
-        message=prompt,
-        images=images,
-        on_tool_call=on_tool
-    )
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass
 
-    # Send response
-    await send_response(query, response_text, chat_id, tools)
+        response_text, tools = await backend.send_message(
+            chat_id=chat_id,
+            message=prompt,
+            images=images,
+            on_tool_call=on_tool
+        )
+
+        # Send response
+        await send_response(query, response_text, chat_id, tools)
+    finally:
+        await backend.close()
 
 
 async def handle_continue_chat(query, context: ContextTypes.DEFAULT_TYPE, short_id: str) -> None:
     """Handle 'continue in chat' buttons."""
     backend = BackendService()
-    chat_info = backend.get_chat_by_short_id(short_id)
+    try:
+        chat_info = await backend.get_chat_by_short_id(short_id)
 
-    if not chat_info:
-        await query.edit_message_text("❌ Chat no encontrado.")
-        return
+        if not chat_info:
+            await query.edit_message_text("❌ Chat no encontrado.")
+            return
 
-    full_chat_id, title = chat_info
-    context.user_data["pending_chat_id"] = full_chat_id
+        full_chat_id, title = chat_info
+        context.user_data["pending_chat_id"] = full_chat_id
 
-    # Show prompt selection
-    keyboard = build_prompt_selection_keyboard()
-    await query.edit_message_text(
-        f"💬 Continuar en: *{title}*\n\n"
-        "Selecciona qué hacer con la(s) imagen(es):",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
+        # Show prompt selection
+        keyboard = build_prompt_selection_keyboard()
+        await query.edit_message_text(
+            f"💬 Continuar en: *{title}*\n\n"
+            "Selecciona qué hacer con la(s) imagen(es):",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+    finally:
+        await backend.close()
 
 
 async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
@@ -162,22 +169,25 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
     backend = BackendService()
     tools_used = []
 
-    async def on_tool(tool_display: str):
-        tools_used.append(tool_display)
-        try:
-            await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
-        except Exception:
-            pass
+    try:
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass
 
-    response_text, tools = await backend.send_message(
-        chat_id=chat_id,
-        message=prompt,
-        images=images,
-        on_tool_call=on_tool
-    )
+        response_text, tools = await backend.send_message(
+            chat_id=chat_id,
+            message=prompt,
+            images=images,
+            on_tool_call=on_tool
+        )
 
-    # Send response
-    await send_response(query, response_text, chat_id, tools)
+        # Send response
+        await send_response(query, response_text, chat_id, tools)
+    finally:
+        await backend.close()
 
 
 async def handle_post_response(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
@@ -204,9 +214,12 @@ async def handle_post_response(query, context: ContextTypes.DEFAULT_TYPE, action
         )
 
     elif action == "select":
-        # Show chat selection
+        # Show chat selection (now async)
         backend = BackendService()
-        chats = backend.get_recent_chats(limit=5)
+        try:
+            chats = await backend.get_recent_chats(limit=5)
+        finally:
+            await backend.close()
 
         if not chats:
             await query.edit_message_text("No hay chats disponibles.")
@@ -222,23 +235,26 @@ async def handle_post_response(query, context: ContextTypes.DEFAULT_TYPE, action
 async def handle_chat_selection(query, context: ContextTypes.DEFAULT_TYPE, short_id: str) -> None:
     """Handle chat selection from list."""
     backend = BackendService()
-    chat_info = backend.get_chat_by_short_id(short_id)
+    try:
+        chat_info = await backend.get_chat_by_short_id(short_id)
 
-    if not chat_info:
-        await query.edit_message_text("❌ Chat no encontrado.")
-        return
+        if not chat_info:
+            await query.edit_message_text("❌ Chat no encontrado.")
+            return
 
-    full_chat_id, title = chat_info
-    context.user_data["current_chat_id"] = full_chat_id
+        full_chat_id, title = chat_info
+        context.user_data["current_chat_id"] = full_chat_id
 
-    chat_url = build_chat_url(full_chat_id)
-    await query.edit_message_text(
-        f"💬 Chat seleccionado: *{title}*\n\n"
-        f"🔗 {chat_url}\n\n"
-        "_Escribe tu mensaje o envía una foto..._",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
+        chat_url = build_chat_url(full_chat_id)
+        await query.edit_message_text(
+            f"💬 Chat seleccionado: *{title}*\n\n"
+            f"🔗 {chat_url}\n\n"
+            "_Escribe tu mensaje o envía una foto..._",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
+    finally:
+        await backend.close()
 
 
 async def send_response(query, response_text: str, chat_id: str, tools: list) -> None:

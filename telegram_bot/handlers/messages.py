@@ -41,45 +41,48 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
     # Clear the awaiting flag
     context.user_data["awaiting_prompt"] = False
 
-    # Create new chat if needed
+    # Create new chat if needed (now async)
     backend = BackendService()
-    if not chat_id:
-        chat_id = backend.create_chat(title=prompt[:50])
+    try:
         if not chat_id:
-            await message.reply_text("❌ Error al crear el chat.")
-            return
+            chat_id = await backend.create_chat(title=prompt[:50])
+            if not chat_id:
+                await message.reply_text("❌ Error al crear el chat.")
+                return
 
-    context.user_data["current_chat_id"] = chat_id
+        context.user_data["current_chat_id"] = chat_id
 
-    # Send processing message
-    processing_msg = await message.reply_text("⏳ Procesando...")
+        # Send processing message
+        processing_msg = await message.reply_text("⏳ Procesando...")
 
-    # Send to backend with tool notifications
-    tools_used = []
+        # Send to backend with tool notifications
+        tools_used = []
 
-    async def on_tool(tool_display: str):
-        tools_used.append(tool_display)
-        try:
-            await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
-        except Exception:
-            pass  # Ignore edit errors
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass  # Ignore edit errors
 
-    response_text, tools = await backend.send_message(
-        chat_id=chat_id,
-        message=prompt,
-        images=images,
-        on_tool_call=on_tool
-    )
+        response_text, tools = await backend.send_message(
+            chat_id=chat_id,
+            message=prompt,
+            images=images,
+            on_tool_call=on_tool
+        )
 
-    # Clear pending images
-    context.user_data["pending_images"] = []
+        # Clear pending images
+        context.user_data["pending_images"] = []
 
-    # Update chat title if it was generic
-    if prompt:
-        backend.update_chat_title(chat_id, prompt[:50])
+        # Update chat title if it was generic
+        if prompt:
+            await backend.update_chat_title(chat_id, prompt[:50])
 
-    # Send response
-    await send_ai_response(processing_msg, response_text, chat_id, tools)
+        # Send response
+        await send_ai_response(processing_msg, response_text, chat_id, tools)
+    finally:
+        await backend.close()
 
 
 async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
@@ -94,64 +97,71 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     # Send processing message
     processing_msg = await message.reply_text("⏳ Procesando...")
 
-    # Send to backend
+    # Send to backend (now async)
     backend = BackendService()
     tools_used = []
 
-    async def on_tool(tool_display: str):
-        tools_used.append(tool_display)
-        try:
-            await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
-        except Exception:
-            pass
+    try:
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass
 
-    response_text, tools = await backend.send_message(
-        chat_id=chat_id,
-        message=text,
-        images=None,
-        on_tool_call=on_tool
-    )
+        response_text, tools = await backend.send_message(
+            chat_id=chat_id,
+            message=text,
+            images=None,
+            on_tool_call=on_tool
+        )
 
-    # Send response
-    await send_ai_response(processing_msg, response_text, chat_id, tools)
+        # Send response
+        await send_ai_response(processing_msg, response_text, chat_id, tools)
+    finally:
+        await backend.close()
 
 
 async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Handle text message that starts a new chat (no images)."""
     message = update.message
 
-    # Create new chat
+    # Create new chat (now async)
     backend = BackendService()
-    chat_id = backend.create_chat(title=text[:50])
 
-    if not chat_id:
-        await message.reply_text("❌ Error al crear el chat.")
-        return
+    try:
+        chat_id = await backend.create_chat(title=text[:50])
 
-    context.user_data["current_chat_id"] = chat_id
+        if not chat_id:
+            await message.reply_text("❌ Error al crear el chat.")
+            return
 
-    # Send processing message
-    processing_msg = await message.reply_text("⏳ Procesando...")
+        context.user_data["current_chat_id"] = chat_id
 
-    # Send to backend
-    tools_used = []
+        # Send processing message
+        processing_msg = await message.reply_text("⏳ Procesando...")
 
-    async def on_tool(tool_display: str):
-        tools_used.append(tool_display)
-        try:
-            await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
-        except Exception:
-            pass
+        # Send to backend
+        tools_used = []
 
-    response_text, tools = await backend.send_message(
-        chat_id=chat_id,
-        message=text,
-        images=None,
-        on_tool_call=on_tool
-    )
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass
 
-    # Send response
-    await send_ai_response(processing_msg, response_text, chat_id, tools)
+        response_text, tools = await backend.send_message(
+            chat_id=chat_id,
+            message=text,
+            images=None,
+            on_tool_call=on_tool
+        )
+
+        # Send response
+        await send_ai_response(processing_msg, response_text, chat_id, tools)
+    finally:
+        await backend.close()
 
 
 async def send_ai_response(processing_msg, response_text: str, chat_id: str, tools: list) -> None:
