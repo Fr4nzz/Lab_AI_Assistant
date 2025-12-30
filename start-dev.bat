@@ -107,44 +107,18 @@ if not defined RESTART_MODE (
     start "" "http://localhost:3000"
 )
 
-rem Handle Cloudflare Tunnel
+rem Handle Cloudflare Tunnel (simplified - use cloudflare-tunnel-run.bat for tunnel)
 set "TUNNEL_URL="
 set "TUNNEL_STARTED="
 
 if not defined NO_TUNNEL (
-    rem Check if cloudflared is available
-    where cloudflared >nul 2>&1
-    if not errorlevel 1 (
-        rem Check if tunnel is configured
-        if exist "%USERPROFILE%\.cloudflared\config.yml" (
-            rem Get tunnel info
-            for /f "tokens=2" %%i in ('findstr /i "tunnel:" "%USERPROFILE%\.cloudflared\config.yml"') do set TUNNEL_NAME=%%i
-            for /f "tokens=1" %%i in ('cloudflared tunnel list 2^>nul ^| findstr /i "!TUNNEL_NAME!"') do set TUNNEL_ID=%%i
-
-            if defined TUNNEL_ID (
-                set "TUNNEL_URL=https://!TUNNEL_ID!.cfargotunnel.com"
-
-                if defined START_TUNNEL (
-                    echo.
-                    echo Starting Cloudflare Tunnel...
-                    start "Lab Assistant - Tunnel" cmd /k "cloudflared tunnel run !TUNNEL_NAME!"
-                    set "TUNNEL_STARTED=1"
-                ) else (
-                    echo.
-                    echo Cloudflare Tunnel is configured.
-                    choice /c YN /m "Start tunnel for remote access"
-                    if not errorlevel 2 (
-                        echo Starting Cloudflare Tunnel...
-                        start "Lab Assistant - Tunnel" cmd /k "cloudflared tunnel run !TUNNEL_NAME!"
-                        set "TUNNEL_STARTED=1"
-                    )
-                )
-            )
-        ) else (
-            if not defined START_TUNNEL (
+    if not defined RESTART_MODE (
+        where cloudflared >nul 2>&1
+        if not errorlevel 1 (
+            if exist "%USERPROFILE%\.cloudflared\config.yml" (
                 echo.
-                echo [Info] Cloudflare Tunnel not configured.
-                echo        Run cloudflare-tunnel-setup.bat to set up remote access.
+                echo [Info] Cloudflare Tunnel is configured.
+                echo        Run cloudflare-tunnel-run.bat to start the tunnel.
             )
         )
     )
@@ -166,16 +140,6 @@ if "!NETWORK_IPS!"=="" (
     call :print_network_ips
 )
 
-if defined TUNNEL_STARTED (
-    echo.
-    echo Remote access (Internet):
-    echo   !TUNNEL_URL!
-) else if defined TUNNEL_URL (
-    echo.
-    echo Remote access (not started):
-    echo   !TUNNEL_URL!
-    echo   Run with --tunnel flag or cloudflare-tunnel-run.bat
-)
 
 echo.
 echo Press any key to close this launcher...
