@@ -249,7 +249,7 @@ if exist "%SCRIPT_DIR%.env" (
 echo:
 echo   Installing backend dependencies
 cd /d "%SCRIPT_DIR%backend"
-pip install -r requirements.txt -q >nul 2>&1
+python -m pip install -r requirements.txt -q >nul 2>&1
 cd /d "%SCRIPT_DIR%"
 
 :: Install frontend dependencies if needed
@@ -271,14 +271,14 @@ if defined NEED_INSTALL (
 :: Install telegram bot dependencies if token is configured
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
-        pip show python-telegram-bot >nul 2>&1
+        python -m pip show python-telegram-bot >nul 2>&1
         if !errorlevel! neq 0 (
-            echo   Installing Telegram bot dependencies...
-            pip install -r "%SCRIPT_DIR%telegram_bot\requirements.txt" -q 2>nul
+            echo   Installing Telegram bot dependencies
+            python -m pip install -r "%SCRIPT_DIR%telegram_bot\requirements.txt" -q >nul 2>&1
         )
-        pip show httpx-sse >nul 2>&1
+        python -m pip show httpx-sse >nul 2>&1
         if !errorlevel! neq 0 (
-            pip install httpx-sse -q 2>nul
+            python -m pip install httpx-sse -q >nul 2>&1
         )
     )
 )
