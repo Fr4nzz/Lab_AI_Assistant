@@ -47,7 +47,7 @@ from models import get_chat_model
 from prompts import SYSTEM_PROMPT
 
 
-def create_lab_agent(browser_manager=None):
+def create_lab_agent(browser_manager=None, model_name: str = None):
     """
     Create the LangGraph agent for lab assistance.
 
@@ -59,6 +59,7 @@ def create_lab_agent(browser_manager=None):
 
     Args:
         browser_manager: BrowserManager instance for Playwright control
+        model_name: Optional model name to use (e.g., 'gemini-3-flash-preview')
 
     Returns:
         StateGraph builder (compile with checkpointer before use)
@@ -67,8 +68,9 @@ def create_lab_agent(browser_manager=None):
         set_browser(browser_manager)
 
     # Get model and bind tools
-    model = get_chat_model()
+    model = get_chat_model(model_name=model_name)
     model_with_tools = model.bind_tools(ALL_TOOLS)
+    logger.info(f"[Agent] Created agent with model: {model_name or 'default'}")
 
     # ============================================================
     # NODE DEFINITIONS
