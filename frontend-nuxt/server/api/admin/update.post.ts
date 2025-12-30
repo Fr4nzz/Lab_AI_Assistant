@@ -65,34 +65,29 @@ export default defineEventHandler(async (event) => {
       console.log('[Update] Initiating restart...')
 
       if (isWindows) {
-        // On Windows, spawn a new process to run start-dev.bat
-        // Use 'start' command to open a new window and detach
+        // On Windows, spawn start-dev.bat with --restart flag
+        // The batch file will kill existing processes before starting new ones
         const batPath = `${projectRoot}\\start-dev.bat`
-        spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/c', batPath], {
+        spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/c', batPath, '--restart', '--no-tunnel'], {
           cwd: projectRoot,
           detached: true,
           stdio: 'ignore'
         }).unref()
       } else {
-        // On Linux/Mac, use shell script or npm commands
-        // First try start-dev.sh, fallback to npm commands
+        // On Linux/Mac, use shell script
         try {
-          spawn('bash', ['./start-dev.sh'], {
+          spawn('bash', ['./start-dev.sh', '--restart'], {
             cwd: projectRoot,
             detached: true,
             stdio: 'ignore'
           }).unref()
         } catch {
-          // Fallback: just exit and let the process manager restart
           console.log('[Update] Exiting for restart...')
         }
       }
 
-      // Exit current process after spawning the new one
-      // Give a small delay for the spawn to start
-      setTimeout(() => {
-        process.exit(0)
-      }, 1000)
+      // Don't exit here - let start-dev.bat kill this process
+      // This ensures the response is sent before we're terminated
     }, 500)
 
     return {

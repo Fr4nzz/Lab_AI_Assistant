@@ -10,14 +10,35 @@ echo.
 :: Parse command line arguments
 set "START_TUNNEL="
 set "NO_TUNNEL="
+set "RESTART_MODE="
 
 :parse_args
 if "%~1"=="" goto :done_args
 if /i "%~1"=="--tunnel" set "START_TUNNEL=1"
 if /i "%~1"=="--no-tunnel" set "NO_TUNNEL=1"
+if /i "%~1"=="--restart" set "RESTART_MODE=1"
 shift
 goto :parse_args
 :done_args
+
+:: Kill existing processes on ports 8000 and 3000 (for restart/update scenarios)
+echo Checking for existing processes...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000.*LISTENING"') do (
+    echo Stopping existing backend process (PID: %%a)...
+    taskkill /F /PID %%a >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000.*LISTENING"') do (
+    echo Stopping existing frontend process (PID: %%a)...
+    taskkill /F /PID %%a >nul 2>&1
+)
+:: Also kill Vite HMR WebSocket port
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":24678.*LISTENING"') do (
+    echo Stopping existing Vite HMR process (PID: %%a)...
+    taskkill /F /PID %%a >nul 2>&1
+)
+
+:: Small delay to ensure ports are released
+timeout /t 2 /nobreak >nul
 
 :: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
 set "NETWORK_IPS="
@@ -83,9 +104,11 @@ start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm 
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
 
-:: Auto-open browser to the chat UI
-echo Opening browser to http://localhost:3000...
-start "" "http://localhost:3000"
+:: Auto-open browser to the chat UI (skip in restart mode)
+if not defined RESTART_MODE (
+    echo Opening browser to http://localhost:3000...
+    start "" "http://localhost:3000"
+)
 
 rem Handle Cloudflare Tunnel
 set "TUNNEL_URL="
@@ -156,10 +179,6 @@ if defined TUNNEL_STARTED (
     echo   !TUNNEL_URL!
     echo   Run with --tunnel flag or cloudflare-tunnel-run.bat
 )
-
-echo.
-echo Opening browser...
-start http://localhost:3000
 
 echo.
 echo Press any key to close this launcher...
