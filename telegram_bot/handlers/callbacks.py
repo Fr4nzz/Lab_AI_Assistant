@@ -322,6 +322,7 @@ async def send_response(query, response_text: str, chat_id: str, tools: list) ->
 
     keyboard = build_post_response_keyboard()
 
+    # Try sending with Markdown, fall back to plain text if parsing fails
     try:
         await query.edit_message_text(
             text=full_text,
@@ -331,10 +332,24 @@ async def send_response(query, response_text: str, chat_id: str, tools: list) ->
         )
     except Exception as e:
         logger.warning(f"Failed to edit message: {e}")
-        # Send as new message if edit fails
-        await query.message.reply_text(
-            text=full_text,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+        # Try reply with Markdown
+        try:
+            await query.message.reply_text(
+                text=full_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        except Exception as e2:
+            # Markdown parsing failed - send as plain text without formatting
+            logger.warning(f"Markdown parsing failed, sending as plain text: {e2}")
+            # Build plain text version without markdown
+            plain_tools = ""
+            if tools:
+                plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
+            plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
+            await query.message.reply_text(
+                text=plain_text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
