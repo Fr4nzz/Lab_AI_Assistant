@@ -46,10 +46,40 @@ if %errorlevel% equ 0 (
 
 :: Check if Node.js/npm is available
 set "NODE_OK="
+set "NODE_PATH="
+
+:: First try the PATH
 where node >nul 2>&1
 if %errorlevel% equ 0 (
     set "NODE_OK=1"
-    for /f "tokens=1" %%v in ('node --version 2^>^&1') do echo   [OK] Node.js %%v found
+    set "NODE_PATH=node"
+)
+
+:: Check common installation paths if not in PATH
+if not defined NODE_OK (
+    if exist "C:\Program Files\nodejs\node.exe" (
+        set "NODE_OK=1"
+        set "NODE_PATH=C:\Program Files\nodejs\node.exe"
+        set "PATH=C:\Program Files\nodejs;!PATH!"
+    )
+)
+if not defined NODE_OK (
+    if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\node.exe" (
+        set "NODE_OK=1"
+        set "NODE_PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links\node.exe"
+        set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;!PATH!"
+    )
+)
+if not defined NODE_OK (
+    if exist "%PROGRAMFILES%\nodejs\node.exe" (
+        set "NODE_OK=1"
+        set "NODE_PATH=%PROGRAMFILES%\nodejs\node.exe"
+        set "PATH=%PROGRAMFILES%\nodejs;!PATH!"
+    )
+)
+
+if defined NODE_OK (
+    for /f "tokens=1" %%v in ('"!NODE_PATH!" --version 2^>^&1') do echo   [OK] Node.js %%v found
 ) else (
     echo   [X] Node.js not found
 )
@@ -60,8 +90,17 @@ where npm >nul 2>&1
 if %errorlevel% equ 0 (
     set "NPM_OK=1"
 ) else (
+    :: Check common npm paths
+    if exist "C:\Program Files\nodejs\npm.cmd" (
+        set "NPM_OK=1"
+    )
+    if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\npm.cmd" (
+        set "NPM_OK=1"
+    )
+)
+if not defined NPM_OK (
     if defined NODE_OK (
-        echo   [X] npm not found (Node.js installed but npm missing from PATH)
+        echo   [X] npm not found - Node.js installed but npm missing from PATH
     )
 )
 
