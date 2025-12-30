@@ -109,6 +109,13 @@ const rotatedThumbnails = computed(() => {
     }))
 })
 
+// Lightbox state for viewing rotated images
+const lightboxImage = ref<{ url: string; name: string } | null>(null)
+
+function showImageLightbox(url: string, name: string) {
+  lightboxImage.value = { url, name }
+}
+
 function formatRotationResult(result: ImageRotationResult): string {
   if (!result.results || result.results.length === 0) {
     return 'Sin imágenes procesadas'
@@ -148,10 +155,6 @@ function formatResult(toolName: string, result: unknown): string {
   return String(result)
 }
 
-// Open image in new tab
-function openImage(url: string) {
-  window.open(url, '_blank')
-}
 </script>
 
 <template>
@@ -207,13 +210,21 @@ function openImage(url: string) {
             :src="thumb.url"
             :alt="thumb.name"
             class="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity"
-            @click="openImage(thumb.url)"
+            @click="showImageLightbox(thumb.url, thumb.name)"
           >
           <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center">
             {{ thumb.rotation }}° corregido
           </div>
         </div>
       </div>
+
+      <!-- Image lightbox for rotated images -->
+      <ImageLightbox
+        v-if="lightboxImage"
+        :src="lightboxImage.url"
+        :alt="lightboxImage.name"
+        @close="lightboxImage = null"
+      />
     </div>
   </div>
 </template>
