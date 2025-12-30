@@ -84,6 +84,8 @@ interface RotationResultItem {
   name: string
   rotation: number
   applied: boolean
+  thumbnailUrl?: string
+  mediaType?: string
 }
 
 interface ImageRotationResult {
@@ -92,6 +94,20 @@ interface ImageRotationResult {
   detected?: number
   results?: RotationResultItem[]
 }
+
+// Extract rotated image thumbnails from image-rotation result
+const rotatedThumbnails = computed(() => {
+  if (props.name !== 'image-rotation' || !props.result) return []
+  const result = props.result as ImageRotationResult
+  if (!result.results) return []
+  return result.results
+    .filter(r => r.applied && r.thumbnailUrl)
+    .map(r => ({
+      name: r.name,
+      url: r.thumbnailUrl!,
+      rotation: r.rotation
+    }))
+})
 
 function formatRotationResult(result: ImageRotationResult): string {
   if (!result.results || result.results.length === 0) {
@@ -130,6 +146,11 @@ function formatResult(toolName: string, result: unknown): string {
   }
 
   return String(result)
+}
+
+// Open image in new tab
+function openImage(url: string) {
+  window.open(url, '_blank')
 }
 </script>
 
@@ -173,6 +194,25 @@ function formatResult(toolName: string, result: unknown): string {
       <div v-if="isCompleted && result" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
         <span class="font-medium">Resultado:</span>
         <span class="ml-1">{{ formatResult(name, result) }}</span>
+      </div>
+
+      <!-- Show rotated image thumbnails for image-rotation tool -->
+      <div v-if="rotatedThumbnails.length > 0" class="mt-3 flex flex-wrap gap-2">
+        <div
+          v-for="thumb in rotatedThumbnails"
+          :key="thumb.name"
+          class="relative group"
+        >
+          <img
+            :src="thumb.url"
+            :alt="thumb.name"
+            class="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity"
+            @click="openImage(thumb.url)"
+          >
+          <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center">
+            {{ thumb.rotation }}° corregido
+          </div>
+        </div>
       </div>
     </div>
   </div>
