@@ -199,8 +199,9 @@ async def send_ai_response(processing_msg, response_text: str, chat_id: str, too
     )
 
     # Edit the processing message with response
+    # Try Markdown first, fall back to plain text if parsing fails
+    keyboard = build_post_response_keyboard()
     try:
-        keyboard = build_post_response_keyboard()
         await processing_msg.edit_text(
             text=full_text,
             reply_markup=keyboard,
@@ -208,12 +209,24 @@ async def send_ai_response(processing_msg, response_text: str, chat_id: str, too
             disable_web_page_preview=True
         )
     except Exception as e:
-        # If edit fails (e.g., message too old), send new message
         logger.warning(f"Failed to edit message: {e}")
-        keyboard = build_post_response_keyboard()
-        await processing_msg.reply_text(
-            text=full_text,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+        # Try reply with Markdown
+        try:
+            await processing_msg.reply_text(
+                text=full_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        except Exception as e2:
+            # Markdown parsing failed - send as plain text
+            logger.warning(f"Markdown parsing failed, sending as plain text: {e2}")
+            plain_tools = ""
+            if tools:
+                plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
+            plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
+            await processing_msg.reply_text(
+                text=plain_text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
