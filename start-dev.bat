@@ -61,11 +61,12 @@ set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@nuxt\ui" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\sharp" set "NEED_INSTALL=1"
 
 if defined NEED_INSTALL (
     echo Installing frontend dependencies...
     cd /d "%SCRIPT_DIR%frontend-nuxt"
-    npm install
+    call npm install
     cd /d "%SCRIPT_DIR%"
 )
 
@@ -139,14 +140,10 @@ echo   Frontend: http://localhost:3000
 echo   Backend:  http://localhost:8000
 echo.
 echo Network access (LAN):
-if not "!NETWORK_IPS!"=="" (
-    for %%a in ("!NETWORK_IPS:|=" "!") do (
-        for /f "tokens=1,2" %%b in (%%a) do (
-            echo   %%b http://%%c:3000
-        )
-    )
-) else (
+if "!NETWORK_IPS!"=="" (
     echo   [No Wi-Fi/Ethernet adapter found]
+) else (
+    call :print_network_ips
 )
 
 if defined TUNNEL_STARTED (
@@ -168,3 +165,16 @@ echo.
 echo Press any key to close this launcher...
 echo (The backend, frontend, and tunnel will keep running)
 pause >nul
+goto :eof
+
+:print_network_ips
+set "TEMP_IPS=!NETWORK_IPS!"
+:print_ips_loop
+for /f "tokens=1* delims=|" %%a in ("!TEMP_IPS!") do (
+    for /f "tokens=1,2" %%x in ("%%a") do (
+        echo   %%x http://%%y:3000
+    )
+    set "TEMP_IPS=%%b"
+)
+if not "!TEMP_IPS!"=="" goto :print_ips_loop
+goto :eof

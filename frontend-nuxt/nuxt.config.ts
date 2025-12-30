@@ -36,6 +36,10 @@ export default defineNuxtConfig({
   nitro: {
     experimental: {
       openAPI: true
+    },
+    // Externalize native modules that can't be bundled
+    externals: {
+      external: ['sharp']
     }
   },
 
