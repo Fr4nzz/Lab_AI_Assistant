@@ -9,6 +9,7 @@ echo.
 
 set "SCRIPT_DIR=%~dp0"
 set "BAT_PATH=%SCRIPT_DIR%Lab_Assistant.bat"
+set "ICON_PATH=%SCRIPT_DIR%Lab_Assistant.ico"
 set "DESKTOP=%USERPROFILE%\Desktop"
 set "SHORTCUT_PATH=%DESKTOP%\Lab Assistant.lnk"
 
@@ -32,7 +33,7 @@ if errorlevel 2 goto :skip_desktop
 echo.
 echo Creating desktop shortcut...
 
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant'; $shortcut.IconLocation = 'shell32.dll,21'; $shortcut.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant'; $shortcut.IconLocation = '%ICON_PATH%'; $shortcut.Save()"
 
 if %errorlevel% equ 0 (
     echo [OK] Desktop shortcut created!
@@ -43,22 +44,7 @@ if %errorlevel% equ 0 (
 :skip_desktop
 
 echo.
-echo ========================================
-echo  Shortcut Icons
-echo ========================================
-echo.
-echo The shortcut uses a default Windows icon.
-echo.
-echo To use a custom icon:
-echo   1. Right-click the shortcut on your desktop
-echo   2. Select "Properties"
-echo   3. Click "Change Icon..."
-echo   4. Browse to your custom .ico file
-echo.
-echo You can find free icons at:
-echo   - https://icon-icons.com/
-echo   - https://www.flaticon.com/
-echo   - Search "laboratory icon .ico"
+echo [OK] Done!
 echo.
 
 pause

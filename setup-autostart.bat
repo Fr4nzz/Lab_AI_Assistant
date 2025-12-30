@@ -9,6 +9,7 @@ echo.
 
 set "SCRIPT_DIR=%~dp0"
 set "BAT_PATH=%SCRIPT_DIR%Lab_Assistant.bat"
+set "ICON_PATH=%SCRIPT_DIR%Lab_Assistant.ico"
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "STARTUP_SHORTCUT=%STARTUP_FOLDER%\Lab Assistant.lnk"
 
@@ -57,7 +58,7 @@ if exist "%STARTUP_SHORTCUT%" (
     echo.
     echo Creating startup shortcut...
 
-    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%STARTUP_SHORTCUT%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant on boot'; $shortcut.IconLocation = 'shell32.dll,21'; $shortcut.WindowStyle = 7; $shortcut.Save()"
+    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%STARTUP_SHORTCUT%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant on boot'; $shortcut.IconLocation = '%ICON_PATH%'; $shortcut.WindowStyle = 7; $shortcut.Save()"
 
     if exist "%STARTUP_SHORTCUT%" (
         echo [OK] Autostart enabled!
