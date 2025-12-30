@@ -2,9 +2,9 @@
 setlocal enabledelayedexpansion
 title Lab Assistant
 echo.
-echo ╔════════════════════════════════════════╗
-echo ║         Lab Assistant Launcher         ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo        Lab Assistant Launcher
+echo ========================================
 echo.
 
 :: Get the directory where this script is located
@@ -69,9 +69,9 @@ echo.
 
 :: If missing prerequisites, offer to install
 if not defined PYTHON_OK (
-    echo ════════════════════════════════════════
+    echo ========================================
     echo  Python is required but not installed
-    echo ════════════════════════════════════════
+    echo ========================================
     echo.
     echo Options:
     echo   1. Install via winget (recommended)
@@ -113,9 +113,9 @@ if not defined PYTHON_OK (
 :skip_python
 
 if not defined NODE_OK (
-    echo ════════════════════════════════════════
+    echo ========================================
     echo  Node.js is required but not installed
-    echo ════════════════════════════════════════
+    echo ========================================
     echo.
     echo Options:
     echo   1. Install via winget (recommended)
@@ -304,9 +304,9 @@ if not defined RESTART_MODE (
 :: Display Status
 :: ============================================
 echo.
-echo ╔════════════════════════════════════════╗
-echo ║       Lab Assistant is Running!        ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo      Lab Assistant is Running!
+echo ========================================
 echo.
 echo  Local Access:
 echo    Frontend: http://localhost:3000
@@ -332,10 +332,10 @@ if defined TUNNEL_STARTED (
     echo  Tip: Run with --tunnel to enable remote access
 )
 echo.
-echo ────────────────────────────────────────
+echo ----------------------------------------
 echo  Press any key to close this window
 echo  (Services will keep running)
-echo ────────────────────────────────────────
+echo ----------------------------------------
 pause >nul
 goto :eof
 

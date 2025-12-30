@@ -2,9 +2,9 @@
 setlocal enabledelayedexpansion
 title Lab Assistant - Autostart Setup
 echo.
-echo ╔════════════════════════════════════════╗
-echo ║    Lab Assistant - Autostart Setup     ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo    Lab Assistant - Autostart Setup
+echo ========================================
 echo.
 
 set "SCRIPT_DIR=%~dp0"
@@ -79,9 +79,9 @@ if exist "%STARTUP_SHORTCUT%" (
 
 :done
 echo.
-echo ════════════════════════════════════════
+echo ========================================
 echo  Manual Configuration
-echo ════════════════════════════════════════
+echo ========================================
 echo.
 echo You can also manage startup apps manually:
 echo.
