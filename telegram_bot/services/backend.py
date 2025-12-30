@@ -4,7 +4,9 @@ import os
 import json
 import base64
 import logging
-from typing import List, Tuple, Optional, AsyncGenerator, Callable
+import asyncio
+import inspect
+from typing import List, Tuple, Optional, AsyncGenerator, Callable, Union, Awaitable
 from dataclasses import dataclass
 
 import httpx
@@ -189,7 +191,7 @@ class BackendService:
         chat_id: str,
         message: str,
         images: List[bytes] = None,
-        on_tool_call: Callable[[str], None] = None,
+        on_tool_call: Callable[[str], Union[None, Awaitable[None]]] = None,
     ) -> Tuple[str, List[str]]:
         """Send message via Frontend API and get response.
 
@@ -197,7 +199,7 @@ class BackendService:
             chat_id: Chat/thread ID
             message: User message text
             images: List of image bytes (JPEG/PNG)
-            on_tool_call: Callback for tool call notifications
+            on_tool_call: Callback for tool call notifications (can be sync or async)
 
         Returns:
             Tuple of (response_text, tools_used)
@@ -215,7 +217,21 @@ class BackendService:
         tools_used = []
         response_text = ""
 
+        async def notify_tool(tool_name: str):
+            """Notify about tool call, handling both sync and async callbacks."""
+            if on_tool_call:
+                display_name = get_tool_display_name(tool_name)
+                logger.info(f"Tool call detected: {tool_name} -> {display_name}")
+                try:
+                    result = on_tool_call(display_name)
+                    # If the callback is async, await it
+                    if inspect.iscoroutine(result):
+                        await result
+                except Exception as e:
+                    logger.warning(f"Error in tool callback: {e}")
+
         try:
+            logger.info(f"Sending message to chat {chat_id[:8]}...")
             async with aconnect_sse(
                 self.client,
                 "POST",
@@ -225,6 +241,7 @@ class BackendService:
             ) as event_source:
                 async for sse in event_source.aiter_sse():
                     if sse.data == "[DONE]":
+                        logger.info("Stream completed")
                         break
 
                     try:
@@ -239,9 +256,7 @@ class BackendService:
                             tool_name = event.get("toolName", "")
                             if tool_name and tool_name not in tools_used:
                                 tools_used.append(tool_name)
-                                if on_tool_call:
-                                    display_name = get_tool_display_name(tool_name)
-                                    on_tool_call(display_name)
+                                await notify_tool(tool_name)
 
                         # Handle OpenAI format (fallback)
                         elif "choices" in event:
@@ -258,12 +273,12 @@ class BackendService:
                                     tool_name = tc.get("function", {}).get("name", "")
                                     if tool_name and tool_name not in tools_used:
                                         tools_used.append(tool_name)
-                                        if on_tool_call:
-                                            display_name = get_tool_display_name(tool_name)
-                                            on_tool_call(display_name)
+                                        await notify_tool(tool_name)
 
                     except json.JSONDecodeError:
                         continue
+
+            logger.info(f"Message complete. Tools used: {tools_used}")
 
         except httpx.TimeoutException:
             return "Error: Tiempo de espera agotado. El servidor tardó demasiado.", tools_used
