@@ -890,7 +890,7 @@ async def _edit_order_exams_impl(
 
 
 async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
-    """Create a new order with exams. Optimized for fast batch adding."""
+    """Create a new order with exams. Adds exams FIRST, then cedula to avoid popup blocking."""
     is_cotizacion = not cedula or cedula.strip() == ""
     logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams: {exams}")
 
@@ -900,14 +900,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     # Wait for page to load and exams table to be ready
     await page.wait_for_load_state('networkidle', timeout=10000)
 
-    if not is_cotizacion:
-        cedula_input = page.locator('#identificacion')
-        await cedula_input.fill(cedula)
-        await page.keyboard.press("Enter")
-        await page.wait_for_timeout(1500)
-
-    # Click exams in the order AI requested
-    # Re-extract button map after each click to handle row index shifting
+    # FIRST: Add all exams (before cedula to avoid "new patient" popup blocking buttons)
     added_codes = []
     failed_exams = []
 
@@ -938,7 +931,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     # Wait a bit for all additions to settle
     await page.wait_for_timeout(500)
 
-    # Get the final list of added exams
+    # Get the final list of added exams and totals
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
     totals = await page.evaluate(r"""
@@ -954,15 +947,51 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     logger.info(f"[create_order] Added {len(added_codes)}/{len(exams)} exams{f', {len(failed_exams)} failed' if failed_exams else ''}")
 
-    return {
+    # THEN: Add cedula (after exams are added)
+    new_patient_detected = False
+    if not is_cotizacion:
+        cedula_input = page.locator('#identificacion')
+        await cedula_input.fill(cedula)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1500)
+
+        # Check if "Crear paciente" popup appeared (new patient)
+        new_patient_modal = page.locator('#gestionar-paciente-modal')
+        if await new_patient_modal.count() > 0:
+            # Check if modal is visible (has "show" class and display: block)
+            is_visible = await new_patient_modal.evaluate("""
+                el => el.classList.contains('show') && getComputedStyle(el).display !== 'none'
+            """)
+            if is_visible:
+                new_patient_detected = True
+                logger.info(f"[create_order] New patient popup detected for cedula {cedula}")
+
+                # Close the modal
+                close_btn = page.locator('#gestionar-paciente-modal button[data-bs-dismiss="modal"]').first
+                if await close_btn.count() > 0:
+                    await close_btn.click()
+                    await page.wait_for_timeout(500)
+
+    result = {
         "cedula": cedula if not is_cotizacion else None,
         "is_cotizacion": is_cotizacion,
         "exams_added": [{"codigo": e.get('codigo'), "nombre": e.get('nombre'), "precio": e.get('valor')} for e in added_exams],
         "exams_failed": failed_exams,
         "totals": totals,
-        "status": "pending_save",
-        "next_step": "Revisa los exámenes y haz click en 'Guardar' para confirmar." if not is_cotizacion else "Esta es solo una cotización."
     }
+
+    if new_patient_detected:
+        result["status"] = "new_patient_required"
+        result["new_patient"] = True
+        result["next_step"] = f"El paciente con cédula {cedula} no existe en el sistema. Debes crear el paciente primero antes de guardar la orden. Los exámenes ya están agregados con un total de {totals.get('total', 'N/A')}."
+    elif is_cotizacion:
+        result["status"] = "cotizacion"
+        result["next_step"] = "Esta es solo una cotización (sin paciente)."
+    else:
+        result["status"] = "pending_save"
+        result["next_step"] = "Revisa los exámenes y haz click en 'Guardar' para confirmar."
+
+    return result
 
 
 async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
