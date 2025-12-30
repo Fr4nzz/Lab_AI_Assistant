@@ -239,6 +239,11 @@ def _is_daily_rate_limit(error_str: str) -> bool:
     return False
 
 
+class AllKeysExhaustedError(Exception):
+    """Raised when all API keys have hit their daily rate limit."""
+    pass
+
+
 class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     """
     Wrapper around ChatGoogleGenerativeAI that rotates API keys on rate limits.
@@ -267,8 +272,12 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         self._skip_to_available_key()
         self._configure_model()
 
-    def _skip_to_available_key(self):
-        """Skip to the first key that's not daily-exhausted."""
+    def _skip_to_available_key(self, raise_if_all_exhausted: bool = False):
+        """Skip to the first key that's not daily-exhausted.
+
+        Args:
+            raise_if_all_exhausted: If True, raises AllKeysExhaustedError when all keys are exhausted.
+        """
         global _shared_key_index, _daily_exhausted_keys
         original_index = _shared_key_index
         tried = 0
@@ -280,6 +289,11 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         if tried == len(self.api_keys):
             logger.warning(f"[Model] All {len(self.api_keys)} keys daily-exhausted for {self.model_name}")
             _shared_key_index = original_index  # Reset to original
+            if raise_if_all_exhausted:
+                raise AllKeysExhaustedError(
+                    f"All {len(self.api_keys)} API keys have reached their daily rate limit for {self.model_name}. "
+                    f"Please try a different model or wait until tomorrow."
+                )
 
     def _configure_model(self):
         """Creates a new model with the current API key. Re-binds tools if previously bound."""
@@ -350,6 +364,15 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_str.lower())
         return float(match.group(1)) if match else 5.0
 
+    def _check_all_keys_exhausted(self):
+        """Check if all keys are exhausted and raise error if so."""
+        global _daily_exhausted_keys
+        if len(_daily_exhausted_keys) >= len(self.api_keys):
+            raise AllKeysExhaustedError(
+                f"Todas las {len(self.api_keys)} API keys han alcanzado su límite diario para {self.model_name}. "
+                f"Por favor cambia de modelo o intenta mañana."
+            )
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -359,6 +382,10 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     ) -> ChatResult:
         """Generate with automatic key rotation on rate limits."""
         global _shared_last_request_time
+
+        # Check upfront if all keys are already exhausted
+        self._check_all_keys_exhausted()
+
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -381,6 +408,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     result = self._current_model.invoke(messages, stop=stop, **kwargs)
                     return ChatResult(generations=[ChatGeneration(message=result)])
 
+            except AllKeysExhaustedError:
+                raise  # Re-raise immediately, don't retry
             except Exception as e:
                 last_error = e
                 error_str = str(e)
@@ -390,7 +419,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     if is_daily:
                         logger.warning(f"[Model] DAILY rate limit on Key #{_shared_key_index + 1}, marking exhausted")
                         self._switch_key(mark_exhausted=True)
-                        # No wait for daily - just switch immediately
+                        # Check if all keys are now exhausted
+                        self._check_all_keys_exhausted()
                     else:
                         # Per-minute limit - switch and wait briefly
                         logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")
@@ -410,6 +440,10 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     ) -> ChatResult:
         """Async generate with automatic key rotation on rate limits."""
         global _shared_last_request_time
+
+        # Check upfront if all keys are already exhausted
+        self._check_all_keys_exhausted()
+
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -432,6 +466,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     result = await self._current_model.ainvoke(messages, stop=stop, **kwargs)
                     return ChatResult(generations=[ChatGeneration(message=result)])
 
+            except AllKeysExhaustedError:
+                raise  # Re-raise immediately, don't retry
             except Exception as e:
                 last_error = e
                 error_str = str(e)
@@ -441,7 +477,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                     if is_daily:
                         logger.warning(f"[Model] DAILY rate limit on Key #{_shared_key_index + 1}, marking exhausted")
                         self._switch_key(mark_exhausted=True)
-                        # No wait for daily - just switch immediately
+                        # Check if all keys are now exhausted
+                        self._check_all_keys_exhausted()
                     else:
                         # Per-minute limit - switch and wait briefly
                         logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")

@@ -95,3 +95,30 @@ def build_confirm_keyboard() -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+# Available models (must match backend AVAILABLE_MODELS)
+AVAILABLE_MODELS = {
+    "gemini-3-flash-preview": "🧠 Gemini 3 Flash (razonamiento)",
+    "gemini-flash-latest": "⚡ Gemini 2.5 Flash (rápido)",
+}
+DEFAULT_MODEL = "gemini-3-flash-preview"
+
+
+def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
+    """Build keyboard for selecting AI model.
+
+    Args:
+        current_model: Currently selected model ID
+    """
+    keyboard = []
+    for model_id, display_name in AVAILABLE_MODELS.items():
+        # Add checkmark for current model
+        if model_id == current_model:
+            text = f"✓ {display_name}"
+        else:
+            text = f"   {display_name}"
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"model:{model_id}")
+        ])
+    return InlineKeyboardMarkup(keyboard)

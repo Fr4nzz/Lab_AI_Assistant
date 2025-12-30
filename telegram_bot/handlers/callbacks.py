@@ -9,6 +9,9 @@ from ..keyboards import (
     build_post_response_keyboard,
     build_chat_selection_keyboard,
     build_photo_options_keyboard,
+    build_model_selection_keyboard,
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
 )
 from ..services import BackendService
 from ..utils import build_chat_url
@@ -51,6 +54,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("sel:"):
         await handle_chat_selection(query, context, data[4:])
+
+    elif data.startswith("model:"):
+        await handle_model_selection(query, context, data[6:])
 
 
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -113,11 +119,15 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
             except Exception:
                 pass
 
+        # Get selected model (default to gemini-3-flash-preview)
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
         response_text, tools = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
-            on_tool_call=on_tool
+            on_tool_call=on_tool,
+            model=model
         )
 
         # Send response
@@ -188,11 +198,15 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
             except Exception:
                 pass
 
+        # Get selected model (default to gemini-3-flash-preview)
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
         response_text, tools = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
-            on_tool_call=on_tool
+            on_tool_call=on_tool,
+            model=model
         )
 
         # Send response
@@ -266,6 +280,24 @@ async def handle_chat_selection(query, context: ContextTypes.DEFAULT_TYPE, short
         )
     finally:
         await backend.close()
+
+
+async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, model_id: str) -> None:
+    """Handle model selection from /model command."""
+    if model_id not in AVAILABLE_MODELS:
+        await query.edit_message_text(f"❌ Modelo no válido: {model_id}")
+        return
+
+    # Save selected model
+    context.user_data["model"] = model_id
+    model_name = AVAILABLE_MODELS[model_id]
+
+    await query.edit_message_text(
+        f"✅ Modelo cambiado a: {model_name}\n\n"
+        "_Este modelo se usará para las próximas conversaciones._",
+        parse_mode="Markdown"
+    )
+    logger.info(f"User selected model: {model_id}")
 
 
 async def send_response(query, response_text: str, chat_id: str, tools: list) -> None:
