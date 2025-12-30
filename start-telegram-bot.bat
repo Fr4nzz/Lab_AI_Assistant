@@ -60,7 +60,7 @@ if %errorlevel% neq 0 (
 echo.
 echo Starting Telegram bot...
 echo.
-echo Make sure the backend is running (start-dev.bat)
+echo Make sure the backend is running (Lab_Assistant.bat)
 echo.
 
 :: Run the bot
