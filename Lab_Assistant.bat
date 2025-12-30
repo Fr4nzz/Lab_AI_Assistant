@@ -74,9 +74,9 @@ if not defined PYTHON_OK (
     echo ========================================
     echo.
     echo Options:
-    echo   1. Install via winget (recommended)
+    echo   1. Install via winget - recommended
     echo   2. Open Python download page
-    echo   3. Skip (I'll install manually)
+    echo   3. Skip - I will install manually
     echo.
     choice /c 123 /n /m "Choose option [1-3]: "
     if errorlevel 3 goto :skip_python
@@ -92,7 +92,7 @@ if not defined PYTHON_OK (
         echo.
         echo Installing Python via winget...
         winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-        if %errorlevel% equ 0 (
+        if !errorlevel! equ 0 (
             echo.
             echo [OK] Python installed successfully!
             echo.
@@ -118,9 +118,9 @@ if not defined NODE_OK (
     echo ========================================
     echo.
     echo Options:
-    echo   1. Install via winget (recommended)
+    echo   1. Install via winget - recommended
     echo   2. Open Node.js download page
-    echo   3. Skip (I'll install manually)
+    echo   3. Skip - I will install manually
     echo.
     choice /c 123 /n /m "Choose option [1-3]: "
     if errorlevel 3 goto :skip_node
@@ -136,7 +136,7 @@ if not defined NODE_OK (
         echo.
         echo Installing Node.js via winget...
         winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-        if %errorlevel% equ 0 (
+        if !errorlevel! equ 0 (
             echo.
             echo [OK] Node.js installed successfully!
             echo.
