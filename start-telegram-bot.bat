@@ -48,8 +48,13 @@ if %errorlevel% neq 0 (
 echo Checking dependencies...
 pip show python-telegram-bot >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Installing python-telegram-bot...
-    pip install "python-telegram-bot[job-queue]" httpx python-dotenv
+    echo Installing telegram bot dependencies...
+    pip install -r "%SCRIPT_DIR%telegram_bot\requirements.txt"
+)
+pip show httpx-sse >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Installing httpx-sse...
+    pip install httpx-sse
 )
 
 echo.
