@@ -1,5 +1,7 @@
 # Coding Plan: Image Rotation Tool with Visual Feedback
 
+> **Status: IMPLEMENTED**
+
 ## Overview
 
 This document describes the implementation of an image rotation pre-processing feature that:
@@ -9,6 +11,17 @@ This document describes the implementation of an image rotation pre-processing f
 4. Replaces original images with rotated versions before sending to Gemini
 
 Also includes: Remove nuxt devtools.
+
+## Files Changed
+
+| File | Status | Description |
+|------|--------|-------------|
+| `nuxt.config.ts` | DONE | Set `devtools.enabled: false` |
+| `server/utils/streamAdapter.ts` | DONE | Nuxt stream adapter for AI SDK protocol |
+| `server/utils/imageRotation.ts` | DONE | Server-side rotation detection utility |
+| `server/api/chats/[id].post.ts` | DONE | Add rotation tool emission before backend proxy |
+| `app/components/tool/LabTool.vue` | DONE | Add image-rotation tool info |
+| `app/composables/useFileUpload.ts` | DONE | Track rotation pending state |
 
 ---
 
