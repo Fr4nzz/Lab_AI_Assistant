@@ -24,21 +24,17 @@ goto :parse_args
 :: Kill existing processes on ports 8000, 3000, and 24678 (for restart/update scenarios)
 echo Checking for existing processes...
 
-:: Kill existing terminal windows by title using taskkill (more reliable than PowerShell)
-:: The /F flag forces termination, /FI filters by window title
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F >nul 2>&1
+:: Kill existing terminal windows by title using PowerShell (most reliable method)
+:: This finds cmd.exe windows with "Lab Assistant" in title and closes them
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' } | ForEach-Object { $_.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 100; if (!$_.HasExited) { $_.Kill() } }" 2>nul
 
-:: Also try PowerShell method as fallback (catches processes where title changed)
-powershell -NoProfile -Command "Get-Process cmd -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-
-:: Kill by port as final fallback
+:: Also kill any Python/Node processes on our ports
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
 :: Delay to ensure windows close and ports are released
-timeout /t 3 /nobreak >nul
+timeout /t 2 /nobreak >nul
 
 :: Get network IPs with adapter type labels (Wi-Fi and Ethernet only)
 set "NETWORK_IPS="
