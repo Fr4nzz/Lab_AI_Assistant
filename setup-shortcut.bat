@@ -32,15 +32,7 @@ if errorlevel 2 goto :skip_desktop
 echo.
 echo Creating desktop shortcut...
 
-powershell -NoProfile -Command ^
-    "$ws = New-Object -ComObject WScript.Shell; ^
-    $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); ^
-    $shortcut.TargetPath = 'cmd.exe'; ^
-    $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; ^
-    $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; ^
-    $shortcut.Description = 'Start Lab Assistant'; ^
-    $shortcut.IconLocation = 'shell32.dll,21'; ^
-    $shortcut.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant'; $shortcut.IconLocation = 'shell32.dll,21'; $shortcut.Save()"
 
 if %errorlevel% equ 0 (
     echo [OK] Desktop shortcut created!
