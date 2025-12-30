@@ -78,6 +78,59 @@ function formatValue(value: unknown): string {
   }
   return String(value)
 }
+
+// Format image-rotation result for display
+interface RotationResultItem {
+  name: string
+  rotation: number
+  applied: boolean
+}
+
+interface ImageRotationResult {
+  processed?: number
+  rotated?: number
+  detected?: number
+  results?: RotationResultItem[]
+}
+
+function formatRotationResult(result: ImageRotationResult): string {
+  if (!result.results || result.results.length === 0) {
+    return 'Sin imágenes procesadas'
+  }
+
+  const descriptions = result.results.map(r => {
+    if (r.rotation === 0) {
+      return `${r.name}: sin rotación necesaria`
+    }
+    const status = r.applied ? 'corregida' : 'detectada'
+    return `${r.name}: ${r.rotation}° (${status})`
+  })
+
+  return descriptions.join('; ')
+}
+
+// Format any tool result for display
+function formatResult(toolName: string, result: unknown): string {
+  if (typeof result === 'string') {
+    return result.length > 100 ? result.slice(0, 100) + '...' : result
+  }
+
+  if (toolName === 'image-rotation' && typeof result === 'object' && result !== null) {
+    return formatRotationResult(result as ImageRotationResult)
+  }
+
+  // For other object results, show a summary
+  if (typeof result === 'object' && result !== null) {
+    const obj = result as Record<string, unknown>
+    // Try to extract meaningful info
+    if ('count' in obj) return `${obj.count} resultados`
+    if ('total' in obj) return `Total: ${obj.total}`
+    if ('message' in obj) return String(obj.message)
+    return 'Ver respuesta del asistente'
+  }
+
+  return String(result)
+}
 </script>
 
 <template>
@@ -119,10 +172,7 @@ function formatValue(value: unknown): string {
       <!-- Show result summary if completed -->
       <div v-if="isCompleted && result" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
         <span class="font-medium">Resultado:</span>
-        <span class="ml-1">
-          {{ typeof result === 'string' ? result.slice(0, 100) : 'Ver respuesta del asistente' }}
-          {{ typeof result === 'string' && result.length > 100 ? '...' : '' }}
-        </span>
+        <span class="ml-1">{{ formatResult(name, result) }}</span>
       </div>
     </div>
   </div>

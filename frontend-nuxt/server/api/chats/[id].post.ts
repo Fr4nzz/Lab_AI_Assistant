@@ -344,12 +344,15 @@ async function createRotationAwareStream(
         // 5. Emit file parts for rotated images (thumbnails in chat)
         for (let i = 0; i < results.length; i++) {
           const result = results[i]
+          // Show thumbnail when rotation was applied (image is now corrected)
           if (result && result.applied && result.originalRotation !== 0) {
             const processedImage = processedImages[i]
             if (processedImage && processedImage.url) {
+              const filename = processedImage.name || `rotated-image-${i + 1}.jpg`
               controller.enqueue(encoder.encode(adapter.filePart(
                 processedImage.url,
-                processedImage.mediaType
+                processedImage.mediaType,
+                filename
               )))
               collector.addFile(processedImage.url, processedImage.mediaType)
             }

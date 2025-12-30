@@ -22,7 +22,7 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
-  const { detectRotation, clearRotation, clearAllRotations } = useImageRotation()
+  const { detectRotation, clearRotation, clearAllRotations, waitForPendingRotations, hasPendingRotations } = useImageRotation()
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -178,6 +178,8 @@ export function useFileUploadWithStatus(_chatId: string) {
     uploadedFiles,
     addFiles: uploadFiles,
     removeFile,
-    clearFiles
+    clearFiles,
+    waitForPendingRotations,
+    hasPendingRotations
   }
 }

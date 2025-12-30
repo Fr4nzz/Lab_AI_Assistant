@@ -1,14 +1,26 @@
 /**
  * Server-side image rotation detection and processing utilities.
  *
- * Uses the existing /api/detect-rotation endpoint for rotation detection.
- * Rotation is applied using canvas on the client side (the rotated data
- * comes from the frontend when available).
+ * Uses OpenRouter vision models for rotation detection.
+ * Rotation is applied using sharp library on the server.
  */
 
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { getBestVisionModel } from './openrouter-vision-models'
+import sharp from 'sharp'
+
+/**
+ * Applies rotation to an image using sharp.
+ * Returns the rotated image as base64.
+ */
+async function applyRotation(base64Data: string, rotation: number): Promise<string> {
+  const buffer = Buffer.from(base64Data, 'base64')
+  const rotated = await sharp(buffer)
+    .rotate(rotation)
+    .toBuffer()
+  return rotated.toString('base64')
+}
 
 export interface ImagePart {
   type: 'file'
@@ -178,19 +190,35 @@ export async function processImagesForRotation(
         const { rotation, detected } = await detectImageRotation(image.data, image.mediaType)
 
         if (detected && rotation !== 0) {
-          // We detected rotation is needed, but we can't apply it server-side without sharp
-          // Report the detected rotation in results
-          console.log(`[imageRotation] Server detected ${rotation}deg for ${imageName} (cannot apply server-side)`)
-          results.push({
-            name: imageName,
-            originalRotation: rotation,
-            applied: false,
-            error: 'Server-side rotation not available - image sent as-is'
-          })
-          processedImages.push({
-            ...image,
-            rotation
-          })
+          // Apply rotation server-side using sharp
+          console.log(`[imageRotation] Server detected ${rotation}deg for ${imageName}, applying rotation...`)
+          try {
+            const rotatedData = await applyRotation(image.data, rotation)
+            console.log(`[imageRotation] Successfully rotated ${imageName} by ${rotation}deg`)
+            results.push({
+              name: imageName,
+              originalRotation: rotation,
+              applied: true
+            })
+            processedImages.push({
+              ...image,
+              rotation,
+              data: rotatedData,
+              url: `data:${image.mediaType};base64,${rotatedData}`
+            })
+          } catch (rotationError) {
+            console.error(`[imageRotation] Failed to apply rotation for ${imageName}:`, rotationError)
+            results.push({
+              name: imageName,
+              originalRotation: rotation,
+              applied: false,
+              error: `Rotation failed: ${String(rotationError)}`
+            })
+            processedImages.push({
+              ...image,
+              rotation
+            })
+          }
         } else {
           console.log(`[imageRotation] No rotation needed for ${imageName} (server verified)`)
           results.push({
