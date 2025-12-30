@@ -39,6 +39,15 @@ Bot creates new chat, sends image + "cotizar" prompt to AI
 Bot streams/sends AI response
          │
          ▼
+Bot shows tool calls as they happen (e.g., "🔧 Usando: get_page_content")
+         │
+         ▼
+Bot sends final AI response
+         │
+         ▼
+Bot sends chat URL: "🔗 Ver en web: https://example.trycloudflare.com/chat/abc123"
+         │
+         ▼
 ┌─────────────────────────────────────────────┐
 │  Bot shows post-response options:           │
 │                                             │
@@ -124,13 +133,225 @@ Lab_AI_Assistant/
 │   │   └── inline.py       # Inline keyboard builders
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── backend.py      # Backend API client
+│   │   ├── backend.py      # Backend API client (streaming + tools)
 │   │   └── media.py        # Media download/processing
 │   └── utils/
 │       ├── __init__.py
-│       └── states.py       # User state management
+│       ├── states.py       # User state management
+│       ├── urls.py         # Chat URL generation (Cloudflare/local IP)
+│       └── tools.py        # Tool name translations
 ├── start-telegram-bot.bat  # Windows launcher
 └── .env                    # Add TELEGRAM_BOT_TOKEN
+```
+
+---
+
+## Feature: Tool Call Streaming
+
+When the AI uses tools (like `get_page_content`, `click_element`, etc.), the bot should notify the user in real-time.
+
+### Tool Notification Flow
+
+```
+User sends message
+         │
+         ▼
+Bot: "⏳ Procesando..."
+         │
+         ▼
+Backend starts processing, uses tool
+         │
+         ▼
+Bot updates: "🔧 Usando: get_page_content"
+         │
+         ▼
+Backend uses another tool
+         │
+         ▼
+Bot updates: "🔧 Usando: click_element"
+         │
+         ▼
+Backend completes
+         │
+         ▼
+Bot sends final response + chat URL
+```
+
+### Implementation
+
+The backend streams tool calls via SSE (Server-Sent Events). Parse the stream for tool events:
+
+```python
+async def stream_with_tools(chat_id: int, message_id: int, backend_response):
+    """Stream AI response and show tool calls."""
+    current_text = ""
+    tools_used = []
+
+    async for line in backend_response.aiter_lines():
+        if not line.startswith("data: "):
+            continue
+
+        data = line[6:]  # Remove "data: " prefix
+        if data == "[DONE]":
+            break
+
+        try:
+            event = json.loads(data)
+
+            # Check for tool call
+            if event.get("type") == "tool_call":
+                tool_name = event.get("name", "unknown")
+                tools_used.append(tool_name)
+
+                # Update message with tool status
+                status = f"🔧 Usando: {tool_name}"
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"⏳ Procesando...\n\n{status}"
+                )
+
+            # Check for text content
+            elif event.get("type") == "content":
+                current_text += event.get("text", "")
+
+        except json.JSONDecodeError:
+            continue
+
+    return current_text, tools_used
+```
+
+### Tool Name Translations (User-Friendly)
+
+| Internal Tool Name | Display Name |
+|-------------------|--------------|
+| `get_page_content` | 📄 Leyendo página |
+| `click_element` | 👆 Haciendo clic |
+| `fill_input` | ✍️ Escribiendo |
+| `navigate` | 🌐 Navegando |
+| `get_screenshot` | 📸 Capturando pantalla |
+| `create_order` | 📋 Creando orden |
+| `search_patient` | 🔍 Buscando paciente |
+
+---
+
+## Feature: Chat URL Generation
+
+After the AI responds, send a clickable link to view the chat in the web UI.
+
+### URL Priority
+
+1. **Cloudflare Tunnel URL** (if running) - e.g., `https://xxx.trycloudflare.com`
+2. **Ethernet IP** (if connected) - e.g., `http://192.168.1.100:3000`
+3. **Wi-Fi IP** (fallback) - e.g., `http://192.168.1.101:3000`
+4. **Localhost** (last resort) - `http://localhost:3000`
+
+### Implementation
+
+```python
+import socket
+import subprocess
+import os
+
+def get_base_url() -> str:
+    """Get the best available base URL for the web UI."""
+
+    # 1. Check for Cloudflare tunnel URL (stored when tunnel starts)
+    cloudflare_url = os.environ.get("CLOUDFLARE_TUNNEL_URL")
+    if cloudflare_url:
+        return cloudflare_url.rstrip("/")
+
+    # 2. Try to get local network IP (prefer Ethernet over Wi-Fi)
+    local_ip = get_local_ip()
+    if local_ip:
+        return f"http://{local_ip}:3000"
+
+    # 3. Fallback to localhost
+    return "http://localhost:3000"
+
+
+def get_local_ip() -> str | None:
+    """Get local IP address, preferring Ethernet over Wi-Fi."""
+    try:
+        # Use PowerShell to get IPs like start-dev.bat does
+        ps_command = """
+        $ips = Get-NetIPAddress -AddressFamily IPv4 |
+            Where-Object {
+                $_.AddressState -eq 'Preferred' -and
+                $_.IPAddress -notlike '127.*' -and
+                $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN|Ethernet' -and
+                $_.InterfaceAlias -notmatch 'VMware|VirtualBox|vEthernet|Hyper-V|WSL'
+            }
+
+        # Prefer Ethernet
+        $ethernet = $ips | Where-Object { $_.InterfaceAlias -match 'Ethernet' } | Select-Object -First 1
+        if ($ethernet) {
+            Write-Host $ethernet.IPAddress
+        } else {
+            $wifi = $ips | Where-Object { $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN' } | Select-Object -First 1
+            if ($wifi) {
+                Write-Host $wifi.IPAddress
+            }
+        }
+        """
+
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_command],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        ip = result.stdout.strip()
+        if ip and not ip.startswith("127."):
+            return ip
+
+    except Exception:
+        pass
+
+    # Fallback: try socket method
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+
+    return None
+
+
+def build_chat_url(chat_id: str) -> str:
+    """Build full URL to a specific chat."""
+    base_url = get_base_url()
+    return f"{base_url}/chat/{chat_id}"
+```
+
+### Cloudflare Tunnel URL Detection
+
+When `cloudflare-quick-tunnel.bat` runs, it outputs the URL. We can:
+
+**Option A: Environment variable** (recommended)
+- Modify tunnel script to write URL to a file or env var
+- Bot reads from `CLOUDFLARE_TUNNEL_URL` env var
+
+**Option B: Read from tunnel output file**
+- Tunnel script writes URL to `data/tunnel_url.txt`
+- Bot reads this file
+
+### Message Format
+
+After AI response:
+
+```
+[AI response text here]
+
+🔗 Ver conversación en web:
+https://xxx.trycloudflare.com/chat/abc123-def456
+
+💬 Seguir conversación | ➕ Nuevo chat | 📂 Seleccionar
 ```
 
 ---
@@ -449,11 +670,19 @@ post:select      → Show chat selection
 Add to `.env`:
 
 ```bash
-# Telegram Bot
+# =============================================================================
+# TELEGRAM BOT CONFIGURATION
+# =============================================================================
+
+# Telegram Bot Token (get from @BotFather)
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 
-# Optional: Restrict to specific Telegram user IDs
+# Optional: Restrict to specific Telegram user IDs (comma-separated)
 TELEGRAM_ALLOWED_USERS=123456789,987654321
+
+# Optional: Cloudflare Tunnel URL (auto-set by tunnel script, or set manually)
+# Used for generating chat URLs in Telegram messages
+CLOUDFLARE_TUNNEL_URL=
 ```
 
 ---
