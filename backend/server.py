@@ -140,10 +140,17 @@ class ChatResponse(BaseModel):
 # ============================================================
 
 browser: Optional[BrowserManager] = None
-graph = None
+graphs: dict = {}  # Dictionary of graphs, keyed by model name
 checkpointer = None
 initial_orders_context: str = ""  # Store initial orders for context
 orders_context_sent: bool = False  # Track if we've sent valid orders context
+
+# Available models (must match frontend MODEL_CONFIGS)
+AVAILABLE_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-flash-latest",
+]
+DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
 # ============================================================
@@ -431,11 +438,15 @@ async def lifespan(app: FastAPI):
     # For production, use AsyncSqliteSaver or PostgresSaver
     checkpointer = MemorySaver()
 
-    # Build and compile graph
-    builder = create_lab_agent(browser)
-    graph = compile_agent(builder, checkpointer)
+    # Build and compile a graph for each available model
+    for model_name in AVAILABLE_MODELS:
+        logger.info(f"[Startup] Creating graph for model: {model_name}")
+        builder = create_lab_agent(browser, model_name=model_name)
+        graphs[model_name] = compile_agent(builder, checkpointer)
+        logger.info(f"[Startup] Graph for {model_name} ready")
 
     print(f"Lab Assistant ready! Browser at: {browser.page.url}")
+    print(f"Available models: {', '.join(AVAILABLE_MODELS)}")
 
     yield
 
@@ -475,7 +486,8 @@ async def health_check():
     return {
         "status": "ok",
         "browser_url": browser.page.url if browser and browser.page else None,
-        "graph_ready": graph is not None
+        "graphs_ready": list(graphs.keys()),
+        "default_model": DEFAULT_MODEL
     }
 
 
@@ -537,6 +549,11 @@ async def chat(
         human_msg = HumanMessage(content=content)
 
     try:
+        # Use default model graph (this endpoint doesn't accept model parameter)
+        graph = graphs.get(DEFAULT_MODEL)
+        if not graph:
+            raise ValueError(f"Default graph '{DEFAULT_MODEL}' not found")
+
         # Invoke graph - it will loop internally until done
         result = await graph.ainvoke(
             {"messages": [human_msg]},
@@ -584,6 +601,9 @@ async def chat_stream(request: ChatRequest):
     thread_id = request.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
+    # Use default model graph (this endpoint doesn't accept model parameter)
+    graph = graphs.get(DEFAULT_MODEL)
+
     async def generate():
         try:
             async for event in graph.astream_events(
@@ -628,6 +648,9 @@ async def get_history(thread_id: str):
     Returns list of messages with role and content.
     """
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Use default graph for state retrieval (all graphs share the same checkpointer)
+    graph = graphs.get(DEFAULT_MODEL)
 
     try:
         state = await graph.aget_state(config)
@@ -790,6 +813,14 @@ async def chat_aisdk(request: AISdkChatRequest):
 
     thread_id = request.chatId or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Select the appropriate graph based on requested model
+    model_name = request.model or DEFAULT_MODEL
+    if model_name not in graphs:
+        logger.warning(f"[AI SDK] Unknown model '{model_name}', using default: {DEFAULT_MODEL}")
+        model_name = DEFAULT_MODEL
+    graph = graphs[model_name]
+    logger.info(f"[AI SDK] Using model: {model_name}")
 
     # Convert messages to LangChain format
     conversation_messages = []
@@ -1106,6 +1137,12 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
 
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Select the appropriate graph based on requested model
+    # The request.model from OpenAI format may differ from our internal model names
+    model_name = request.model if request.model in graphs else DEFAULT_MODEL
+    graph = graphs[model_name]
+    logger.info(f"[OpenAI] Using model: {model_name}")
 
     # Convert OpenAI-format messages to LangGraph messages
     # This preserves full conversation history from the frontend
