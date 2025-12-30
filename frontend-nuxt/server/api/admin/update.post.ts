@@ -1,25 +1,8 @@
-import { exec, execSync, spawn } from 'child_process'
-import { isAdminEmail } from '../../utils/adminConfig'
+import { execSync, spawn } from 'child_process'
+import { requireAdmin } from '../../utils/adminAuth'
 
 export default defineEventHandler(async (event) => {
-  // Check if user is logged in
-  const session = await getUserSession(event)
-  const userEmail = session?.user?.email
-
-  if (!userEmail) {
-    throw createError({
-      statusCode: 401,
-      message: 'Not authenticated'
-    })
-  }
-
-  // Check if user is admin
-  if (!isAdminEmail(userEmail)) {
-    throw createError({
-      statusCode: 403,
-      message: 'Admin access required'
-    })
-  }
+  await requireAdmin(event)
 
   try {
     // Get the project root directory (parent of frontend-nuxt)

@@ -1,24 +1,8 @@
-import { addAllowedEmail, isAdminEmail, getAllowedEmails } from '../../utils/adminConfig'
+import { addAllowedEmail, getAllowedEmails } from '../../utils/adminConfig'
+import { requireAdmin } from '../../utils/adminAuth'
 
 export default defineEventHandler(async (event) => {
-  // Check if user is logged in
-  const session = await getUserSession(event)
-  const userEmail = session?.user?.email
-
-  if (!userEmail) {
-    throw createError({
-      statusCode: 401,
-      message: 'Not authenticated'
-    })
-  }
-
-  // Check if user is admin
-  if (!isAdminEmail(userEmail)) {
-    throw createError({
-      statusCode: 403,
-      message: 'Admin access required'
-    })
-  }
+  await requireAdmin(event)
 
   // Get email from body
   const body = await readBody(event)
