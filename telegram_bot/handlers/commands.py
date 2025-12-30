@@ -4,7 +4,12 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from ..keyboards import build_chat_selection_keyboard
+from ..keyboards import (
+    build_chat_selection_keyboard,
+    build_model_selection_keyboard,
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+)
 from ..services import BackendService
 
 logger = logging.getLogger(__name__)
@@ -13,6 +18,11 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
+
+    # Set default model if not set
+    if "model" not in context.user_data:
+        context.user_data["model"] = DEFAULT_MODEL
+
     await update.message.reply_text(
         f"¡Hola {user.first_name}! 👋\n\n"
         "Soy el bot de Lab Assistant. Puedo ayudarte a:\n\n"
@@ -23,6 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📝 **Comandos disponibles:**\n"
         "   /chats - Ver chats recientes\n"
         "   /new - Crear nuevo chat\n"
+        "   /model - Cambiar modelo de IA\n"
         "   /help - Mostrar ayuda\n"
         "   /cancel - Cancelar operación actual\n\n"
         "¡Envía una foto para comenzar!",
@@ -32,6 +43,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
+    current_model = context.user_data.get("model", DEFAULT_MODEL)
+    model_name = AVAILABLE_MODELS.get(current_model, current_model)
+
     await update.message.reply_text(
         "📚 **Ayuda de Lab Assistant Bot**\n\n"
         "**Cómo usar:**\n"
@@ -45,8 +59,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/start - Iniciar bot\n"
         "/chats - Ver chats recientes\n"
         "/new - Crear nuevo chat\n"
+        "/model - Cambiar modelo de IA\n"
         "/cancel - Cancelar operación\n"
         "/help - Esta ayuda\n\n"
+        f"**Modelo actual:** {model_name}\n\n"
         "**Notas:**\n"
         "• Puedes enviar varias fotos a la vez (álbum)\n"
         "• Al terminar, recibirás un enlace al chat web\n"
@@ -58,7 +74,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /chats command - show recent chats."""
     backend = BackendService()
-    chats = backend.get_recent_chats(limit=5)
+    try:
+        chats = await backend.get_recent_chats(limit=5)
+    finally:
+        await backend.close()
 
     if not chats:
         await update.message.reply_text(
@@ -96,4 +115,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "❌ Operación cancelada.\n\n"
         "Envía una foto o usa /help para ver opciones."
+    )
+
+
+async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /model command - show model selection."""
+    current_model = context.user_data.get("model", DEFAULT_MODEL)
+    current_name = AVAILABLE_MODELS.get(current_model, current_model)
+
+    keyboard = build_model_selection_keyboard(current_model)
+    await update.message.reply_text(
+        f"🤖 **Seleccionar modelo de IA**\n\n"
+        f"Modelo actual: {current_name}\n\n"
+        "Selecciona un modelo:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
     )

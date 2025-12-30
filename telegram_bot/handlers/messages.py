@@ -4,7 +4,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from ..keyboards import build_post_response_keyboard
+from ..keyboards import build_post_response_keyboard, DEFAULT_MODEL
 from ..services import BackendService
 from ..utils import build_chat_url
 
@@ -65,11 +65,15 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception:
                 pass  # Ignore edit errors
 
+        # Get selected model
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
         response_text, tools = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
-            on_tool_call=on_tool
+            on_tool_call=on_tool,
+            model=model
         )
 
         # Clear pending images
@@ -109,11 +113,15 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             except Exception:
                 pass
 
+        # Get selected model
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
         response_text, tools = await backend.send_message(
             chat_id=chat_id,
             message=text,
             images=None,
-            on_tool_call=on_tool
+            on_tool_call=on_tool,
+            model=model
         )
 
         # Send response
@@ -151,11 +159,15 @@ async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception:
                 pass
 
+        # Get selected model
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
         response_text, tools = await backend.send_message(
             chat_id=chat_id,
             message=text,
             images=None,
-            on_tool_call=on_tool
+            on_tool_call=on_tool,
+            model=model
         )
 
         # Send response

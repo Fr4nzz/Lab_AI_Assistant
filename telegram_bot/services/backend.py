@@ -192,6 +192,7 @@ class BackendService:
         message: str,
         images: List[bytes] = None,
         on_tool_call: Callable[[str], Union[None, Awaitable[None]]] = None,
+        model: str = None,
     ) -> Tuple[str, List[str]]:
         """Send message via Frontend API and get response.
 
@@ -200,6 +201,7 @@ class BackendService:
             message: User message text
             images: List of image bytes (JPEG/PNG)
             on_tool_call: Callback for tool call notifications (can be sync or async)
+            model: Optional model ID to use (e.g., "gemini-3-flash-preview")
 
         Returns:
             Tuple of (response_text, tools_used)
@@ -213,6 +215,10 @@ class BackendService:
         request_body = {
             "messages": [{"role": "user", "parts": parts}]
         }
+
+        # Add model if specified
+        if model:
+            request_body["model"] = model
 
         tools_used = []
         response_text = ""
