@@ -81,7 +81,7 @@ def main():
     if not phone and not args.no_notify:
         print("Error: No phone number provided.")
         print("Either:")
-        print("  1. Set WHATSAPP_NOTIFY_PHONE in frontend-nuxt/.env")
+        print("  1. Set WHATSAPP_NOTIFY_PHONE in .env")
         print("  2. Pass phone as argument: python cloudflare-quick-tunnel-notify.py +1234567890")
         print("  3. Use --no-notify to skip WhatsApp notification")
         sys.exit(1)

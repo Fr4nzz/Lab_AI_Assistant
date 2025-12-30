@@ -6,8 +6,8 @@ echo    Quick Tunnel + WhatsApp Notification
 echo ========================================
 echo.
 
-:: Load WHATSAPP_NOTIFY_PHONE from .env file if it exists
-set "ENV_FILE=%~dp0frontend-nuxt\.env"
+:: Load WHATSAPP_NOTIFY_PHONE from root .env file if it exists
+set "ENV_FILE=%~dp0.env"
 if exist "%ENV_FILE%" (
     for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
         if "%%a"=="WHATSAPP_NOTIFY_PHONE" set "WHATSAPP_NOTIFY_PHONE=%%b"
@@ -25,7 +25,7 @@ if not "%~1"=="" (
     echo No phone number configured.
     echo.
     echo Options:
-    echo   1. Set WHATSAPP_NOTIFY_PHONE in frontend-nuxt\.env
+    echo   1. Set WHATSAPP_NOTIFY_PHONE in .env
     echo   2. Run: cloudflare-quick-tunnel-notify.bat +1234567890
     echo.
 )

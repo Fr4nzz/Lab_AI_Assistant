@@ -133,11 +133,10 @@ While in "Testing" status, only manually-added test users can log in. To allow a
 ### 3.1 Create Environment File
 
 ```batch
-cd frontend-nuxt
 copy .env.example .env
 ```
 
-### 3.2 Configure `.env` File
+### 3.2 Configure `.env` File (in project root)
 
 ```bash
 # Session security (REQUIRED - generate a random 32+ character string)
@@ -256,7 +255,7 @@ Want to automatically receive the tunnel URL on WhatsApp when it starts?
 
 ### Configuration
 
-Add your phone number to `frontend-nuxt/.env`:
+Add your phone number to `.env` in the project root:
 ```bash
 WHATSAPP_NOTIFY_PHONE=+1234567890
 ```
