@@ -10,12 +10,14 @@ echo.
 :: Parse command line arguments
 set "START_TUNNEL="
 set "NO_TUNNEL="
+set "NO_TELEGRAM="
 set "RESTART_MODE="
 
 :parse_args
 if "%~1"=="" goto :done_args
 if /i "%~1"=="--tunnel" set "START_TUNNEL=1"
 if /i "%~1"=="--no-tunnel" set "NO_TUNNEL=1"
+if /i "%~1"=="--no-telegram" set "NO_TELEGRAM=1"
 if /i "%~1"=="--restart" set "RESTART_MODE=1"
 shift
 goto :parse_args
@@ -32,13 +34,18 @@ powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorActi
 :: Small delay to let processes terminate
 timeout /t 1 /nobreak >nul
 
-:: Now close the cmd windows that hosted them (they stay open because of /k flag)
-:: Use taskkill with window titles - this is more reliable than CloseMainWindow
+:: Close all Lab Assistant windows (Backend, Frontend, Telegram, Tunnel)
 taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F 2>nul
 taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
 
 :: Also try the PowerShell method as backup for any windows with "Lab Assistant" in title
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant Launcher' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+
+:: Kill any cloudflared processes (they don't have window titles we can match)
+taskkill /IM cloudflared.exe /F 2>nul
 
 :: Delay to ensure windows close and ports are released
 timeout /t 1 /nobreak >nul
@@ -105,6 +112,22 @@ if defined NEED_INSTALL (
     cd /d "%SCRIPT_DIR%"
 )
 
+:: Install telegram bot dependencies if token is configured
+if defined TELEGRAM_BOT_TOKEN (
+    if not defined NO_TELEGRAM (
+        echo Checking Telegram bot dependencies...
+        pip show python-telegram-bot >nul 2>&1
+        if %errorlevel% neq 0 (
+            echo Installing telegram bot dependencies...
+            pip install -r "%SCRIPT_DIR%telegram_bot\requirements.txt" -q
+        )
+        pip show httpx-sse >nul 2>&1
+        if %errorlevel% neq 0 (
+            pip install httpx-sse -q
+        )
+    )
+)
+
 echo.
 echo Starting Backend (Python FastAPI on port 8000)...
 start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
@@ -118,27 +141,26 @@ start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm 
 :: Wait for frontend to start
 timeout /t 5 /nobreak >nul
 
+:: Start Telegram bot if token is configured
+set "TELEGRAM_STARTED="
+if defined TELEGRAM_BOT_TOKEN (
+    if not defined NO_TELEGRAM (
+        echo Starting Telegram Bot...
+        start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
+        set "TELEGRAM_STARTED=1"
+    )
+)
+
+:: Start Cloudflare Tunnel if requested or if --tunnel flag is passed
+set "TUNNEL_STARTED="
+if defined START_TUNNEL (
+    call :start_cloudflare_tunnel
+)
+
 :: Auto-open browser to the chat UI (skip in restart mode)
 if not defined RESTART_MODE (
     echo Opening browser to http://localhost:3000...
     start "" "http://localhost:3000"
-)
-
-rem Handle Cloudflare Tunnel (simplified - use cloudflare-tunnel-run.bat for tunnel)
-set "TUNNEL_URL="
-set "TUNNEL_STARTED="
-
-if not defined NO_TUNNEL (
-    if not defined RESTART_MODE (
-        where cloudflared >nul 2>&1
-        if not errorlevel 1 (
-            if exist "%USERPROFILE%\.cloudflared\config.yml" (
-                echo.
-                echo [Info] Cloudflare Tunnel is configured.
-                echo        Run cloudflare-tunnel-run.bat to start the tunnel.
-            )
-        )
-    )
 )
 
 echo.
@@ -157,10 +179,26 @@ if "!NETWORK_IPS!"=="" (
     call :print_network_ips
 )
 
+echo.
+echo Services running:
+echo   - Backend (FastAPI)
+echo   - Frontend (Nuxt)
+if defined TELEGRAM_STARTED (
+    echo   - Telegram Bot
+)
+if defined TUNNEL_STARTED (
+    echo   - Cloudflare Tunnel
+) else (
+    if not defined NO_TUNNEL (
+        echo.
+        echo [Tip] Run with --tunnel flag to start Cloudflare Quick Tunnel
+        echo       or run cloudflare-quick-tunnel.bat separately
+    )
+)
 
 echo.
 echo Press any key to close this launcher...
-echo (The backend, frontend, and tunnel will keep running)
+echo (The backend, frontend, telegram bot, and tunnel will keep running)
 pause >nul
 goto :eof
 
@@ -174,4 +212,43 @@ for /f "tokens=1* delims=|" %%a in ("!TEMP_IPS!") do (
     set "TEMP_IPS=%%b"
 )
 if not "!TEMP_IPS!"=="" goto :print_ips_loop
+goto :eof
+
+:start_cloudflare_tunnel
+:: Check if cloudflared is installed
+set "CLOUDFLARED_CMD="
+where cloudflared >nul 2>&1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    goto :run_tunnel
+)
+
+:: Check common install locations
+if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+    goto :run_tunnel
+)
+
+:: Not found - try to install it
+echo cloudflared not found. Installing...
+winget install Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements >nul 2>&1
+
+:: Check again
+where cloudflared >nul 2>&1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    goto :run_tunnel
+)
+if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+    goto :run_tunnel
+)
+
+echo [Warning] Could not install cloudflared. Skipping tunnel.
+goto :eof
+
+:run_tunnel
+echo Starting Cloudflare Quick Tunnel...
+start "Lab Assistant - Tunnel" cmd /k "!CLOUDFLARED_CMD! tunnel --url http://localhost:3000"
+set "TUNNEL_STARTED=1"
 goto :eof
