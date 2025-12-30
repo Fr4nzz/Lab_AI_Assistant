@@ -19,6 +19,103 @@ defineRouteMeta({
   }
 })
 
+// Types for collecting message parts from stream
+interface ToolPart {
+  type: 'tool-invocation'
+  toolCallId: string
+  toolName: string
+  state: 'partial-call' | 'call' | 'result' | 'error'
+  args?: Record<string, unknown>
+  result?: unknown
+}
+
+interface FilePart {
+  type: 'file'
+  url: string
+  mediaType: string
+}
+
+interface TextPart {
+  type: 'text'
+  text: string
+}
+
+type MessagePart = TextPart | ToolPart | FilePart
+
+// Collector for parsing stream events into message parts
+class MessagePartsCollector {
+  private textContent = ''
+  private toolCalls = new Map<string, ToolPart>()
+  private fileParts: FilePart[] = []
+
+  addTextDelta(delta: string) {
+    this.textContent += delta
+  }
+
+  toolInputStart(toolCallId: string, toolName: string) {
+    this.toolCalls.set(toolCallId, {
+      type: 'tool-invocation',
+      toolCallId,
+      toolName,
+      state: 'partial-call'
+    })
+  }
+
+  toolInputAvailable(toolCallId: string, toolName: string, input: Record<string, unknown>) {
+    const existing = this.toolCalls.get(toolCallId)
+    if (existing) {
+      existing.state = 'call'
+      existing.args = input
+    } else {
+      this.toolCalls.set(toolCallId, {
+        type: 'tool-invocation',
+        toolCallId,
+        toolName,
+        state: 'call',
+        args: input
+      })
+    }
+  }
+
+  toolOutputAvailable(toolCallId: string, output: unknown) {
+    const existing = this.toolCalls.get(toolCallId)
+    if (existing) {
+      existing.state = 'result'
+      existing.result = output
+    }
+  }
+
+  addFile(url: string, mediaType: string) {
+    this.fileParts.push({ type: 'file', url, mediaType })
+  }
+
+  getTextContent(): string {
+    return this.textContent
+  }
+
+  // Build the parts array in correct order
+  buildParts(): MessagePart[] {
+    const parts: MessagePart[] = []
+
+    // Add tool parts first (they appear before text in the UI)
+    for (const tool of this.toolCalls.values()) {
+      parts.push(tool)
+    }
+
+    // Add file parts (rotated images shown after tools)
+    for (const file of this.fileParts) {
+      parts.push(file)
+    }
+
+    // Add text part last (main response)
+    if (this.textContent) {
+      parts.push({ type: 'text', text: this.textContent })
+    }
+
+    return parts
+  }
+}
+
 // Generate title for a chat using best practices for prompt engineering
 async function generateTitle(chatId: string, messageContent: string): Promise<void> {
   const config = useRuntimeConfig()
@@ -30,7 +127,6 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
   }
 
   try {
-    // Get best available free model for title generation
     const modelId = await getBestTitleModel()
     console.log('[API/chat] Generating title with:', modelId)
 
@@ -38,11 +134,6 @@ async function generateTitle(chatId: string, messageContent: string): Promise<vo
       apiKey: config.openrouterApiKey
     })
 
-    // Improved prompt with:
-    // - Clear role assignment
-    // - Specific format constraints
-    // - Few-shot examples
-    // - Explicit prohibition of markdown/formatting
     const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
 
 REGLAS ESTRICTAS:
@@ -78,16 +169,14 @@ Título:`
       maxTokens: 20
     })
 
-    // Clean up the title - remove any markdown or unwanted formatting
     let title = text.trim()
-      .replace(/^\*\*|\*\*$/g, '') // Remove bold markdown
-      .replace(/^#+\s*/, '') // Remove heading markdown
-      .replace(/^["']|["']$/g, '') // Remove quotes
-      .replace(/^Título:\s*/i, '') // Remove "Título:" prefix
-      .replace(/\n.*/g, '') // Take only first line
+      .replace(/^\*\*|\*\*$/g, '')
+      .replace(/^#+\s*/, '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/^Título:\s*/i, '')
+      .replace(/\n.*/g, '')
       .trim()
 
-    // Limit length
     if (title.length > 50) {
       title = title.substring(0, 47) + '...'
     }
@@ -154,6 +243,46 @@ function convertMessagesForBackend(messages: any[]) {
   })
 }
 
+// Parse a single SSE line and update the collector
+function parseSSELine(line: string, collector: MessagePartsCollector): boolean {
+  if (!line.startsWith('data: ')) return false
+
+  const data = line.slice(6)
+  if (data === '[DONE]') return false
+
+  try {
+    const parsed = JSON.parse(data)
+
+    switch (parsed.type) {
+      case 'text-delta':
+        if (parsed.delta) {
+          collector.addTextDelta(parsed.delta)
+        }
+        break
+
+      case 'tool-input-start':
+        collector.toolInputStart(parsed.toolCallId, parsed.toolName)
+        break
+
+      case 'tool-input-available':
+        collector.toolInputAvailable(parsed.toolCallId, parsed.toolName, parsed.input || {})
+        break
+
+      case 'tool-output-available':
+        collector.toolOutputAvailable(parsed.toolCallId, parsed.output)
+        break
+
+      case 'file':
+        collector.addFile(parsed.url, parsed.mediaType)
+        break
+    }
+
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Create stream that handles image rotation before proxying to backend
 async function createRotationAwareStream(
   config: ReturnType<typeof useRuntimeConfig>,
@@ -170,30 +299,36 @@ async function createRotationAwareStream(
 
   return new ReadableStream({
     async start(controller) {
-      let fullResponse = ''
+      const collector = new MessagePartsCollector()
+      let incompleteSSELine = ''
 
       try {
         // 1. Start the message
         controller.enqueue(encoder.encode(adapter.startMessage()))
 
         // 2. Emit image-rotation tool start
-        const toolCallId = `call_rotation_${randomUUID().slice(0, 8)}`
-        controller.enqueue(encoder.encode(adapter.toolStart(toolCallId, 'image-rotation')))
-        controller.enqueue(encoder.encode(adapter.toolInputAvailable(toolCallId, 'image-rotation', {
+        const rotationToolCallId = `call_rotation_${randomUUID().slice(0, 8)}`
+        controller.enqueue(encoder.encode(adapter.toolStart(rotationToolCallId, 'image-rotation')))
+
+        const toolInput = {
           images: imageParts.map(p => p.name || 'image'),
           count: imageParts.length
-        })))
+        }
+        controller.enqueue(encoder.encode(adapter.toolInputAvailable(rotationToolCallId, 'image-rotation', toolInput)))
+
+        // Track the rotation tool in collector
+        collector.toolInputStart(rotationToolCallId, 'image-rotation')
+        collector.toolInputAvailable(rotationToolCallId, 'image-rotation', toolInput)
 
         // 3. Process images for rotation
         console.log(`[API/chat] Processing ${imageParts.length} images for rotation`)
         const { results, processedImages } = await processImagesForRotation(imageParts)
 
-        // Count how many were actually rotated
         const rotatedCount = results.filter(r => r.applied).length
         const detectedCount = results.filter(r => r.originalRotation !== 0).length
 
         // 4. Emit tool output with results
-        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(toolCallId, {
+        const toolOutput = {
           processed: results.length,
           rotated: rotatedCount,
           detected: detectedCount,
@@ -202,18 +337,21 @@ async function createRotationAwareStream(
             rotation: r.originalRotation,
             applied: r.applied
           }))
-        })))
+        }
+        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(rotationToolCallId, toolOutput)))
+        collector.toolOutputAvailable(rotationToolCallId, toolOutput)
 
         // 5. Emit file parts for rotated images (thumbnails in chat)
         for (let i = 0; i < results.length; i++) {
           const result = results[i]
-          if (result && result.originalRotation !== 0) {
+          if (result && result.applied && result.originalRotation !== 0) {
             const processedImage = processedImages[i]
             if (processedImage && processedImage.url) {
               controller.enqueue(encoder.encode(adapter.filePart(
                 processedImage.url,
                 processedImage.mediaType
               )))
+              collector.addFile(processedImage.url, processedImage.mediaType)
             }
           }
         }
@@ -248,10 +386,10 @@ async function createRotationAwareStream(
           return
         }
 
-        // 8. Pipe backend stream, filtering out its "start" event (we already sent one)
+        // 8. Pipe backend stream, properly handling SSE format
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
-        let skipStart = true
+        let skipStartEvent = true
 
         while (true) {
           const { done, value } = await reader.read()
@@ -259,56 +397,63 @@ async function createRotationAwareStream(
 
           const text = decoder.decode(value, { stream: true })
 
-          // Filter out the backend's "start" event since we already sent one
-          if (skipStart) {
-            const lines = text.split('\n')
-            const filteredLines = lines.filter(line => {
-              if (line.startsWith('data: ')) {
-                try {
-                  const parsed = JSON.parse(line.slice(6))
-                  if (parsed.type === 'start') {
-                    skipStart = false
-                    return false // Skip this line
-                  }
-                } catch {
-                  // Not JSON, keep it
-                }
-              }
-              return true
-            })
-            const filteredText = filteredLines.join('\n')
-            if (filteredText.trim()) {
-              controller.enqueue(encoder.encode(filteredText))
-            }
-          } else {
-            controller.enqueue(value)
-          }
+          // Handle partial SSE lines from previous chunk
+          const fullText = incompleteSSELine + text
+          const lines = fullText.split('\n')
 
-          // Collect text for database storage
-          for (const line of text.split('\n')) {
-            if (line.startsWith('data: ')) {
+          // Last line might be incomplete, save it for next chunk
+          incompleteSSELine = lines.pop() || ''
+
+          // Process complete lines
+          const outputLines: string[] = []
+          for (const line of lines) {
+            // Filter out backend's start event (we already sent one)
+            if (skipStartEvent && line.startsWith('data: ')) {
               try {
                 const parsed = JSON.parse(line.slice(6))
-                if (parsed.type === 'text-delta' && parsed.delta) {
-                  fullResponse += parsed.delta
+                if (parsed.type === 'start') {
+                  skipStartEvent = false
+                  continue // Skip this line
                 }
               } catch {
-                // Skip non-JSON lines
+                // Not JSON, keep it
               }
             }
+
+            // Parse for collector
+            parseSSELine(line, collector)
+
+            // Keep the line for output
+            outputLines.push(line)
           }
+
+          // Send to client
+          if (outputLines.length > 0) {
+            const output = outputLines.join('\n') + '\n'
+            controller.enqueue(encoder.encode(output))
+          }
+        }
+
+        // Handle any remaining incomplete line
+        if (incompleteSSELine.trim()) {
+          parseSSELine(incompleteSSELine, collector)
+          controller.enqueue(encoder.encode(incompleteSSELine + '\n'))
         }
 
         controller.close()
 
-        // Save assistant response to database
-        if (fullResponse) {
+        // Save assistant response with complete parts
+        const parts = collector.buildParts()
+        const textContent = collector.getTextContent()
+
+        if (parts.length > 0 || textContent) {
           await addMessage({
             chatId,
             role: 'assistant',
-            content: fullResponse
+            content: textContent,
+            parts
           })
-          console.log('[API/chat] Saved assistant response, length:', fullResponse.length)
+          console.log(`[API/chat] Saved assistant response with ${parts.length} parts, text length: ${textContent.length}`)
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error)
@@ -341,21 +486,37 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, message: 'Chat not found' })
   }
 
-  // Save user message to database BEFORE streaming
+  // Save user message to database BEFORE streaming (only if not already saved)
   const lastMessage = messages[messages.length - 1]
   if (lastMessage?.role === 'user') {
     const textContent = extractTextContent(lastMessage)
 
-    await addMessage({
-      chatId,
-      role: 'user',
-      content: textContent,
-      parts: lastMessage.parts
-    })
+    // Check if this message already exists in the database (by ID or by being the last message)
+    // This prevents duplicates when regenerate() is called
+    const existingMessages = chat.messages || []
+    const lastDbMessage = existingMessages[existingMessages.length - 1]
 
-    // Generate title for new chats (fire and forget)
-    if (!chat.title || chat.title === 'Nuevo Chat') {
-      generateTitle(chatId, textContent).catch(console.error)
+    // Skip saving if:
+    // - Message has an ID that matches one in DB, OR
+    // - Last message in DB is a user message with same content (regenerate case)
+    const isAlreadySaved = lastMessage.id && existingMessages.some((m: any) => m.id === lastMessage.id)
+    const isRegenerateCase = lastDbMessage?.role === 'user' && extractTextContent(lastDbMessage) === textContent
+
+    if (!isAlreadySaved && !isRegenerateCase) {
+      await addMessage({
+        chatId,
+        role: 'user',
+        content: textContent,
+        parts: lastMessage.parts
+      })
+      console.log('[API/chat] Saved new user message')
+
+      // Generate title for new chats (fire and forget)
+      if (!chat.title || chat.title === 'Nuevo Chat') {
+        generateTitle(chatId, textContent).catch(console.error)
+      }
+    } else {
+      console.log('[API/chat] Skipped saving duplicate user message (regenerate case)')
     }
   }
 
@@ -418,7 +579,8 @@ export default defineEventHandler(async (event) => {
 
   // Collect response while streaming for database storage
   const reader = response.body.getReader()
-  let fullResponse = ''
+  const collector = new MessagePartsCollector()
+  let incompleteSSELine = ''
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -431,32 +593,38 @@ export default defineEventHandler(async (event) => {
 
           controller.enqueue(value)
 
-          // Parse stream to collect text for storage
+          // Parse stream to collect parts for storage
           const text = decoder.decode(value, { stream: true })
-          for (const line of text.split('\n')) {
-            if (line.startsWith('data: ')) {
-              try {
-                const parsed = JSON.parse(line.slice(6))
-                if (parsed.type === 'text-delta' && parsed.delta) {
-                  fullResponse += parsed.delta
-                }
-              } catch {
-                // Skip non-JSON lines
-              }
-            }
+          const fullText = incompleteSSELine + text
+          const lines = fullText.split('\n')
+
+          // Last line might be incomplete
+          incompleteSSELine = lines.pop() || ''
+
+          for (const line of lines) {
+            parseSSELine(line, collector)
           }
+        }
+
+        // Handle remaining line
+        if (incompleteSSELine.trim()) {
+          parseSSELine(incompleteSSELine, collector)
         }
 
         controller.close()
 
-        // Save assistant response to database
-        if (fullResponse) {
+        // Save assistant response with complete parts
+        const parts = collector.buildParts()
+        const textContent = collector.getTextContent()
+
+        if (parts.length > 0 || textContent) {
           await addMessage({
             chatId,
             role: 'assistant',
-            content: fullResponse
+            content: textContent,
+            parts
           })
-          console.log('[API/chat] Saved assistant response, length:', fullResponse.length)
+          console.log(`[API/chat] Saved assistant response with ${parts.length} parts, text length: ${textContent.length}`)
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error)

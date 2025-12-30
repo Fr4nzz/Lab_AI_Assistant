@@ -121,14 +121,22 @@ export async function processImagesForRotation(
   for (const image of images) {
     const imageName = image.name || 'image'
 
-    // Case 1: Already has rotated data from frontend
-    if (image.rotatedBase64 && image.rotation && image.rotation !== 0) {
-      console.log(`[imageRotation] Using pre-rotated data for ${imageName}: ${image.rotation}deg`)
+    console.log(`[imageRotation] Processing ${imageName}:`, {
+      hasRotatedBase64: !!image.rotatedBase64,
+      rotation: image.rotation,
+      rotationPending: image.rotationPending
+    })
+
+    // Case 1: Already has rotated data from frontend (rotation was applied client-side)
+    if (image.rotatedBase64) {
+      const rotationDegrees = image.rotation || 0
+      console.log(`[imageRotation] Using pre-rotated data for ${imageName}: ${rotationDegrees}deg`)
       results.push({
         name: imageName,
-        originalRotation: image.rotation,
-        applied: true
+        originalRotation: rotationDegrees,
+        applied: rotationDegrees !== 0
       })
+      // Use the rotated data
       processedImages.push({
         ...image,
         data: image.rotatedBase64,
@@ -137,9 +145,9 @@ export async function processImagesForRotation(
       continue
     }
 
-    // Case 2: Rotation is known but was 0 (no rotation needed)
-    if (image.rotation === 0) {
-      console.log(`[imageRotation] No rotation needed for ${imageName}`)
+    // Case 2: Frontend completed detection and determined no rotation needed
+    if (image.rotation === 0 && image.rotationPending === false) {
+      console.log(`[imageRotation] No rotation needed for ${imageName} (frontend verified)`)
       results.push({
         name: imageName,
         originalRotation: 0,
@@ -149,27 +157,42 @@ export async function processImagesForRotation(
       continue
     }
 
-    // Case 3: Need to detect rotation (rotation is pending or unknown)
-    if (image.data && image.rotationPending !== false) {
-      console.log(`[imageRotation] Detecting rotation for ${imageName}`)
+    // Case 3: Frontend detection completed but rotation != 0 and no rotatedBase64
+    // This shouldn't happen normally, but handle it gracefully
+    if (image.rotation !== undefined && image.rotation !== 0 && !image.rotatedBase64) {
+      console.log(`[imageRotation] Frontend detected ${image.rotation}deg but no rotated data for ${imageName}`)
+      results.push({
+        name: imageName,
+        originalRotation: image.rotation,
+        applied: false,
+        error: 'Frontend rotation data missing'
+      })
+      processedImages.push(image)
+      continue
+    }
+
+    // Case 4: Need to detect rotation (rotation is pending or unknown)
+    if (image.data && (image.rotationPending === true || image.rotation === undefined)) {
+      console.log(`[imageRotation] Detecting rotation for ${imageName} (pending: ${image.rotationPending})`)
       try {
         const { rotation, detected } = await detectImageRotation(image.data, image.mediaType)
 
         if (detected && rotation !== 0) {
           // We detected rotation is needed, but we can't apply it server-side without sharp
-          // The image will still be sent as-is, but we report the rotation
-          // The AI will see the rotated image and can describe it accordingly
+          // Report the detected rotation in results
+          console.log(`[imageRotation] Server detected ${rotation}deg for ${imageName} (cannot apply server-side)`)
           results.push({
             name: imageName,
             originalRotation: rotation,
             applied: false,
-            error: 'Server-side rotation not available'
+            error: 'Server-side rotation not available - image sent as-is'
           })
           processedImages.push({
             ...image,
             rotation
           })
         } else {
+          console.log(`[imageRotation] No rotation needed for ${imageName} (server verified)`)
           results.push({
             name: imageName,
             originalRotation: 0,
@@ -190,10 +213,11 @@ export async function processImagesForRotation(
       continue
     }
 
-    // Case 4: No rotation info and no pending detection - pass through
+    // Case 5: No rotation info and detection not needed - pass through
+    console.log(`[imageRotation] Passing through ${imageName} as-is`)
     results.push({
       name: imageName,
-      originalRotation: 0,
+      originalRotation: image.rotation || 0,
       applied: false
     })
     processedImages.push(image)
