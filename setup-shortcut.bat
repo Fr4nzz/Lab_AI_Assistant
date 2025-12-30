@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 title Lab Assistant - Shortcut Setup
-echo.
+echo:
 echo ========================================
 echo    Lab Assistant - Shortcut Setup
 echo ========================================
-echo.
+echo:
 
 set "SCRIPT_DIR=%~dp0"
 set "BAT_PATH=%SCRIPT_DIR%Lab_Assistant.bat"
@@ -22,15 +22,15 @@ if not exist "%BAT_PATH%" (
 )
 
 echo This script will create:
-echo.
+echo:
 echo   1. Desktop shortcut: %SHORTCUT_PATH%
-echo.
+echo:
 
 choice /c YN /n /m "Create desktop shortcut? [Y/N]: "
 if errorlevel 2 goto :skip_desktop
 
 :: Create desktop shortcut using PowerShell
-echo.
+echo:
 echo Creating desktop shortcut...
 
 powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = 'cmd.exe'; $shortcut.Arguments = '/c \"\"%BAT_PATH%\"\"'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Description = 'Start Lab Assistant'; $shortcut.IconLocation = '%ICON_PATH%'; $shortcut.Save()"
@@ -43,8 +43,8 @@ if %errorlevel% equ 0 (
 
 :skip_desktop
 
-echo.
+echo:
 echo [OK] Done!
-echo.
+echo:
 
 pause
