@@ -2,9 +2,9 @@
 setlocal enabledelayedexpansion
 title Lab Assistant - Shortcut Setup
 echo.
-echo ╔════════════════════════════════════════╗
-echo ║    Lab Assistant - Shortcut Setup      ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo    Lab Assistant - Shortcut Setup
+echo ========================================
 echo.
 
 set "SCRIPT_DIR=%~dp0"
@@ -51,9 +51,9 @@ if %errorlevel% equ 0 (
 :skip_desktop
 
 echo.
-echo ════════════════════════════════════════
+echo ========================================
 echo  Shortcut Icons
-echo ════════════════════════════════════════
+echo ========================================
 echo.
 echo The shortcut uses a default Windows icon.
 echo.
