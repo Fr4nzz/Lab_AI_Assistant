@@ -235,9 +235,71 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | Script | Purpose |
 |--------|---------|
 | `cloudflare-quick-tunnel.bat` | Start free temporary tunnel (no setup needed) |
+| `cloudflare-quick-tunnel-notify.bat` | Start tunnel + send URL via WhatsApp |
 | `cloudflare-tunnel-setup.bat` | Configure persistent tunnel (needs domain) |
 | `cloudflare-tunnel-run.bat` | Run configured persistent tunnel |
 | `cloudflare-tunnel-service.bat` | Install tunnel as Windows service |
+
+---
+
+## WhatsApp URL Notification (Optional)
+
+Want to automatically receive the tunnel URL on WhatsApp when it starts?
+
+### Prerequisites
+
+1. **WhatsApp Web logged in** - Go to [web.whatsapp.com](https://web.whatsapp.com) and scan the QR code
+2. **Keep the browser open** - The script will use this session
+
+### Usage
+
+```batch
+# Start the app first
+.\start-dev.bat
+
+# Start tunnel with WhatsApp notification
+.\cloudflare-quick-tunnel-notify.bat +51987654321
+```
+
+Replace `+51987654321` with your phone number (with country code).
+
+### What happens:
+
+1. Starts the Quick Tunnel
+2. Waits for the URL to appear
+3. Opens WhatsApp Web and sends you the URL
+4. Message: "🔗 Lab Assistant URL: https://xxx.trycloudflare.com"
+
+### First time setup:
+
+The script will auto-install `pywhatkit` if not present:
+```
+pip install pywhatkit
+```
+
+### Notes:
+
+- The script opens a browser tab to send the message, then closes it
+- Make sure WhatsApp Web is logged in before running
+- Phone number must include country code (e.g., `+1` for US, `+51` for Peru)
+
+---
+
+## When Does the URL Change?
+
+Quick Tunnel URLs persist as long as the `cloudflared` process is running:
+
+| Event | URL Changes? |
+|-------|--------------|
+| Backend/Frontend restart (update button) | **No** ✅ |
+| PC sleep/wake | **No** ✅ |
+| PC restart | **Yes** ❌ |
+| Close tunnel terminal window | **Yes** ❌ |
+| Network reconnect | **Maybe** |
+
+**Tip**: Keep the tunnel terminal window open. The URL can last for days/weeks!
+
+---
 
 ## Sources
 
