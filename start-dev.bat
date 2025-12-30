@@ -23,9 +23,16 @@ goto :parse_args
 
 :: Kill existing processes on ports 8000, 3000, and 24678 (for restart/update scenarios)
 echo Checking for existing processes...
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping backend (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping frontend (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping Vite HMR (PID:' $_.OwningProcess ')'; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+
+:: Kill existing terminal windows by title (prevents accumulating windows on updates)
+:: Uses PowerShell to find windows with titles starting with "Lab Assistant -"
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -like 'Lab Assistant - Backend*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -like 'Lab Assistant - Frontend*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+
+:: Also kill by port in case window titles changed
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
 :: Small delay to ensure ports are released
 timeout /t 2 /nobreak >nul
