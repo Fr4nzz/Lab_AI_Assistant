@@ -128,7 +128,8 @@ const {
   uploadedFiles,
   addFiles,
   removeFile,
-  clearFiles
+  clearFiles,
+  waitForPendingRotations
 } = useFileUploadWithStatus(route.params.id as string)
 
 const { data } = await useFetch(`/api/chats/${route.params.id}`, {
@@ -161,6 +162,10 @@ const chat = new Chat({
   onFinish() {
     // Refresh chat list to get updated title
     refreshNuxtData('chats')
+    // Title generation is async and may complete after stream ends
+    // Add delayed refreshes to catch the title update
+    setTimeout(() => refreshNuxtData('chats'), 3000)
+    setTimeout(() => refreshNuxtData('chats'), 8000)
   },
   onError(error) {
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
@@ -176,6 +181,10 @@ const chat = new Chat({
 async function handleSubmit(e: Event) {
   e.preventDefault()
   if (input.value.trim() && !isRecording.value) {
+    // Wait for any pending rotation detections to complete
+    // This ensures rotated images are sent with correct orientation
+    await waitForPendingRotations()
+
     chat.sendMessage({
       text: input.value,
       files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined

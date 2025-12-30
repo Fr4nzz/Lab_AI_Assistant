@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { createChat, addMessage } from '../utils/db'
+import { requireSessionOrInternal } from '../utils/internalAuth'
 
 export default defineEventHandler(async (event) => {
-  const session = await getUserSession(event)
+  // Verify user is authenticated (OAuth or internal API key)
+  await requireSessionOrInternal(event)
 
   const body = await readValidatedBody(event, z.object({
     id: z.string().optional(),
@@ -14,14 +16,10 @@ export default defineEventHandler(async (event) => {
     }).optional()
   }).parse)
 
-  // Get user ID from session
-  const userId = session.user?.id || session.id
-
-  // Create chat
+  // Create shared chat (no user association - visible to all users)
   const chat = await createChat({
     id: body.id,
-    title: body.title || 'Nuevo Chat',
-    userId
+    title: body.title || 'Nuevo Chat'
   })
 
   // Add initial message if provided

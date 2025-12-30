@@ -96,6 +96,19 @@ export function useImageRotation() {
   const hasPendingRotations = computed(() => pendingRotations.value.size > 0)
 
   /**
+   * Waits for all pending rotation detections to complete.
+   * Returns immediately if no pending rotations.
+   */
+  async function waitForPendingRotations(): Promise<void> {
+    const pending = Array.from(pendingRotations.value.values())
+    if (pending.length > 0) {
+      console.log('[useImageRotation] Waiting for', pending.length, 'pending rotations...')
+      await Promise.all(pending)
+      console.log('[useImageRotation] All rotations complete')
+    }
+  }
+
+  /**
    * Clears rotation data for a file.
    */
   function clearRotation(fileId: string) {
@@ -115,6 +128,7 @@ export function useImageRotation() {
     detectRotation,
     getRotation,
     hasPendingRotations,
+    waitForPendingRotations,
     clearRotation,
     clearAllRotations,
     rotationResults: readonly(rotationResults)

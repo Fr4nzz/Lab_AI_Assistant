@@ -47,6 +47,11 @@ const toolInfo: Record<string, { label: string; icon: string; activeLabel: strin
     label: 'Pregunta al usuario',
     activeLabel: 'Esperando respuesta...',
     icon: 'i-lucide-message-circle'
+  },
+  'image-rotation': {
+    label: 'Corrección de orientación',
+    activeLabel: 'Corrigiendo orientación de imágenes...',
+    icon: 'i-lucide-rotate-cw'
   }
 }
 
@@ -73,6 +78,83 @@ function formatValue(value: unknown): string {
   }
   return String(value)
 }
+
+// Format image-rotation result for display
+interface RotationResultItem {
+  name: string
+  rotation: number
+  applied: boolean
+  thumbnailUrl?: string
+  mediaType?: string
+}
+
+interface ImageRotationResult {
+  processed?: number
+  rotated?: number
+  detected?: number
+  results?: RotationResultItem[]
+}
+
+// Extract rotated image thumbnails from image-rotation result
+const rotatedThumbnails = computed(() => {
+  if (props.name !== 'image-rotation' || !props.result) return []
+  const result = props.result as ImageRotationResult
+  if (!result.results) return []
+  return result.results
+    .filter(r => r.applied && r.thumbnailUrl)
+    .map(r => ({
+      name: r.name,
+      url: r.thumbnailUrl!,
+      rotation: r.rotation
+    }))
+})
+
+// Lightbox state for viewing rotated images
+const lightboxImage = ref<{ url: string; name: string } | null>(null)
+
+function showImageLightbox(url: string, name: string) {
+  lightboxImage.value = { url, name }
+}
+
+function formatRotationResult(result: ImageRotationResult): string {
+  if (!result.results || result.results.length === 0) {
+    return 'Sin imágenes procesadas'
+  }
+
+  const descriptions = result.results.map(r => {
+    if (r.rotation === 0) {
+      return `${r.name}: sin rotación necesaria`
+    }
+    const status = r.applied ? 'corregida' : 'detectada'
+    return `${r.name}: ${r.rotation}° (${status})`
+  })
+
+  return descriptions.join('; ')
+}
+
+// Format any tool result for display
+function formatResult(toolName: string, result: unknown): string {
+  if (typeof result === 'string') {
+    return result.length > 100 ? result.slice(0, 100) + '...' : result
+  }
+
+  if (toolName === 'image-rotation' && typeof result === 'object' && result !== null) {
+    return formatRotationResult(result as ImageRotationResult)
+  }
+
+  // For other object results, show a summary
+  if (typeof result === 'object' && result !== null) {
+    const obj = result as Record<string, unknown>
+    // Try to extract meaningful info
+    if ('count' in obj) return `${obj.count} resultados`
+    if ('total' in obj) return `Total: ${obj.total}`
+    if ('message' in obj) return String(obj.message)
+    return 'Ver respuesta del asistente'
+  }
+
+  return String(result)
+}
+
 </script>
 
 <template>
@@ -114,11 +196,35 @@ function formatValue(value: unknown): string {
       <!-- Show result summary if completed -->
       <div v-if="isCompleted && result" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
         <span class="font-medium">Resultado:</span>
-        <span class="ml-1">
-          {{ typeof result === 'string' ? result.slice(0, 100) : 'Ver respuesta del asistente' }}
-          {{ typeof result === 'string' && result.length > 100 ? '...' : '' }}
-        </span>
+        <span class="ml-1">{{ formatResult(name, result) }}</span>
       </div>
+
+      <!-- Show rotated image thumbnails for image-rotation tool -->
+      <div v-if="rotatedThumbnails.length > 0" class="mt-3 flex flex-wrap gap-2">
+        <div
+          v-for="thumb in rotatedThumbnails"
+          :key="thumb.name"
+          class="relative group"
+        >
+          <img
+            :src="thumb.url"
+            :alt="thumb.name"
+            class="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity"
+            @click="showImageLightbox(thumb.url, thumb.name)"
+          >
+          <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center">
+            {{ thumb.rotation }}° corregido
+          </div>
+        </div>
+      </div>
+
+      <!-- Image lightbox for rotated images -->
+      <ImageLightbox
+        v-if="lightboxImage"
+        :src="lightboxImage.url"
+        :alt="lightboxImage.name"
+        @close="lightboxImage = null"
+      />
     </div>
   </div>
 </template>
