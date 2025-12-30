@@ -103,12 +103,16 @@ export class NuxtStreamAdapter {
   /**
    * Emit a file part (for displaying images/files in the stream)
    */
-  filePart(url: string, mediaType: string): string {
-    return this.sse({
+  filePart(url: string, mediaType: string, filename?: string): string {
+    const data: Record<string, unknown> = {
       type: 'file',
       url,
       mediaType
-    })
+    }
+    if (filename) {
+      data.filename = filename
+    }
+    return this.sse(data)
   }
 
   /**
