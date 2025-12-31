@@ -11,10 +11,10 @@ MODULE_DIR = Path(__file__).parent.absolute()
 
 class BrowserManager:
     """Manages browser sessions and provides deterministic browser control."""
-    
+
     # Actions the agent is NEVER allowed to perform
     FORBIDDEN_WORDS = ["guardar", "save", "eliminar", "delete", "borrar", "remove"]
-    
+
     def __init__(self, user_data_dir: str = None):
         # Si no se especifica, usar ruta relativa al módulo
         if user_data_dir is None:
@@ -26,11 +26,16 @@ class BrowserManager:
                 self.user_data_dir = str(MODULE_DIR / user_data_dir)
             else:
                 self.user_data_dir = user_data_dir
-        
+
         self.playwright: Optional[Playwright] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self._elements_cache: List[Dict] = []
+
+        # Store startup parameters for auto-restart
+        self._headless: bool = False
+        self._browser_channel: str = "msedge"
+        self._started: bool = False
     
     async def start(self, headless: bool = False, browser: str = "msedge"):
         """
@@ -40,6 +45,10 @@ class BrowserManager:
             headless: Run browser without GUI
             browser: Browser to use - "msedge", "chrome", or "chromium"
         """
+        # Store parameters for auto-restart
+        self._headless = headless
+        self._browser_channel = browser
+
         print(f"[BrowserManager] Usando browser_data en: {self.user_data_dir}")
         self.playwright = await async_playwright().start()
 
@@ -80,19 +89,70 @@ class BrowserManager:
             for page in self.context.pages[1:]:
                 await page.close()
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
-    
+        self._started = True
+
     async def stop(self):
         """Close the browser."""
+        self._started = False
         if self.context:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
+        self.context = None
+        self.playwright = None
+        self.page = None
+
+    def is_browser_alive(self) -> bool:
+        """Check if the browser process is still running."""
+        if not self._started or not self.context:
+            return False
+        try:
+            # Try to access the browser - this will fail if browser was closed
+            _ = self.context.pages
+            return True
+        except Exception:
+            return False
+
+    async def ensure_browser(self) -> None:
+        """
+        Ensure the browser is running. If it was closed by the user,
+        automatically restart it.
+        """
+        if self.is_browser_alive():
+            return
+
+        print("[BrowserManager] Browser was closed, restarting...")
+
+        # Clean up any stale references
+        self.context = None
+        self.page = None
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+            except Exception:
+                pass
+            self.playwright = None
+
+        # Restart the browser with the same parameters
+        await self.start(headless=self._headless, browser=self._browser_channel)
+
+        # Navigate to the orders page
+        print("[BrowserManager] Browser restarted, navigating to orders page...")
+        await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+        try:
+            await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+        print("[BrowserManager] Browser ready")
 
     async def ensure_page(self) -> Page:
         """
-        Ensure we have a valid page. If the page was closed, open a new one.
+        Ensure we have a valid page. If the browser or page was closed, recover automatically.
         Returns the valid page.
         """
+        # First ensure browser is running (auto-restart if closed)
+        await self.ensure_browser()
+
         try:
             # Check if page is still valid by trying a simple operation
             if self.page and not self.page.is_closed():
@@ -138,14 +198,15 @@ class BrowserManager:
     
     async def get_state(self) -> Dict[str, Any]:
         """Extract current browser state for AI context."""
+        page = await self.ensure_page()
         elements = await self._extract_elements()
         self._elements_cache = elements
-        
+
         return {
-            "url": self.page.url,
-            "title": await self.page.title(),
+            "url": page.url,
+            "title": await page.title(),
             "elements": elements,
-            "scroll_position": await self.page.evaluate("() => ({ x: window.scrollX, y: window.scrollY })")
+            "scroll_position": await page.evaluate("() => ({ x: window.scrollX, y: window.scrollY })")
         }
     
     async def _extract_elements(self) -> List[Dict]:
@@ -195,15 +256,17 @@ class BrowserManager:
     
     async def get_page_content(self) -> str:
         """Get simplified text content of the page."""
-        return await self.page.evaluate("""
+        page = await self.ensure_page()
+        return await page.evaluate("""
             () => {
                 return document.body.innerText.substring(0, 5000);
             }
         """)
-    
+
     async def get_screenshot(self, full_page: bool = False) -> str:
         """Take a screenshot and return as base64."""
-        screenshot_bytes = await self.page.screenshot(full_page=full_page)
+        page = await self.ensure_page()
+        screenshot_bytes = await page.screenshot(full_page=full_page)
         return base64.b64encode(screenshot_bytes).decode('utf-8')
     
     def is_action_forbidden(self, action: Dict) -> bool:
@@ -244,10 +307,13 @@ class BrowserManager:
                 "success": False,
                 "error": "Action forbidden: involves save/delete operations"
             }
-        
+
         action_type = action.get("action")
-        
+
         try:
+            # Ensure browser is alive before any action
+            await self.ensure_page()
+
             if action_type == "navigate":
                 await self.navigate(action["url"])
                 return {"success": True, "message": f"Navigated to {action['url']}"}
