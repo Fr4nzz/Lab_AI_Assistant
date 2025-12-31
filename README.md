@@ -54,13 +54,24 @@ GEMINI_API_KEYS=key1,key2,key3
 The launcher will:
 - Check for Python and Node.js (offer to install if missing)
 - Install all dependencies automatically
-- Start Backend, Frontend, and optionally Telegram Bot
+- Start Backend, Frontend, Telegram Bot, and Cloudflare Tunnel
+- All services run silently in the background
 
 ### 4. Open the app
 
 1. Browser opens automatically to http://localhost:3000
 2. Login to the lab system in the browser window that opens
 3. Start chatting!
+
+### Launcher Options
+
+```batch
+Lab_Assistant.bat              # Normal mode (services run hidden)
+Lab_Assistant.bat --debug      # Show all console windows
+Lab_Assistant.bat --no-tunnel  # Disable Cloudflare tunnel
+Lab_Assistant.bat --no-telegram # Disable Telegram bot
+Lab_Assistant.bat --restart    # Restart mode (no browser)
+```
 
 ### Optional: Desktop Shortcut & Autostart
 
