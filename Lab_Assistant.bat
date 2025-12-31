@@ -29,14 +29,12 @@ goto :parse_args
 :done_args
 
 :: Set window style based on debug mode
-:: /min = minimized, cmd /c = close on exit
-:: normal window, cmd /k = keep open on exit (for debugging)
+:: DEBUG: visible windows that stay open on exit (cmd /k)
+:: NORMAL: completely hidden background processes (PowerShell -WindowStyle Hidden)
 if defined DEBUG_MODE (
-    set "WIN_STYLE="
-    set "CMD_MODE=/k"
+    set "RUN_HIDDEN="
 ) else (
-    set "WIN_STYLE=/min"
-    set "CMD_MODE=/c"
+    set "RUN_HIDDEN=1"
 )
 
 :: ============================================
@@ -312,12 +310,20 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 
 :: Start Backend
 echo   Starting Backend...
-start "Lab Assistant - Backend" %WIN_STYLE% cmd %CMD_MODE% "cd /d %SCRIPT_DIR%backend && python server.py"
+if defined RUN_HIDDEN (
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%backend\" && python server.py' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
+)
 timeout /t 3 /nobreak >nul
 
 :: Start Frontend
 echo   Starting Frontend...
-start "Lab Assistant - Frontend" %WIN_STYLE% cmd %CMD_MODE% "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
+if defined RUN_HIDDEN (
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%frontend-nuxt\" && npm run dev' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
+)
 timeout /t 5 /nobreak >nul
 
 :: Start Telegram bot if configured
@@ -325,7 +331,7 @@ set "TELEGRAM_STARTED="
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
         echo   Starting Telegram Bot...
-        start "Lab Assistant - Telegram Bot" %WIN_STYLE% cmd %CMD_MODE% "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
+        call :start_telegram_bot
         set "TELEGRAM_STARTED=1"
     ) else (
         echo   [!] Telegram Bot disabled via --no-telegram
@@ -408,11 +414,23 @@ for /f "tokens=1* delims=|" %%a in ("!TEMP_IPS!") do (
 if not "!TEMP_IPS!"=="" goto :print_ips_loop
 goto :eof
 
+:start_telegram_bot
+if defined RUN_HIDDEN (
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
+)
+goto :eof
+
 :start_cloudflare_tunnel
 :: Use cloudflare-quick-tunnel.bat which saves the URL to a file
 if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
     echo   Starting Cloudflare Tunnel...
-    start "Lab Assistant - Tunnel" %WIN_STYLE% cmd %CMD_MODE% "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
+    if defined RUN_HIDDEN (
+        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && cloudflare-quick-tunnel.bat' -WindowStyle Hidden"
+    ) else (
+        start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
+    )
     set "TUNNEL_STARTED=1"
 ) else (
     echo   [!] cloudflare-quick-tunnel.bat not found
