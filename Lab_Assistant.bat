@@ -16,6 +16,7 @@ set "NO_TUNNEL="
 set "NO_TELEGRAM="
 set "RESTART_MODE="
 set "INSTALL_DEPS="
+set "STOP_MODE="
 
 :parse_args
 if "%~1"=="" goto :done_args
@@ -24,9 +25,21 @@ if /i "%~1"=="--no-tunnel" set "NO_TUNNEL=1"
 if /i "%~1"=="--no-telegram" set "NO_TELEGRAM=1"
 if /i "%~1"=="--restart" set "RESTART_MODE=1"
 if /i "%~1"=="--install" set "INSTALL_DEPS=1"
+if /i "%~1"=="--stop" set "STOP_MODE=1"
 shift
 goto :parse_args
 :done_args
+
+:: Handle --stop flag: stop all services and exit
+if defined STOP_MODE (
+    echo Stopping all Lab Assistant services...
+    echo:
+    call :stop_all_services
+    echo:
+    echo All services stopped.
+    pause
+    exit /b 0
+)
 
 :: Set window style based on debug mode
 :: DEBUG: visible windows that stay open on exit (cmd /k)
@@ -389,11 +402,14 @@ if defined DEBUG_MODE (
     echo  Mode: DEBUG - windows visible
 ) else (
     echo  Mode: Silent - services running in background
-    echo  Tip: Run with --debug to see console windows
 )
+echo:
+echo  Tips:
+echo    --debug    Show console windows
+echo    --stop     Stop all services
 echo ----------------------------------------
 echo  Press any key to close this window
-echo  (Services will keep running)
+echo  Services will keep running in background
 echo ----------------------------------------
 pause >nul
 goto :eof
@@ -435,4 +451,28 @@ if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
 ) else (
     echo   [!] cloudflare-quick-tunnel.bat not found
 )
+goto :eof
+
+:stop_all_services
+echo   Stopping processes on ports 8000, 3000, 24678...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+timeout /t 1 /nobreak >nul
+
+echo   Stopping Lab Assistant windows...
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+
+echo   Stopping Cloudflare tunnel...
+taskkill /IM cloudflared.exe /F 2>nul
+
+echo   Stopping Telegram bot...
+powershell -NoProfile -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+
+timeout /t 1 /nobreak >nul
 goto :eof
