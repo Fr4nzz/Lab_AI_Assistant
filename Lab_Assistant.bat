@@ -11,7 +11,7 @@ echo:
 set "SCRIPT_DIR=%~dp0"
 
 :: Parse command line arguments
-set "START_TUNNEL="
+set "DEBUG_MODE="
 set "NO_TUNNEL="
 set "NO_TELEGRAM="
 set "RESTART_MODE="
@@ -19,7 +19,7 @@ set "INSTALL_DEPS="
 
 :parse_args
 if "%~1"=="" goto :done_args
-if /i "%~1"=="--tunnel" set "START_TUNNEL=1"
+if /i "%~1"=="--debug" set "DEBUG_MODE=1"
 if /i "%~1"=="--no-tunnel" set "NO_TUNNEL=1"
 if /i "%~1"=="--no-telegram" set "NO_TELEGRAM=1"
 if /i "%~1"=="--restart" set "RESTART_MODE=1"
@@ -27,6 +27,14 @@ if /i "%~1"=="--install" set "INSTALL_DEPS=1"
 shift
 goto :parse_args
 :done_args
+
+:: Set window style based on debug mode
+:: /min = minimized, no flag = normal window
+if defined DEBUG_MODE (
+    set "WIN_STYLE="
+) else (
+    set "WIN_STYLE=/min"
+)
 
 :: ============================================
 :: STEP 1: Check Prerequisites
@@ -300,13 +308,13 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 )
 
 :: Start Backend
-echo   Starting Backend (Python FastAPI)...
-start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
+echo   Starting Backend...
+start "Lab Assistant - Backend" %WIN_STYLE% cmd /c "cd /d %SCRIPT_DIR%backend && python server.py"
 timeout /t 3 /nobreak >nul
 
 :: Start Frontend
-echo   Starting Frontend (Nuxt)...
-start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
+echo   Starting Frontend...
+start "Lab Assistant - Frontend" %WIN_STYLE% cmd /c "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 timeout /t 5 /nobreak >nul
 
 :: Start Telegram bot if configured
@@ -314,14 +322,14 @@ set "TELEGRAM_STARTED="
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
         echo   Starting Telegram Bot...
-        start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
+        start "Lab Assistant - Telegram Bot" %WIN_STYLE% cmd /c "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
         set "TELEGRAM_STARTED=1"
     )
 )
 
-:: Start Cloudflare Tunnel if requested
+:: Start Cloudflare Tunnel (auto-start unless --no-tunnel)
 set "TUNNEL_STARTED="
-if defined START_TUNNEL (
+if not defined NO_TUNNEL (
     call :start_cloudflare_tunnel
 )
 
@@ -351,18 +359,21 @@ if "!NETWORK_IPS!"=="" (
 )
 echo:
 echo  Services:
-echo    [*] Backend (FastAPI)
-echo    [*] Frontend (Nuxt)
+echo    [*] Backend
+echo    [*] Frontend
 if defined TELEGRAM_STARTED (
     echo    [*] Telegram Bot
 )
 if defined TUNNEL_STARTED (
     echo    [*] Cloudflare Tunnel
-) else (
-    echo:
-    echo  Tip: Run with --tunnel to enable remote access
 )
 echo:
+if defined DEBUG_MODE (
+    echo  Mode: DEBUG - windows visible
+) else (
+    echo  Mode: Silent - services running in background
+    echo  Tip: Run with --debug to see console windows
+)
 echo ----------------------------------------
 echo  Press any key to close this window
 echo  (Services will keep running)
@@ -387,32 +398,12 @@ if not "!TEMP_IPS!"=="" goto :print_ips_loop
 goto :eof
 
 :start_cloudflare_tunnel
-set "CLOUDFLARED_CMD="
-where cloudflared >nul 2>&1
-if !errorlevel! equ 0 (
-    set "CLOUDFLARED_CMD=cloudflared"
-    goto :run_tunnel
+:: Use cloudflare-quick-tunnel.bat which saves the URL to a file
+if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
+    echo   Starting Cloudflare Tunnel...
+    start "Lab Assistant - Tunnel" %WIN_STYLE% cmd /c "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
+    set "TUNNEL_STARTED=1"
+) else (
+    echo   [!] cloudflare-quick-tunnel.bat not found
 )
-if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
-    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
-    goto :run_tunnel
-)
-echo   Installing cloudflared...
-winget install Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements >nul 2>&1
-where cloudflared >nul 2>&1
-if !errorlevel! equ 0 (
-    set "CLOUDFLARED_CMD=cloudflared"
-    goto :run_tunnel
-)
-if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
-    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
-    goto :run_tunnel
-)
-echo   [!] Could not install cloudflared
-goto :eof
-
-:run_tunnel
-echo   Starting Cloudflare Tunnel...
-start "Lab Assistant - Tunnel" cmd /k "!CLOUDFLARED_CMD! tunnel --url http://localhost:3000"
-set "TUNNEL_STARTED=1"
 goto :eof

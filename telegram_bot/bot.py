@@ -39,6 +39,7 @@ from telegram_bot.handlers import (
     chats_command,
     cancel,
     model_command,
+    update_command,
     handle_photo,
     handle_text,
     handle_callback,
@@ -113,6 +114,8 @@ def main() -> None:
     app.add_handler(CommandHandler("chats", chats_command, filters=user_filter))
     app.add_handler(CommandHandler("new", new_command, filters=user_filter))
     app.add_handler(CommandHandler("model", model_command, filters=user_filter))
+    app.add_handler(CommandHandler("actualizar", update_command, filters=user_filter))
+    app.add_handler(CommandHandler("update", update_command, filters=user_filter))
     app.add_handler(CommandHandler("cancel", cancel, filters=user_filter))
 
     # Register photo handler (for single photos and albums)
