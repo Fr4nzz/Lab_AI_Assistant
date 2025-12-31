@@ -4,11 +4,37 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+try:
+    import telegramify_markdown
+    HAS_TELEGRAMIFY = True
+except ImportError:
+    HAS_TELEGRAMIFY = False
+
 from ..keyboards import build_post_response_keyboard, DEFAULT_MODEL
 from ..services import BackendService
 from ..utils import build_chat_url
 
 logger = logging.getLogger(__name__)
+
+
+def convert_markdown_for_telegram(text: str) -> tuple[str, str]:
+    """
+    Convert standard Markdown to Telegram-compatible MarkdownV2.
+
+    Returns:
+        tuple: (converted_text, parse_mode) where parse_mode is "MarkdownV2" or None
+    """
+    if not HAS_TELEGRAMIFY:
+        # Fallback: return as-is with standard Markdown
+        return text, "Markdown"
+
+    try:
+        # Convert using telegramify-markdown
+        converted = telegramify_markdown.markdownify(text)
+        return converted, "MarkdownV2"
+    except Exception as e:
+        logger.warning(f"telegramify-markdown conversion failed: {e}")
+        return text, "Markdown"
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -181,26 +207,42 @@ async def send_ai_response(processing_msg, response_text: str, chat_id: str, too
     # Build chat URL
     chat_url = build_chat_url(chat_id)
 
-    # Format tools used
-    tools_text = ""
-    if tools:
-        tools_text = "\n\n🔧 *Herramientas usadas:*\n" + "\n".join(f"  • {t}" for t in tools[:5])
-
     # Truncate response if too long (Telegram limit is 4096)
     max_len = 3500  # Leave room for URL and formatting
     if len(response_text) > max_len:
         response_text = response_text[:max_len] + "...\n\n_(Respuesta truncada)_"
 
-    # Build full message
+    # Format tools used (plain text, will be converted along with response)
+    tools_text = ""
+    if tools:
+        tools_text = "\n\n🔧 **Herramientas usadas:**\n" + "\n".join(f"  • {t}" for t in tools[:5])
+
+    # Build full message with standard Markdown
     full_text = (
         f"{response_text}"
         f"{tools_text}\n\n"
-        f"🔗 *Ver en web:*\n{chat_url}"
+        f"🔗 **Ver en web:**\n{chat_url}"
     )
 
+    # Convert to Telegram-compatible format
+    converted_text, parse_mode = convert_markdown_for_telegram(full_text)
+
     # Edit the processing message with response
-    # Try Markdown first, fall back to plain text if parsing fails
     keyboard = build_post_response_keyboard()
+
+    # Try with converted markdown
+    try:
+        await processing_msg.edit_text(
+            text=converted_text,
+            reply_markup=keyboard,
+            parse_mode=parse_mode,
+            disable_web_page_preview=True
+        )
+        return
+    except Exception as e:
+        logger.warning(f"Failed to edit with {parse_mode}: {e}")
+
+    # Fallback: try plain Markdown
     try:
         await processing_msg.edit_text(
             text=full_text,
@@ -208,25 +250,27 @@ async def send_ai_response(processing_msg, response_text: str, chat_id: str, too
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
+        return
     except Exception as e:
-        logger.warning(f"Failed to edit message: {e}")
-        # Try reply with Markdown
-        try:
-            await processing_msg.reply_text(
-                text=full_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-        except Exception as e2:
-            # Markdown parsing failed - send as plain text
-            logger.warning(f"Markdown parsing failed, sending as plain text: {e2}")
-            plain_tools = ""
-            if tools:
-                plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
-            plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
-            await processing_msg.reply_text(
-                text=plain_text,
-                reply_markup=keyboard,
-                disable_web_page_preview=True
-            )
+        logger.warning(f"Markdown also failed: {e}")
+
+    # Final fallback: plain text (no formatting)
+    plain_tools = ""
+    if tools:
+        plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
+    plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
+
+    try:
+        await processing_msg.edit_text(
+            text=plain_text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Even plain text edit failed: {e}")
+        # Last resort: reply instead of edit
+        await processing_msg.reply_text(
+            text=plain_text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )

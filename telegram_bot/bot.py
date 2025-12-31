@@ -152,7 +152,8 @@ def main() -> None:
     logger.info("")
 
     # Start polling
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # drop_pending_updates=True: Ignore messages sent while bot was offline
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
