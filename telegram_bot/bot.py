@@ -139,11 +139,13 @@ def main() -> None:
     logger.info("=" * 50)
     logger.info(f"Backend URL: {os.environ.get('BACKEND_URL', 'http://localhost:8000')}")
 
-    cloudflare_url = os.environ.get("CLOUDFLARE_TUNNEL_URL")
+    # Check for Cloudflare URL (env var or file)
+    from telegram_bot.utils.urls import get_cloudflare_url
+    cloudflare_url = get_cloudflare_url()
     if cloudflare_url:
         logger.info(f"Cloudflare URL: {cloudflare_url}")
     else:
-        logger.info("Cloudflare URL: Not set (will use local IP)")
+        logger.info("Cloudflare URL: Not set (will check file at runtime)")
 
     logger.info("")
     logger.info("Bot is running. Press Ctrl+C to stop.")

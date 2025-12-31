@@ -73,17 +73,20 @@ if exist "%URL_FILE%" del "%URL_FILE%"
 powershell -NoProfile -Command ^
     "$process = Start-Process -FilePath '%CLOUDFLARED_CMD%' -ArgumentList 'tunnel','--url','http://localhost:3000' -PassThru -NoNewWindow -RedirectStandardError '%TEMP%\cf_output.txt'; " ^
     "$found = $false; " ^
-    "while (-not $found -and -not $process.HasExited) { " ^
+    "$timeout = 30; " ^
+    "$elapsed = 0; " ^
+    "while (-not $found -and -not $process.HasExited -and $elapsed -lt $timeout) { " ^
     "    Start-Sleep -Milliseconds 500; " ^
+    "    $elapsed += 0.5; " ^
     "    if (Test-Path '%TEMP%\cf_output.txt') { " ^
     "        $content = Get-Content '%TEMP%\cf_output.txt' -Raw -ErrorAction SilentlyContinue; " ^
     "        if ($content -match 'https://[a-z0-9-]+\.trycloudflare\.com') { " ^
     "            $url = $matches[0]; " ^
-    "            $url | Out-File -FilePath '%URL_FILE%' -Encoding UTF8 -NoNewline; " ^
+    "            [System.IO.File]::WriteAllText('%URL_FILE%', $url); " ^
     "            Write-Host ''; " ^
-    "            Write-Host '========================================' -ForegroundColor Green; " ^
+    "            Write-Host '========================================'; " ^
     "            Write-Host '  TUNNEL URL SAVED!' -ForegroundColor Green; " ^
-    "            Write-Host '========================================' -ForegroundColor Green; " ^
+    "            Write-Host '========================================'; " ^
     "            Write-Host ''; " ^
     "            Write-Host \"  $url\" -ForegroundColor Cyan; " ^
     "            Write-Host ''; " ^
@@ -94,7 +97,7 @@ powershell -NoProfile -Command ^
     "        } " ^
     "    } " ^
     "}; " ^
-    "if (-not $found) { Write-Host 'Failed to get tunnel URL' -ForegroundColor Red }; " ^
+    "if (-not $found) { Write-Host 'Failed to get tunnel URL within 30s' -ForegroundColor Red }; " ^
     "Write-Host 'Tunnel is running. Press Ctrl+C to stop.' -ForegroundColor Yellow; " ^
     "Wait-Process -Id $process.Id"
 
