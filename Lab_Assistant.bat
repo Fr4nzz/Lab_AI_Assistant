@@ -324,7 +324,11 @@ if defined TELEGRAM_BOT_TOKEN (
         echo   Starting Telegram Bot...
         start "Lab Assistant - Telegram Bot" %WIN_STYLE% cmd /c "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
         set "TELEGRAM_STARTED=1"
+    ) else (
+        echo   [!] Telegram Bot disabled via --no-telegram
     )
+) else (
+    echo   [!] Telegram Bot skipped - TELEGRAM_BOT_TOKEN not set in .env
 )
 
 :: Start Cloudflare Tunnel (auto-start unless --no-tunnel)
@@ -363,9 +367,13 @@ echo    [*] Backend
 echo    [*] Frontend
 if defined TELEGRAM_STARTED (
     echo    [*] Telegram Bot
+) else (
+    echo    [ ] Telegram Bot - not configured
 )
 if defined TUNNEL_STARTED (
     echo    [*] Cloudflare Tunnel
+) else (
+    echo    [ ] Cloudflare Tunnel - disabled
 )
 echo:
 if defined DEBUG_MODE (
