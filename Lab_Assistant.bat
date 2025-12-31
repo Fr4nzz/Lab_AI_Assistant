@@ -311,7 +311,7 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 :: Start Backend
 echo   Starting Backend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%backend\" && python server.py' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'server.py' -WorkingDirectory '%SCRIPT_DIR%backend' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
 )
@@ -320,7 +320,7 @@ timeout /t 3 /nobreak >nul
 :: Start Frontend
 echo   Starting Frontend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%frontend-nuxt\" && npm run dev' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 )
@@ -416,7 +416,7 @@ goto :eof
 
 :start_telegram_bot
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-m', 'telegram_bot.bot' -WorkingDirectory '%SCRIPT_DIR%' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
@@ -427,7 +427,7 @@ goto :eof
 if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
     echo   Starting Cloudflare Tunnel...
     if defined RUN_HIDDEN (
-        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && cloudflare-quick-tunnel.bat' -WindowStyle Hidden"
+        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat' -WindowStyle Hidden"
     ) else (
         start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
     )
