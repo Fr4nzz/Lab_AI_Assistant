@@ -14,17 +14,29 @@ def get_cloudflare_url() -> str | None:
     # Check environment variable first
     url = os.environ.get("CLOUDFLARE_TUNNEL_URL")
     if url:
+        logger.debug(f"Using Cloudflare URL from env: {url}")
         return url.rstrip("/")
 
     # Check tunnel URL file (written by cloudflare-quick-tunnel.bat)
     tunnel_file = Path(__file__).parent.parent.parent / "data" / "tunnel_url.txt"
+    logger.debug(f"Checking tunnel URL file: {tunnel_file}")
+
     if tunnel_file.exists():
         try:
-            url = tunnel_file.read_text().strip()
-            if url and url.startswith("http"):
+            # Read with UTF-8 and handle BOM
+            content = tunnel_file.read_text(encoding="utf-8-sig").strip()
+            # Also strip any null bytes or weird characters
+            url = content.replace('\x00', '').strip()
+            logger.debug(f"Tunnel file content: '{url}'")
+            if url and (url.startswith("http://") or url.startswith("https://")):
+                logger.info(f"Using Cloudflare URL from file: {url}")
                 return url.rstrip("/")
+            else:
+                logger.warning(f"Tunnel file exists but content is invalid: '{url}'")
         except Exception as e:
             logger.warning(f"Failed to read tunnel URL file: {e}")
+    else:
+        logger.debug(f"Tunnel URL file not found: {tunnel_file}")
 
     return None
 
