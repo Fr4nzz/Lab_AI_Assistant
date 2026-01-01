@@ -476,8 +476,8 @@ if not defined CLOUDFLARED_CMD (
 
 echo   Starting Cloudflare Tunnel...
 if defined RUN_HIDDEN (
-    :: Use helper script for cleaner startup
-    powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\start-tunnel.ps1" -CloudflaredPath "%CLOUDFLARED_CMD%" -LogFile "%SCRIPT_DIR%logs\tunnel.log" -UrlFile "%URL_FILE%"
+    :: Launch PowerShell script as a background job (non-blocking)
+    powershell -NoProfile -Command "Start-Process -FilePath 'powershell' -ArgumentList '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%SCRIPT_DIR%scripts\start-tunnel.ps1\" -CloudflaredPath \"%CLOUDFLARED_CMD%\" -LogFile \"%SCRIPT_DIR%logs\tunnel.log\" -UrlFile \"%URL_FILE%\"' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
 )
