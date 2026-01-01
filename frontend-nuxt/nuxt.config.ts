@@ -68,6 +68,7 @@ export default defineNuxtConfig({
     server: {
       host: '127.0.0.1',
       strictPort: true,
+      allowedHosts: true, // Allow Cloudflare tunnel and other proxy hosts
       hmr: {
         protocol: 'ws',
         host: '127.0.0.1',
