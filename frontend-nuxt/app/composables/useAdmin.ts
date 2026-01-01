@@ -19,12 +19,20 @@ export interface UpdatesInfo {
   }
 }
 
+export interface ExamsUpdateInfo {
+  lastUpdate: string | null
+}
+
 export function useAdmin() {
   const adminStatus = useState<AdminStatus | null>('adminStatus', () => null)
   const allowedEmails = useState<string[]>('allowedEmails', () => [])
   const updatesInfo = useState<UpdatesInfo | null>('updatesInfo', () => null)
   const isCheckingUpdates = useState('isCheckingUpdates', () => false)
   const isUpdating = useState('isUpdating', () => false)
+
+  // Exams update state
+  const examsLastUpdate = useState<string | null>('examsLastUpdate', () => null)
+  const isUpdatingExams = useState('isUpdatingExams', () => false)
 
   const isAdmin = computed(() => adminStatus.value?.isAdmin ?? false)
 
@@ -115,6 +123,36 @@ export function useAdmin() {
     }
   }
 
+  async function fetchExamsLastUpdate() {
+    try {
+      const data = await $fetch<ExamsUpdateInfo>('http://localhost:8000/api/exams/last-update')
+      examsLastUpdate.value = data.lastUpdate
+      return data.lastUpdate
+    } catch (error) {
+      console.error('Failed to fetch exams last update:', error)
+      return null
+    }
+  }
+
+  async function triggerExamsUpdate() {
+    if (!isAdmin.value) return null
+
+    isUpdatingExams.value = true
+    try {
+      const data = await $fetch<{ success: boolean; message: string; examCount: number; lastUpdate: string }>(
+        'http://localhost:8000/api/exams/update',
+        { method: 'POST', timeout: 120000 }  // 2 minute timeout for download
+      )
+      examsLastUpdate.value = data.lastUpdate
+      return data
+    } catch (error) {
+      console.error('Failed to update exams list:', error)
+      throw error
+    } finally {
+      isUpdatingExams.value = false
+    }
+  }
+
   return {
     adminStatus,
     isAdmin,
@@ -122,11 +160,15 @@ export function useAdmin() {
     updatesInfo,
     isCheckingUpdates,
     isUpdating,
+    examsLastUpdate,
+    isUpdatingExams,
     fetchAdminStatus,
     fetchAllowedEmails,
     addAllowedEmail,
     removeAllowedEmail,
     checkForUpdates,
-    triggerUpdate
+    triggerUpdate,
+    fetchExamsLastUpdate,
+    triggerExamsUpdate
   }
 }
