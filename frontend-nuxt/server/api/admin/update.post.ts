@@ -65,10 +65,10 @@ export default defineEventHandler(async (event) => {
       console.log('[Update] Initiating restart...')
 
       if (isWindows) {
-        // On Windows, spawn start-dev.bat with --restart flag
+        // On Windows, spawn Lab_Assistant.bat with --restart flag
         // The batch file will kill existing processes before starting new ones
-        const batPath = `${projectRoot}\\start-dev.bat`
-        spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/c', batPath, '--restart', '--no-tunnel'], {
+        const batPath = `${projectRoot}\\Lab_Assistant.bat`
+        spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/c', batPath, '--restart'], {
           cwd: projectRoot,
           detached: true,
           stdio: 'ignore'
@@ -76,7 +76,7 @@ export default defineEventHandler(async (event) => {
       } else {
         // On Linux/Mac, use shell script
         try {
-          spawn('bash', ['./start-dev.sh', '--restart'], {
+          spawn('bash', ['./Lab_Assistant.sh', '--restart'], {
             cwd: projectRoot,
             detached: true,
             stdio: 'ignore'
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
         }
       }
 
-      // Don't exit here - let start-dev.bat kill this process
+      // Don't exit here - let Lab_Assistant.bat kill this process
       // This ensures the response is sent before we're terminated
     }, 500)
 
