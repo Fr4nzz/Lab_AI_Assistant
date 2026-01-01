@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Predefined prompts
 PROMPTS = {
-    "cotizar": "Por favor analiza esta imagen y genera una cotización con los exámenes de laboratorio que identificas. Lista cada examen con su código si es posible.",
-    "pasar": "Por favor analiza esta imagen y extrae los datos que ves para pasarlos al sistema. Identifica: nombre del paciente, cédula, exámenes solicitados, y cualquier otra información relevante.",
+    "cotizar": "Cotiza",
+    "pasar": "Pasa o revisa que esten bien pasados los datos de estos pacientes",
 }
 
 
