@@ -763,6 +763,9 @@ async def _edit_order_exams_impl(
 
     await page.bring_to_front()
 
+    # Dismiss any notification popups that might block interactions
+    await _browser.dismiss_popups()
+
     result = {
         "identifier": identifier,
         "tab_index": tab_index,
@@ -855,6 +858,8 @@ async def _edit_order_exams_impl(
                     button_id = matched_exam['button_id']
                     btn = page.locator(f'#{button_id}')
                     if await btn.count() > 0:
+                        # Dismiss popups before clicking (they can appear anytime)
+                        await _browser.dismiss_popups()
                         await btn.click()
                         result["added"].append(exam_code_upper)
                         await page.wait_for_timeout(300)
@@ -900,6 +905,9 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     # Wait for page to load and exams table to be ready
     await page.wait_for_load_state('networkidle', timeout=10000)
 
+    # Dismiss any notification popups that might block interactions
+    await _browser.dismiss_popups()
+
     # FIRST: Add all exams (before cedula to avoid "new patient" popup blocking buttons)
     added_codes = []
     failed_exams = []
@@ -920,6 +928,8 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         if button_id:
             btn = page.locator(f'#{button_id}')
             if await btn.count() > 0:
+                # Dismiss popups before clicking (they can appear anytime)
+                await _browser.dismiss_popups()
                 await btn.click()
                 added_codes.append(exam_code_upper)
                 await page.wait_for_timeout(100)
