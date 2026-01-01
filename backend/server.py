@@ -827,8 +827,8 @@ async def detect_image_rotation(request: ImageRotationRequest):
     start_time = time.time()
 
     try:
-        # Get Gemini model with key rotation
-        model = get_chat_model(provider="gemini", model_name="gemini-2.0-flash")
+        # Get Gemini model with key rotation - use lite model to avoid quota conflicts
+        model = get_chat_model(provider="gemini", model_name="gemini-2.5-flash-lite")
 
         # Extract base64 data (remove data URL prefix if present)
         base64_data = request.image
