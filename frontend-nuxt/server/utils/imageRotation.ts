@@ -150,10 +150,10 @@ Just respond with the number, nothing else.`
           apiKey: config.geminiApiKey
         })
 
-        console.log('[imageRotation] Gemini using model: gemini-flash-latest')
+        console.log('[imageRotation] Gemini using model: gemini-2.5-flash')
 
         const { text } = await generateText({
-          model: google('gemini-flash-latest'),
+          model: google('gemini-2.5-flash'),
           messages,
           temperature: 0.1,
           maxTokens: 10
