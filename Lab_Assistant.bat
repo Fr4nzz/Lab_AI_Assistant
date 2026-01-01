@@ -476,23 +476,8 @@ if not defined CLOUDFLARED_CMD (
 
 echo   Starting Cloudflare Tunnel...
 if defined RUN_HIDDEN (
-    :: In hidden mode, run cloudflared directly with PowerShell handling URL capture
-    powershell -NoProfile -WindowStyle Hidden -Command ^
-        "$logFile = '%SCRIPT_DIR%logs\tunnel.log'; " ^
-        "$urlFile = '%URL_FILE%'; " ^
-        "if (Test-Path $urlFile) { Remove-Item $urlFile }; " ^
-        "$process = Start-Process -FilePath '%CLOUDFLARED_CMD%' -ArgumentList 'tunnel','--url','http://localhost:3000' -PassThru -NoNewWindow -RedirectStandardError $logFile; " ^
-        "$timeout = 30; $elapsed = 0; " ^
-        "while ($elapsed -lt $timeout -and -not $process.HasExited) { " ^
-        "    Start-Sleep -Milliseconds 500; $elapsed += 0.5; " ^
-        "    if (Test-Path $logFile) { " ^
-        "        $content = Get-Content $logFile -Raw -ErrorAction SilentlyContinue; " ^
-        "        if ($content -match 'https://[a-z0-9-]+\.trycloudflare\.com') { " ^
-        "            [System.IO.File]::WriteAllText($urlFile, $matches[0]); break; " ^
-        "        } " ^
-        "    } " ^
-        "}; " ^
-        "Wait-Process -Id $process.Id -ErrorAction SilentlyContinue"
+    :: Use helper script for cleaner startup
+    powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\start-tunnel.ps1" -CloudflaredPath "%CLOUDFLARED_CMD%" -LogFile "%SCRIPT_DIR%logs\tunnel.log" -UrlFile "%URL_FILE%"
 ) else (
     start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
 )
