@@ -21,16 +21,16 @@ if exist "!SCRIPT_DIR!.env" (
 :: Create logs directory
 if not exist "!SCRIPT_DIR!logs" mkdir "!SCRIPT_DIR!logs"
 
-:: Run the appropriate service
+:: Run the appropriate service (use > to overwrite log on each restart)
 if /i "!SERVICE_TYPE!"=="backend" (
     cd /d "!SCRIPT_DIR!backend"
-    python server.py >> "!SCRIPT_DIR!logs\backend.log" 2>&1
+    python server.py > "!SCRIPT_DIR!logs\backend.log" 2>&1
 ) else if /i "!SERVICE_TYPE!"=="telegram" (
     cd /d "!SCRIPT_DIR!"
-    python -m telegram_bot.bot >> "!SCRIPT_DIR!logs\telegram.log" 2>&1
+    python -m telegram_bot.bot > "!SCRIPT_DIR!logs\telegram.log" 2>&1
 ) else if /i "!SERVICE_TYPE!"=="frontend" (
     cd /d "!SCRIPT_DIR!frontend-nuxt"
-    call npm run dev >> "!SCRIPT_DIR!logs\frontend.log" 2>&1
+    call npm run dev > "!SCRIPT_DIR!logs\frontend.log" 2>&1
 ) else (
     echo Unknown service type: !SERVICE_TYPE!
     exit /b 1

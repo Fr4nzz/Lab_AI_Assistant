@@ -14,8 +14,9 @@ $urlDir = Split-Path $UrlFile -Parent
 if ($logDir -and -not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 if ($urlDir -and -not (Test-Path $urlDir)) { New-Item -ItemType Directory -Path $urlDir -Force | Out-Null }
 
-# Remove old URL file
+# Remove old URL file and log file (fresh start)
 if (Test-Path $UrlFile) { Remove-Item $UrlFile -Force }
+if (Test-Path $LogFile) { Remove-Item $LogFile -Force }
 
 # Start cloudflared
 $process = Start-Process -FilePath $CloudflaredPath `
