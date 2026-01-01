@@ -342,9 +342,10 @@ onUnmounted(() => {
                 />
                 <FileAvatar
                   v-else-if="part.type === 'file'"
-                  :name="getFileName(part.url)"
+                  :name="getFileName((part as any).originalUrl || part.url)"
                   :type="part.mediaType"
-                  :preview-url="part.url"
+                  :preview-url="(part as any).originalUrl || part.url"
+                  :rotation="(part as any).rotation || 0"
                 />
               </template>
             </template>
@@ -387,9 +388,10 @@ onUnmounted(() => {
                   />
                   <FileAvatar
                     v-else-if="part.type === 'file'"
-                    :name="getFileName((part as any).url)"
+                    :name="getFileName((part as any).originalUrl || (part as any).url)"
                     :type="(part as any).mediaType"
-                    :preview-url="(part as any).url"
+                    :preview-url="(part as any).originalUrl || (part as any).url"
+                    :rotation="(part as any).rotation || 0"
                   />
                 </template>
 
