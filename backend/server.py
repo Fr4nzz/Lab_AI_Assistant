@@ -807,6 +807,81 @@ async def get_usage():
 
 
 # ============================================================
+# IMAGE ROTATION DETECTION ENDPOINT
+# ============================================================
+
+class ImageRotationRequest(BaseModel):
+    image: str  # base64 data (with or without data URL prefix)
+    mimeType: str = "image/jpeg"
+
+
+@app.post("/api/detect-rotation")
+async def detect_image_rotation(request: ImageRotationRequest):
+    """
+    Detect if an image needs rotation correction using Gemini vision.
+    Uses the existing key rotation system for rate limit handling.
+    """
+    import time
+    from models import get_chat_model
+
+    start_time = time.time()
+
+    try:
+        # Get Gemini model with key rotation
+        model = get_chat_model(provider="gemini", model_name="gemini-2.0-flash")
+
+        # Extract base64 data (remove data URL prefix if present)
+        base64_data = request.image
+        if base64_data.startswith("data:"):
+            base64_data = base64_data.split(",", 1)[1]
+
+        # Create message with image
+        message = HumanMessage(content=[
+            {
+                "type": "text",
+                "text": "Look at this image. If the image appears rotated or upside down, respond with ONLY a number: 90, 180, or 270 (degrees clockwise to fix it). If the image is correctly oriented, respond with ONLY: 0"
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{request.mimeType};base64,{base64_data}"}
+            }
+        ])
+
+        # Call model
+        result = await model.ainvoke([message])
+        response_text = result.content.strip()
+
+        # Parse rotation from response
+        rotation = 0
+        import re
+        match = re.search(r'\b(0|90|180|270)\b', response_text)
+        if match:
+            rotation = int(match.group(1))
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"[Rotation] Gemini detected {rotation}° in {elapsed_ms}ms")
+
+        return {
+            "rotation": rotation,
+            "detected": rotation != 0,
+            "provider": "gemini",
+            "timing": elapsed_ms,
+            "raw": response_text
+        }
+
+    except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"[Rotation] Gemini error ({elapsed_ms}ms): {e}")
+        return {
+            "rotation": 0,
+            "detected": False,
+            "provider": "gemini",
+            "error": str(e),
+            "timing": elapsed_ms
+        }
+
+
+# ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 

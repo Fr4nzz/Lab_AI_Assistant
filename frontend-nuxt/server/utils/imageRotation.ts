@@ -8,7 +8,6 @@
 
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { getBestVisionModel } from './openrouter-vision-models'
 import sharp from 'sharp'
 
@@ -141,32 +140,41 @@ Just respond with the number, nothing else.`
     promises.push(openRouterPromise)
   }
 
-  // Gemini promise
+  // Gemini promise - calls backend which has API key rotation
   if (hasGemini) {
     const geminiPromise = (async () => {
       const startTime = Date.now()
       try {
-        const google = createGoogleGenerativeAI({
-          apiKey: config.geminiApiKey
+        console.log('[imageRotation] Gemini using backend endpoint with key rotation')
+
+        // Call backend endpoint which uses langchain with key rotation
+        const response = await fetch(`${config.backendUrl || 'http://localhost:8000'}/api/detect-rotation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64Data,
+            mimeType
+          })
         })
 
-        console.log('[imageRotation] Gemini using model: gemini-2.5-flash')
+        if (!response.ok) {
+          throw new Error(`Backend returned ${response.status}`)
+        }
 
-        const { text } = await generateText({
-          model: google('gemini-2.5-flash'),
-          messages,
-          temperature: 0.1,
-          maxTokens: 10
-        })
-
+        const result = await response.json()
         timing.gemini = Date.now() - startTime
-        const rotation = parseInt(text.trim(), 10)
 
+        if (result.error) {
+          console.error(`[imageRotation] Gemini error (${timing.gemini}ms):`, result.error)
+          throw new Error(result.error)
+        }
+
+        const rotation = result.rotation
         if ([0, 90, 180, 270].includes(rotation)) {
           console.log(`[imageRotation] Gemini detected: ${rotation}° in ${timing.gemini}ms`)
-          return { rotation, detected: true, provider: 'gemini' }
+          return { rotation, detected: rotation !== 0, provider: 'gemini' }
         }
-        console.log(`[imageRotation] Gemini invalid response: ${text} (${timing.gemini}ms)`)
+        console.log(`[imageRotation] Gemini invalid response: ${result.raw} (${timing.gemini}ms)`)
         return { rotation: 0, detected: false, provider: 'gemini' }
       } catch (error) {
         timing.gemini = Date.now() - startTime
