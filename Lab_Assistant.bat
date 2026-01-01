@@ -17,6 +17,7 @@ set "NO_TELEGRAM="
 set "RESTART_MODE="
 set "INSTALL_DEPS="
 set "STOP_MODE="
+set "STATUS_MODE="
 
 :parse_args
 if "%~1"=="" goto :done_args
@@ -26,6 +27,7 @@ if /i "%~1"=="--no-telegram" set "NO_TELEGRAM=1"
 if /i "%~1"=="--restart" set "RESTART_MODE=1"
 if /i "%~1"=="--install" set "INSTALL_DEPS=1"
 if /i "%~1"=="--stop" set "STOP_MODE=1"
+if /i "%~1"=="--status" set "STATUS_MODE=1"
 shift
 goto :parse_args
 :done_args
@@ -41,6 +43,13 @@ if defined STOP_MODE (
     exit /b 0
 )
 
+:: Handle --status flag: check if services are running and exit
+if defined STATUS_MODE (
+    call :check_status
+    pause
+    exit /b 0
+)
+
 :: Set window style based on debug mode
 :: DEBUG: visible windows that stay open on exit (cmd /k)
 :: NORMAL: completely hidden background processes (PowerShell -WindowStyle Hidden)
@@ -48,6 +57,11 @@ if defined DEBUG_MODE (
     set "RUN_HIDDEN="
 ) else (
     set "RUN_HIDDEN=1"
+)
+
+:: Create logs directory for silent mode
+if defined RUN_HIDDEN (
+    if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs"
 )
 
 :: ============================================
@@ -324,7 +338,7 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 :: Start Backend
 echo   Starting Backend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'server.py' -WorkingDirectory '%SCRIPT_DIR%backend' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
 )
@@ -333,7 +347,7 @@ timeout /t 3 /nobreak >nul
 :: Start Frontend
 echo   Starting Frontend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%frontend-nuxt\" && npm run dev > \"%SCRIPT_DIR%logs\frontend.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 )
@@ -402,11 +416,13 @@ if defined DEBUG_MODE (
     echo  Mode: DEBUG - windows visible
 ) else (
     echo  Mode: Silent - services running in background
+    echo  Logs: logs\backend.log, frontend.log, telegram.log, tunnel.log
 )
 echo:
-echo  Tips:
+echo  Commands:
 echo    --debug    Show console windows
 echo    --stop     Stop all services
+echo    --status   Check if services are running
 echo ----------------------------------------
 echo  Press any key to close this window
 echo  Services will keep running in background
@@ -432,7 +448,7 @@ goto :eof
 
 :start_telegram_bot
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-m', 'telegram_bot.bot' -WorkingDirectory '%SCRIPT_DIR%' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
@@ -443,7 +459,7 @@ goto :eof
 if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
     echo   Starting Cloudflare Tunnel...
     if defined RUN_HIDDEN (
-        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat' -WindowStyle Hidden"
+        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && cloudflare-quick-tunnel.bat > \"%SCRIPT_DIR%logs\tunnel.log\" 2>&1' -WindowStyle Hidden"
     ) else (
         start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
     )
@@ -475,4 +491,52 @@ echo   Stopping Telegram bot...
 powershell -NoProfile -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
 
 timeout /t 1 /nobreak >nul
+goto :eof
+
+:check_status
+echo:
+echo ========================================
+echo     Lab Assistant Service Status
+echo ========================================
+echo:
+set "SCRIPT_DIR=%~dp0"
+
+:: Check Backend (port 8000)
+powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if($c) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Backend        - port 8000
+) else (
+    echo  [STOPPED] Backend        - port 8000
+)
+
+:: Check Frontend (port 3000)
+powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if($c) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Frontend       - port 3000
+) else (
+    echo  [STOPPED] Frontend       - port 3000
+)
+
+:: Check Telegram bot (python process with telegram_bot)
+powershell -NoProfile -Command "$p = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' }; if($p) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Telegram Bot
+) else (
+    echo  [STOPPED] Telegram Bot
+)
+
+:: Check Cloudflare tunnel
+powershell -NoProfile -Command "$p = Get-Process cloudflared -ErrorAction SilentlyContinue; if($p) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Cloudflare Tunnel
+) else (
+    echo  [STOPPED] Cloudflare Tunnel
+)
+
+echo:
+echo ----------------------------------------
+echo  Log files location: %SCRIPT_DIR%logs\
+echo    backend.log, frontend.log
+echo    telegram.log, tunnel.log
+echo ----------------------------------------
 goto :eof

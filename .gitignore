@@ -37,6 +37,10 @@ frontend-nuxt/data/
 # Debug logs (contain potentially sensitive info)
 data/debug/
 data/requests/
+data/tunnel_url.txt
+
+# Service logs (generated in silent mode)
+logs/
 
 # Cloudflare Tunnel credentials (stored in user profile, not in repo)
 # Note: config is in %USERPROFILE%\.cloudflared\, not in repo
