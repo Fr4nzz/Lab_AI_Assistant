@@ -23,6 +23,7 @@ export interface ImagePart {
   type: 'file'
   mediaType: string
   url: string
+  originalUrl?: string  // Original URL preserved when rotation is applied
   data?: string
   name?: string
   rotation?: number
@@ -245,6 +246,7 @@ export function extractImageParts(parts: unknown[]): ImagePart[] {
 
 /**
  * Replaces image parts in the original parts array with processed versions.
+ * Preserves the original URL when rotation is applied.
  */
 export function replaceImageParts(
   originalParts: unknown[],
@@ -264,14 +266,27 @@ export function replaceImageParts(
     const p = part as Record<string, unknown>
 
     if (p.type === 'file' && typeof p.mediaType === 'string' && p.mediaType.startsWith('image/')) {
+      const originalUrl = p.url as string
+      let processedImage: ImagePart | undefined
+
       // Try to find by name first
       const name = p.name as string | undefined
       if (name && processedByName.has(name)) {
-        return processedByName.get(name)!
+        processedImage = processedByName.get(name)!
+      } else if (processedIndex < processedImages.length) {
+        // Fall back to index-based matching
+        processedImage = processedImages[processedIndex++]
       }
-      // Fall back to index-based matching
-      if (processedIndex < processedImages.length) {
-        return processedImages[processedIndex++]
+
+      if (processedImage) {
+        // If rotation was applied and URL changed, preserve the original
+        if (processedImage.rotation && processedImage.rotation !== 0 && processedImage.url !== originalUrl) {
+          return {
+            ...processedImage,
+            originalUrl // Preserve original for display in UI
+          }
+        }
+        return processedImage
       }
     }
 
