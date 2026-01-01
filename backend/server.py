@@ -810,16 +810,19 @@ async def update_exams_list():
     4. Wait for CSV download
     5. Process with process_tarifas.py
     """
-    global _cached_exams
+    global _cached_exams, browser
 
     try:
         logger.info("[Exams] Starting exam list update...")
 
-        # Use the existing browser manager
-        page = await browser_manager.ensure_page()
+        # Use the existing browser
+        if not browser:
+            raise HTTPException(status_code=503, detail="Browser not initialized")
+
+        page = await browser.ensure_page()
 
         # Create a new tab for this operation
-        new_page = await browser_manager.context.new_page()
+        new_page = await browser.context.new_page()
 
         try:
             # Navigate to tarifas page
