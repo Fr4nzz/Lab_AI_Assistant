@@ -262,6 +262,8 @@ taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
 taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
 taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+:: Kill the tunnel manager script first (otherwise it restarts cloudflared)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 taskkill /IM cloudflared.exe /F 2>nul
 
 timeout /t 1 /nobreak >nul
@@ -505,6 +507,9 @@ taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
 
 echo   Stopping Cloudflare tunnel...
+:: First kill the PowerShell script that manages cloudflared (otherwise it will restart cloudflared)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
+:: Then kill cloudflared itself
 taskkill /IM cloudflared.exe /F 2>nul
 
 echo   Stopping Telegram bot...
