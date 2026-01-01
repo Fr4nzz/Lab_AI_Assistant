@@ -827,9 +827,9 @@ async def detect_image_rotation(request: ImageRotationRequest):
     start_time = time.time()
 
     try:
-        # Get Gemini model with key rotation - use gemini-flash-latest for better accuracy
-        # Disable thinking (thinking_budget=0) for faster, simpler rotation detection
-        model = get_chat_model(provider="gemini", model_name="gemini-flash-latest", thinking_budget=0)
+        # Get Gemini model with key rotation - use gemini-3-flash-preview for best accuracy
+        # Use minimal thinking for faster rotation detection while maintaining quality
+        model = get_chat_model(provider="gemini", model_name="gemini-3-flash-preview", thinking_level="minimal")
 
         # Extract base64 data (remove data URL prefix if present)
         base64_data = request.image
