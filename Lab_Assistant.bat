@@ -488,7 +488,7 @@ echo   Stopping Cloudflare tunnel...
 taskkill /IM cloudflared.exe /F 2>nul
 
 echo   Stopping Telegram bot...
-powershell -NoProfile -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 
 timeout /t 1 /nobreak >nul
 goto :eof
@@ -517,16 +517,17 @@ if %errorlevel% equ 0 (
     echo  [STOPPED] Frontend       - port 3000
 )
 
-:: Check Telegram bot (python process with telegram_bot)
-powershell -NoProfile -Command "$p = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' }; if($p) { exit 0 } else { exit 1 }" 2>nul
+:: Check Telegram bot (python process with telegram_bot in command line)
+:: Use Get-CimInstance to access CommandLine property
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' }; if($p) { exit 0 } else { exit 1 }" 2>nul
 if %errorlevel% equ 0 (
     echo  [RUNNING] Telegram Bot
 ) else (
     echo  [STOPPED] Telegram Bot
 )
 
-:: Check Cloudflare tunnel
-powershell -NoProfile -Command "$p = Get-Process cloudflared -ErrorAction SilentlyContinue; if($p) { exit 0 } else { exit 1 }" 2>nul
+:: Check Cloudflare tunnel (cloudflared.exe process)
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" -ErrorAction SilentlyContinue; if($p) { exit 0 } else { exit 1 }" 2>nul
 if %errorlevel% equ 0 (
     echo  [RUNNING] Cloudflare Tunnel
 ) else (
