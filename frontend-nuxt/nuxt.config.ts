@@ -11,9 +11,9 @@ export default defineNuxtConfig({
     enabled: false
   },
 
-  // Stable dev server configuration (works with Cloudflare tunnel)
+  // Stable dev server configuration (works with Cloudflare tunnel and LAN access)
   devServer: {
-    host: '127.0.0.1',
+    host: '0.0.0.0',  // Bind to all interfaces for LAN access
     port: 3000
   },
 
@@ -66,12 +66,12 @@ export default defineNuxtConfig({
 
     // Stable HMR configuration
     server: {
-      host: '127.0.0.1',
+      host: '0.0.0.0',  // Bind to all interfaces for LAN access
       strictPort: true,
       allowedHosts: true, // Allow Cloudflare tunnel and other proxy hosts
       hmr: {
         protocol: 'ws',
-        host: '127.0.0.1',
+        host: true,  // Auto-detect host for HMR (works with LAN and tunnels)
         port: 3000,
         clientPort: 3000
       },
