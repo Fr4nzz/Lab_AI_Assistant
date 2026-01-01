@@ -1,12 +1,14 @@
 /**
  * Server-side image rotation detection and processing utilities.
  *
- * Uses OpenRouter vision models for rotation detection.
+ * Races OpenRouter and Gemini vision models for rotation detection.
+ * Uses whichever responds faster for better latency.
  * Rotation is applied using sharp library on the server.
  */
 
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { getBestVisionModel } from './openrouter-vision-models'
 import sharp from 'sharp'
 
@@ -48,29 +50,25 @@ export interface ProcessedImage {
 }
 
 /**
- * Detects the rotation needed for an image using the vision model.
+ * Detects the rotation needed for an image using vision models.
+ * Races OpenRouter and Gemini to use whichever responds faster.
  * Returns 0, 90, 180, or 270 degrees.
  */
 export async function detectImageRotation(
   base64Data: string,
   mimeType: string
-): Promise<{ rotation: number; detected: boolean }> {
+): Promise<{ rotation: number; detected: boolean; provider?: string; timing?: { openrouter?: number; gemini?: number } }> {
   const config = useRuntimeConfig()
 
-  if (!config.openrouterApiKey) {
-    console.log('[imageRotation] No OpenRouter key configured')
+  const hasOpenRouter = !!config.openrouterApiKey
+  const hasGemini = !!config.geminiApiKey
+
+  if (!hasOpenRouter && !hasGemini) {
+    console.log('[imageRotation] No API keys configured')
     return { rotation: 0, detected: false }
   }
 
-  try {
-    const modelId = await getBestVisionModel()
-    console.log('[imageRotation] Using model:', modelId)
-
-    const openrouter = createOpenRouter({
-      apiKey: config.openrouterApiKey
-    })
-
-    const prompt = `Analyze this image and determine if it needs rotation correction.
+  const prompt = `Analyze this image and determine if it needs rotation correction.
 
 Look for these indicators of incorrect orientation:
 - Text that is sideways or upside down
@@ -86,36 +84,130 @@ Respond with ONLY one of these values:
 
 Just respond with the number, nothing else.`
 
-    const { text } = await generateText({
-      model: openrouter(modelId),
-      messages: [
+  const messages = [
+    {
+      role: 'user' as const,
+      content: [
+        { type: 'text' as const, text: prompt },
         {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image',
-              image: `data:${mimeType};base64,${base64Data}`
-            }
-          ]
+          type: 'image' as const,
+          image: `data:${mimeType};base64,${base64Data}`
         }
-      ],
-      temperature: 0.1,
-      maxTokens: 10
-    })
-
-    const rotation = parseInt(text.trim(), 10)
-
-    if ([0, 90, 180, 270].includes(rotation)) {
-      console.log('[imageRotation] Detected rotation:', rotation)
-      return { rotation, detected: true }
+      ]
     }
+  ]
 
-    console.log('[imageRotation] Invalid response:', text)
-    return { rotation: 0, detected: false }
+  // Track timing for both providers
+  const timing: { openrouter?: number; gemini?: number } = {}
+  let winnerProvider = ''
+
+  // Create promises for both providers
+  const promises: Promise<{ rotation: number; detected: boolean; provider: string }>[] = []
+
+  // OpenRouter promise
+  if (hasOpenRouter) {
+    const openRouterPromise = (async () => {
+      const startTime = Date.now()
+      try {
+        const modelId = await getBestVisionModel()
+        console.log('[imageRotation] OpenRouter using model:', modelId)
+
+        const openrouter = createOpenRouter({
+          apiKey: config.openrouterApiKey
+        })
+
+        const { text } = await generateText({
+          model: openrouter(modelId),
+          messages,
+          temperature: 0.1,
+          maxTokens: 10
+        })
+
+        timing.openrouter = Date.now() - startTime
+        const rotation = parseInt(text.trim(), 10)
+
+        if ([0, 90, 180, 270].includes(rotation)) {
+          console.log(`[imageRotation] OpenRouter detected: ${rotation}° in ${timing.openrouter}ms`)
+          return { rotation, detected: true, provider: 'openrouter' }
+        }
+        console.log(`[imageRotation] OpenRouter invalid response: ${text} (${timing.openrouter}ms)`)
+        return { rotation: 0, detected: false, provider: 'openrouter' }
+      } catch (error) {
+        timing.openrouter = Date.now() - startTime
+        console.error(`[imageRotation] OpenRouter error (${timing.openrouter}ms):`, error)
+        throw error
+      }
+    })()
+    promises.push(openRouterPromise)
+  }
+
+  // Gemini promise
+  if (hasGemini) {
+    const geminiPromise = (async () => {
+      const startTime = Date.now()
+      try {
+        const google = createGoogleGenerativeAI({
+          apiKey: config.geminiApiKey
+        })
+
+        console.log('[imageRotation] Gemini using model: gemini-2.0-flash')
+
+        const { text } = await generateText({
+          model: google('gemini-2.0-flash'),
+          messages,
+          temperature: 0.1,
+          maxTokens: 10
+        })
+
+        timing.gemini = Date.now() - startTime
+        const rotation = parseInt(text.trim(), 10)
+
+        if ([0, 90, 180, 270].includes(rotation)) {
+          console.log(`[imageRotation] Gemini detected: ${rotation}° in ${timing.gemini}ms`)
+          return { rotation, detected: true, provider: 'gemini' }
+        }
+        console.log(`[imageRotation] Gemini invalid response: ${text} (${timing.gemini}ms)`)
+        return { rotation: 0, detected: false, provider: 'gemini' }
+      } catch (error) {
+        timing.gemini = Date.now() - startTime
+        console.error(`[imageRotation] Gemini error (${timing.gemini}ms):`, error)
+        throw error
+      }
+    })()
+    promises.push(geminiPromise)
+  }
+
+  try {
+    // Race both providers - use first successful response
+    const result = await Promise.race(promises)
+    winnerProvider = result.provider
+
+    // Log the winner and timing comparison
+    console.log(`[imageRotation] 🏆 WINNER: ${winnerProvider.toUpperCase()}`)
+
+    // Wait a bit for the other to complete for timing comparison
+    setTimeout(() => {
+      console.log(`[imageRotation] ⏱️ TIMING COMPARISON:`)
+      console.log(`   OpenRouter: ${timing.openrouter ? timing.openrouter + 'ms' : 'not completed/errored'}`)
+      console.log(`   Gemini:     ${timing.gemini ? timing.gemini + 'ms' : 'not completed/errored'}`)
+      if (timing.openrouter && timing.gemini) {
+        const diff = Math.abs(timing.openrouter - timing.gemini)
+        const faster = timing.gemini < timing.openrouter ? 'Gemini' : 'OpenRouter'
+        console.log(`   ${faster} was ${diff}ms faster`)
+      }
+    }, 5000) // Wait 5 seconds for slower provider to complete
+
+    return { ...result, timing }
   } catch (error) {
-    console.error('[imageRotation] Detection error:', error)
-    return { rotation: 0, detected: false }
+    // If race fails, try to get any successful result
+    const results = await Promise.allSettled(promises)
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.detected) {
+        return { ...result.value, timing }
+      }
+    }
+    console.error('[imageRotation] All providers failed')
+    return { rotation: 0, detected: false, timing }
   }
 }
 

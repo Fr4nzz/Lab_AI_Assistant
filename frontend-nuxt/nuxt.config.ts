@@ -48,6 +48,7 @@ export default defineNuxtConfig({
     // Server-side only
     backendUrl: process.env.BACKEND_URL || 'http://localhost:8000',
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+    geminiApiKey: process.env.GEMINI_API_KEY || (process.env.GEMINI_API_KEYS || '').split(',')[0] || '',
     allowedEmails: process.env.ALLOWED_EMAILS || '',
     adminEmails: process.env.ADMIN_EMAILS || '',
     databasePath: process.env.DATABASE_PATH || './data/lab-assistant.db',
