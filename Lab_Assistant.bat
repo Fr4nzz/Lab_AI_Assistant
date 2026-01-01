@@ -339,7 +339,7 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 echo   Starting Backend...
 if defined RUN_HIDDEN (
     :: Pass required env vars explicitly and use direct execution
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set ANTHROPIC_API_KEY=%ANTHROPIC_API_KEY% && cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set GEMINI_API_KEYS=%GEMINI_API_KEYS% && set OPENROUTER_API_KEY=%OPENROUTER_API_KEY% && cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
 )
@@ -450,8 +450,8 @@ goto :eof
 
 :start_telegram_bot
 if defined RUN_HIDDEN (
-    :: Pass all required env vars explicitly to ensure they're inherited
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && set ANTHROPIC_API_KEY=%ANTHROPIC_API_KEY% && cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
+    :: Pass TELEGRAM_BOT_TOKEN explicitly to ensure it's inherited
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
