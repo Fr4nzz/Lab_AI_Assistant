@@ -455,18 +455,48 @@ if defined RUN_HIDDEN (
 goto :eof
 
 :start_cloudflare_tunnel
-:: Use cloudflare-quick-tunnel.bat which saves the URL to a file
-if exist "%SCRIPT_DIR%cloudflare-quick-tunnel.bat" (
-    echo   Starting Cloudflare Tunnel...
-    if defined RUN_HIDDEN (
-        powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && cloudflare-quick-tunnel.bat > \"%SCRIPT_DIR%logs\tunnel.log\" 2>&1' -WindowStyle Hidden"
-    ) else (
-        start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
-    )
-    set "TUNNEL_STARTED=1"
-) else (
-    echo   [!] cloudflare-quick-tunnel.bat not found
+:: Start Cloudflare tunnel
+set "DATA_DIR=%SCRIPT_DIR%data"
+set "URL_FILE=%DATA_DIR%\tunnel_url.txt"
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
+
+:: Find cloudflared
+set "CLOUDFLARED_CMD="
+where cloudflared >nul 2>&1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+) else if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
 )
+
+if not defined CLOUDFLARED_CMD (
+    echo   [!] cloudflared not found - run cloudflare-quick-tunnel.bat manually first
+    goto :eof
+)
+
+echo   Starting Cloudflare Tunnel...
+if defined RUN_HIDDEN (
+    :: In hidden mode, run cloudflared directly with PowerShell handling URL capture
+    powershell -NoProfile -WindowStyle Hidden -Command ^
+        "$logFile = '%SCRIPT_DIR%logs\tunnel.log'; " ^
+        "$urlFile = '%URL_FILE%'; " ^
+        "if (Test-Path $urlFile) { Remove-Item $urlFile }; " ^
+        "$process = Start-Process -FilePath '%CLOUDFLARED_CMD%' -ArgumentList 'tunnel','--url','http://localhost:3000' -PassThru -NoNewWindow -RedirectStandardError $logFile; " ^
+        "$timeout = 30; $elapsed = 0; " ^
+        "while ($elapsed -lt $timeout -and -not $process.HasExited) { " ^
+        "    Start-Sleep -Milliseconds 500; $elapsed += 0.5; " ^
+        "    if (Test-Path $logFile) { " ^
+        "        $content = Get-Content $logFile -Raw -ErrorAction SilentlyContinue; " ^
+        "        if ($content -match 'https://[a-z0-9-]+\.trycloudflare\.com') { " ^
+        "            [System.IO.File]::WriteAllText($urlFile, $matches[0]); break; " ^
+        "        } " ^
+        "    } " ^
+        "}; " ^
+        "Wait-Process -Id $process.Id -ErrorAction SilentlyContinue"
+) else (
+    start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
+)
+set "TUNNEL_STARTED=1"
 goto :eof
 
 :stop_all_services
