@@ -11,9 +11,10 @@ export default defineNuxtConfig({
     enabled: false
   },
 
-  // Expose dev server on network
+  // Stable dev server configuration (works with Cloudflare tunnel)
   devServer: {
-    host: '0.0.0.0'
+    host: '127.0.0.1',
+    port: 3000
   },
 
   css: ['~/assets/css/main.css'],
@@ -40,6 +41,44 @@ export default defineNuxtConfig({
     // Externalize native modules that can't be bundled
     externals: {
       external: ['sharp']
+    }
+  },
+
+  // Vite configuration for stable HMR and dependency optimization
+  vite: {
+    // Pre-bundle heavy dependencies to prevent "optimized dependencies changed" reloads
+    optimizeDeps: {
+      include: [
+        // AI SDK packages (heavy, frequently cause re-optimization)
+        'ai',
+        '@ai-sdk/vue',
+
+        // Database packages
+        'drizzle-orm',
+        'better-sqlite3',
+
+        // UI dependencies
+        'date-fns'
+      ],
+      // Hold first results until static imports are crawled
+      holdUntilCrawlEnd: true
+    },
+
+    // Stable HMR configuration
+    server: {
+      host: '127.0.0.1',
+      strictPort: true,
+      hmr: {
+        protocol: 'ws',
+        host: '127.0.0.1',
+        port: 3000,
+        clientPort: 3000
+      },
+      watch: {
+        // Use polling on Windows for better reliability
+        usePolling: process.platform === 'win32',
+        interval: 100
+      }
     }
   },
 
