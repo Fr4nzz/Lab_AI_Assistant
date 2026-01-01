@@ -850,7 +850,20 @@ async def detect_image_rotation(request: ImageRotationRequest):
 
         # Call model
         result = await model.ainvoke([message])
-        response_text = result.content.strip()
+
+        # Handle Gemini 3 thinking response format
+        # When include_thoughts=True, content is a list: [{'type': 'thinking', ...}, {'type': 'text', 'text': '...'}]
+        content = result.content
+        if isinstance(content, list):
+            # Extract text from the response blocks
+            response_text = ""
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    response_text = block.get("text", "")
+                    break
+            logger.debug(f"[Rotation] Gemini 3 response blocks: {len(content)}, extracted text: {response_text[:50] if response_text else 'empty'}")
+        else:
+            response_text = content.strip() if content else ""
 
         # Parse rotation from response
         rotation = 0
@@ -872,7 +885,8 @@ async def detect_image_rotation(request: ImageRotationRequest):
 
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"[Rotation] Gemini error ({elapsed_ms}ms): {e}")
+        import traceback
+        logger.error(f"[Rotation] Gemini error ({elapsed_ms}ms): {e}\n{traceback.format_exc()}")
         return {
             "rotation": 0,
             "detected": False,
