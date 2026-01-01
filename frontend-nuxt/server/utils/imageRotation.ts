@@ -1,14 +1,10 @@
 /**
  * Server-side image rotation detection and processing utilities.
  *
- * Races OpenRouter and Gemini vision models for rotation detection.
- * Uses whichever responds faster for better latency.
+ * Uses Gemini via backend endpoint for rotation detection.
  * Rotation is applied using sharp library on the server.
  */
 
-import { generateText } from 'ai'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getBestVisionModel } from './openrouter-vision-models'
 import sharp from 'sharp'
 
 /**
@@ -49,172 +45,52 @@ export interface ProcessedImage {
 }
 
 /**
- * Detects the rotation needed for an image using vision models.
- * Races OpenRouter and Gemini to use whichever responds faster.
+ * Detects the rotation needed for an image using Gemini vision.
+ * Calls the backend endpoint which handles API key rotation.
  * Returns 0, 90, 180, or 270 degrees.
  */
 export async function detectImageRotation(
   base64Data: string,
   mimeType: string
-): Promise<{ rotation: number; detected: boolean; provider?: string; timing?: { openrouter?: number; gemini?: number } }> {
+): Promise<{ rotation: number; detected: boolean; provider?: string; timing?: number }> {
   const config = useRuntimeConfig()
-
-  const hasOpenRouter = !!config.openrouterApiKey
-  const hasGemini = !!config.geminiApiKey
-
-  if (!hasOpenRouter && !hasGemini) {
-    console.log('[imageRotation] No API keys configured')
-    return { rotation: 0, detected: false }
-  }
-
-  const prompt = `Analyze this image and determine if it needs rotation correction.
-
-Look for these indicators of incorrect orientation:
-- Text that is sideways or upside down
-- People or objects that appear tilted
-- Horizon lines that aren't horizontal
-- Buildings or structures that lean unnaturally
-
-Respond with ONLY one of these values:
-- 0 (image is correctly oriented)
-- 90 (image needs 90 degrees clockwise rotation)
-- 180 (image is upside down)
-- 270 (image needs 90 degrees counter-clockwise rotation)
-
-Just respond with the number, nothing else.`
-
-  const messages = [
-    {
-      role: 'user' as const,
-      content: [
-        { type: 'text' as const, text: prompt },
-        {
-          type: 'image' as const,
-          image: `data:${mimeType};base64,${base64Data}`
-        }
-      ]
-    }
-  ]
-
-  // Track timing for both providers
-  const timing: { openrouter?: number; gemini?: number } = {}
-  let winnerProvider = ''
-
-  // Create promises for both providers
-  const promises: Promise<{ rotation: number; detected: boolean; provider: string }>[] = []
-
-  // OpenRouter promise
-  if (hasOpenRouter) {
-    const openRouterPromise = (async () => {
-      const startTime = Date.now()
-      try {
-        const modelId = await getBestVisionModel()
-        console.log('[imageRotation] OpenRouter using model:', modelId)
-
-        const openrouter = createOpenRouter({
-          apiKey: config.openrouterApiKey
-        })
-
-        const { text } = await generateText({
-          model: openrouter(modelId),
-          messages,
-          temperature: 0.1,
-          maxTokens: 10
-        })
-
-        timing.openrouter = Date.now() - startTime
-        const rotation = parseInt(text.trim(), 10)
-
-        if ([0, 90, 180, 270].includes(rotation)) {
-          console.log(`[imageRotation] OpenRouter detected: ${rotation}° in ${timing.openrouter}ms`)
-          return { rotation, detected: true, provider: 'openrouter' }
-        }
-        console.log(`[imageRotation] OpenRouter invalid response: ${text} (${timing.openrouter}ms)`)
-        return { rotation: 0, detected: false, provider: 'openrouter' }
-      } catch (error) {
-        timing.openrouter = Date.now() - startTime
-        console.error(`[imageRotation] OpenRouter error (${timing.openrouter}ms):`, error)
-        throw error
-      }
-    })()
-    promises.push(openRouterPromise)
-  }
-
-  // Gemini promise - calls backend which has API key rotation
-  if (hasGemini) {
-    const geminiPromise = (async () => {
-      const startTime = Date.now()
-      try {
-        console.log('[imageRotation] Gemini using backend endpoint with key rotation')
-
-        // Call backend endpoint which uses langchain with key rotation
-        const response = await fetch(`${config.backendUrl || 'http://localhost:8000'}/api/detect-rotation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: base64Data,
-            mimeType
-          })
-        })
-
-        if (!response.ok) {
-          throw new Error(`Backend returned ${response.status}`)
-        }
-
-        const result = await response.json()
-        timing.gemini = Date.now() - startTime
-
-        if (result.error) {
-          console.error(`[imageRotation] Gemini error (${timing.gemini}ms):`, result.error)
-          throw new Error(result.error)
-        }
-
-        const rotation = result.rotation
-        if ([0, 90, 180, 270].includes(rotation)) {
-          console.log(`[imageRotation] Gemini detected: ${rotation}° in ${timing.gemini}ms`)
-          return { rotation, detected: rotation !== 0, provider: 'gemini' }
-        }
-        console.log(`[imageRotation] Gemini invalid response: ${result.raw} (${timing.gemini}ms)`)
-        return { rotation: 0, detected: false, provider: 'gemini' }
-      } catch (error) {
-        timing.gemini = Date.now() - startTime
-        console.error(`[imageRotation] Gemini error (${timing.gemini}ms):`, error)
-        throw error
-      }
-    })()
-    promises.push(geminiPromise)
-  }
+  const startTime = Date.now()
 
   try {
-    // Race both providers - use first successful response
-    const result = await Promise.race(promises)
-    winnerProvider = result.provider
+    console.log('[imageRotation] Detecting rotation via backend (Gemini)')
 
-    // Log the winner and timing comparison
-    console.log(`[imageRotation] 🏆 WINNER: ${winnerProvider.toUpperCase()}`)
+    const response = await fetch(`${config.backendUrl || 'http://localhost:8000'}/api/detect-rotation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: base64Data,
+        mimeType
+      })
+    })
 
-    // Wait a bit for the other to complete for timing comparison
-    setTimeout(() => {
-      console.log(`[imageRotation] ⏱️ TIMING COMPARISON:`)
-      console.log(`   OpenRouter: ${timing.openrouter ? timing.openrouter + 'ms' : 'not completed/errored'}`)
-      console.log(`   Gemini:     ${timing.gemini ? timing.gemini + 'ms' : 'not completed/errored'}`)
-      if (timing.openrouter && timing.gemini) {
-        const diff = Math.abs(timing.openrouter - timing.gemini)
-        const faster = timing.gemini < timing.openrouter ? 'Gemini' : 'OpenRouter'
-        console.log(`   ${faster} was ${diff}ms faster`)
-      }
-    }, 5000) // Wait 5 seconds for slower provider to complete
-
-    return { ...result, timing }
-  } catch (error) {
-    // If race fails, try to get any successful result
-    const results = await Promise.allSettled(promises)
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.detected) {
-        return { ...result.value, timing }
-      }
+    if (!response.ok) {
+      throw new Error(`Backend returned ${response.status}`)
     }
-    console.error('[imageRotation] All providers failed')
+
+    const result = await response.json()
+    const timing = Date.now() - startTime
+
+    if (result.error) {
+      console.error(`[imageRotation] Gemini error (${timing}ms):`, result.error)
+      return { rotation: 0, detected: false, provider: 'gemini', timing }
+    }
+
+    const rotation = result.rotation
+    if ([0, 90, 180, 270].includes(rotation)) {
+      console.log(`[imageRotation] Gemini detected: ${rotation}° in ${timing}ms`)
+      return { rotation, detected: rotation !== 0, provider: 'gemini', timing }
+    }
+
+    console.log(`[imageRotation] Gemini invalid response: ${result.raw} (${timing}ms)`)
+    return { rotation: 0, detected: false, provider: 'gemini', timing }
+  } catch (error) {
+    const timing = Date.now() - startTime
+    console.error(`[imageRotation] Error (${timing}ms):`, error)
     return { rotation: 0, detected: false, timing }
   }
 }
