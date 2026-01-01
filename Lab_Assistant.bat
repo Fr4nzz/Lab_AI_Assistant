@@ -338,8 +338,8 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 :: Start Backend
 echo   Starting Backend...
 if defined RUN_HIDDEN (
-    :: Pass required env vars explicitly and use direct execution
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set GEMINI_API_KEYS=%GEMINI_API_KEYS% && set OPENROUTER_API_KEY=%OPENROUTER_API_KEY% && cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
+    :: Use helper script that loads .env properly (handles special chars in API keys)
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" backend \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
 )
@@ -347,7 +347,8 @@ if defined RUN_HIDDEN (
 :: Start Frontend (parallel - no wait)
 echo   Starting Frontend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%frontend-nuxt\" && npm run dev > \"%SCRIPT_DIR%logs\frontend.log\" 2>&1' -WindowStyle Hidden"
+    :: Use helper script for consistent env handling
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" frontend \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 )
@@ -450,8 +451,8 @@ goto :eof
 
 :start_telegram_bot
 if defined RUN_HIDDEN (
-    :: Pass TELEGRAM_BOT_TOKEN explicitly to ensure it's inherited
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
+    :: Use helper script that loads .env properly
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" telegram \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
