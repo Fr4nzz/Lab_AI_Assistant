@@ -293,6 +293,7 @@ set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\nuxt" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@ai-sdk\google" set "NEED_INSTALL=1"
 if defined INSTALL_DEPS set "NEED_INSTALL=1"
 
 if defined NEED_INSTALL (
