@@ -1,6 +1,7 @@
 """Text message handler for Telegram bot."""
 
 import logging
+import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -17,13 +18,60 @@ from ..utils import build_chat_url
 logger = logging.getLogger(__name__)
 
 
+def convert_tables_to_code_blocks(text: str) -> str:
+    """
+    Convert Markdown tables to code blocks for Telegram display.
+
+    Telegram doesn't support tables natively, so we wrap them in
+    code blocks to preserve alignment with monospace font.
+    """
+    lines = text.split('\n')
+    result = []
+    table_lines = []
+    in_table = False
+
+    for line in lines:
+        # Check if line looks like a table row (starts with | or contains | surrounded by content)
+        is_table_line = bool(re.match(r'^\s*\|.*\|\s*$', line)) or bool(re.match(r'^\s*\|?\s*:?-+:?\s*\|', line))
+
+        if is_table_line:
+            if not in_table:
+                in_table = True
+                table_lines = []
+            table_lines.append(line)
+        else:
+            if in_table:
+                # End of table - wrap collected lines in code block
+                if table_lines:
+                    result.append('```')
+                    result.extend(table_lines)
+                    result.append('```')
+                table_lines = []
+                in_table = False
+            result.append(line)
+
+    # Handle table at end of text
+    if in_table and table_lines:
+        result.append('```')
+        result.extend(table_lines)
+        result.append('```')
+
+    return '\n'.join(result)
+
+
 def convert_markdown_for_telegram(text: str) -> tuple[str, str]:
     """
     Convert standard Markdown to Telegram-compatible MarkdownV2.
 
+    Handles tables specially by wrapping them in code blocks since
+    Telegram doesn't support table formatting natively.
+
     Returns:
         tuple: (converted_text, parse_mode) where parse_mode is "MarkdownV2" or None
     """
+    # Pre-process: convert tables to code blocks
+    text = convert_tables_to_code_blocks(text)
+
     if not HAS_TELEGRAMIFY:
         # Fallback: return as-is with standard Markdown
         return text, "Markdown"
