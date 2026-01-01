@@ -1,14 +1,27 @@
 <script setup lang="ts">
-const { isAdmin, fetchAdminStatus, updatesInfo, isCheckingUpdates, isUpdating, checkForUpdates, triggerUpdate } = useAdmin()
+const {
+  isAdmin,
+  fetchAdminStatus,
+  updatesInfo,
+  isCheckingUpdates,
+  isUpdating,
+  checkForUpdates,
+  triggerUpdate,
+  examsLastUpdate,
+  isUpdatingExams,
+  fetchExamsLastUpdate,
+  triggerExamsUpdate
+} = useAdmin()
 const toast = useToast()
 
 // Check admin status on mount
 onMounted(async () => {
   await fetchAdminStatus()
 
-  // If admin, check for updates initially
+  // If admin, check for updates and exams last update initially
   if (isAdmin.value) {
     await checkForUpdates()
+    await fetchExamsLastUpdate()
 
     // Then poll every 5 minutes
     setInterval(async () => {
@@ -16,6 +29,23 @@ onMounted(async () => {
         await checkForUpdates()
       }
     }, 5 * 60 * 1000)
+  }
+})
+
+// Format the exams last update timestamp
+const formattedExamsLastUpdate = computed(() => {
+  if (!examsLastUpdate.value) return null
+  try {
+    const date = new Date(examsLastUpdate.value)
+    return date.toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return examsLastUpdate.value
   }
 })
 
@@ -57,6 +87,27 @@ async function handleRefreshUpdates() {
       description: 'Estás en la última versión',
       icon: 'i-lucide-check-circle',
       color: 'neutral'
+    })
+  }
+}
+
+async function handleExamsUpdate() {
+  if (isUpdatingExams.value) return
+
+  try {
+    const result = await triggerExamsUpdate()
+    toast.add({
+      title: 'Lista de exámenes actualizada',
+      description: result?.message || 'Actualización exitosa',
+      icon: 'i-lucide-check-circle',
+      color: 'primary'
+    })
+  } catch (error: any) {
+    toast.add({
+      title: 'Error al actualizar exámenes',
+      description: error.message || 'No se pudo actualizar la lista de exámenes',
+      icon: 'i-lucide-alert-circle',
+      color: 'error'
     })
   }
 }
@@ -121,6 +172,31 @@ async function handleRefreshUpdates() {
     <!-- Current version info -->
     <div v-if="updatesInfo" class="px-2 py-1 text-xs text-muted">
       <span class="font-mono">{{ updatesInfo.currentBranch }}@{{ updatesInfo.localCommit }}</span>
+    </div>
+
+    <!-- Update Exams List Button -->
+    <UButton
+      variant="ghost"
+      color="neutral"
+      block
+      class="justify-start"
+      :loading="isUpdatingExams"
+      :disabled="isUpdatingExams"
+      @click="handleExamsUpdate"
+    >
+      <span class="flex items-center gap-2">
+        <UIcon
+          :name="isUpdatingExams ? 'i-lucide-loader-2' : 'i-lucide-file-spreadsheet'"
+          class="w-4 h-4"
+          :class="{ 'animate-spin': isUpdatingExams }"
+        />
+        <span>Actualizar lista de exámenes</span>
+      </span>
+    </UButton>
+
+    <!-- Exams last update info -->
+    <div v-if="formattedExamsLastUpdate" class="px-2 py-1 text-xs text-muted">
+      <span>Exámenes: {{ formattedExamsLastUpdate }}</span>
     </div>
 
     <!-- Allowed Emails Modal -->
