@@ -338,22 +338,21 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 :: Start Backend
 echo   Starting Backend...
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
+    :: Pass required env vars explicitly and use direct execution
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set ANTHROPIC_API_KEY=%ANTHROPIC_API_KEY% && cd /d \"%SCRIPT_DIR%backend\" && python server.py > \"%SCRIPT_DIR%logs\backend.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
 )
-timeout /t 3 /nobreak >nul
 
-:: Start Frontend
+:: Start Frontend (parallel - no wait)
 echo   Starting Frontend...
 if defined RUN_HIDDEN (
     powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%frontend-nuxt\" && npm run dev > \"%SCRIPT_DIR%logs\frontend.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
 )
-timeout /t 5 /nobreak >nul
 
-:: Start Telegram bot if configured
+:: Start Telegram bot if configured (parallel - no wait)
 set "TELEGRAM_STARTED="
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
@@ -367,15 +366,18 @@ if defined TELEGRAM_BOT_TOKEN (
     echo   [!] Telegram Bot skipped - TELEGRAM_BOT_TOKEN not set in .env
 )
 
-:: Start Cloudflare Tunnel (auto-start unless --no-tunnel)
+:: Start Cloudflare Tunnel (parallel - no wait)
 set "TUNNEL_STARTED="
 if not defined NO_TUNNEL (
     call :start_cloudflare_tunnel
 )
 
+:: Single wait for all services to initialize (instead of multiple sequential waits)
+echo   Waiting for services to initialize...
+timeout /t 5 /nobreak >nul
+
 :: Open browser (skip in restart mode)
 if not defined RESTART_MODE (
-    timeout /t 2 /nobreak >nul
     start "" "http://localhost:3000"
 )
 
@@ -448,7 +450,8 @@ goto :eof
 
 :start_telegram_bot
 if defined RUN_HIDDEN (
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
+    :: Pass all required env vars explicitly to ensure they're inherited
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && set ANTHROPIC_API_KEY=%ANTHROPIC_API_KEY% && cd /d \"%SCRIPT_DIR%\" && python -m telegram_bot.bot > \"%SCRIPT_DIR%logs\telegram.log\" 2>&1' -WindowStyle Hidden"
 ) else (
     start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
