@@ -254,6 +254,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     max_retries: int = 6
     temperature: float = 0.7
     min_request_interval: float = 4.0  # 15 RPM = 4s interval
+    thinking_budget: Optional[int] = None  # None=default, 0=disable thinking, -1=dynamic
     _current_model: Optional[ChatGoogleGenerativeAI] = None
     _bound_tools: Optional[List[Any]] = None  # Store tools for re-binding after key switch
     _tool_kwargs: Optional[Dict] = None  # Store bind_tools kwargs
@@ -261,8 +262,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, api_keys: List[str], model_name: str = "gemini-2.0-flash", **kwargs):
-        super().__init__(api_keys=api_keys, model_name=model_name, **kwargs)
+    def __init__(self, api_keys: List[str], model_name: str = "gemini-2.0-flash", thinking_budget: Optional[int] = None, **kwargs):
+        super().__init__(api_keys=api_keys, model_name=model_name, thinking_budget=thinking_budget, **kwargs)
         self.max_retries = len(api_keys) * 2
         self._bound_tools = None
         self._tool_kwargs = None
@@ -308,6 +309,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
         # Detect if using Gemini 3.x (supports thinking_level)
         is_gemini_3 = "gemini-3" in self.model_name.lower()
+        # Detect if using Gemini 2.5 (supports thinking_budget)
+        is_gemini_25 = "gemini-2.5" in self.model_name.lower()
 
         model_kwargs = {
             "model": self.model_name,
@@ -318,10 +321,19 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
             "timeout": 30,  # Short timeout to fail faster on rate limits
         }
 
-        # Enable thinking for supported models
-        if is_gemini_3:
+        # Apply thinking configuration
+        if self.thinking_budget is not None:
+            # Explicit thinking_budget was provided (e.g., 0 to disable)
+            model_kwargs["thinking_budget"] = self.thinking_budget
+            if self.thinking_budget == 0:
+                logger.info(f"[Model] Thinking disabled for {self.model_name}")
+        elif is_gemini_3:
+            # Gemini 3.x: enable thinking with high level
             model_kwargs["include_thoughts"] = True
-            model_kwargs["thinking_level"] = "high"  # Maximum reasoning capability
+            model_kwargs["thinking_level"] = "high"
+        elif is_gemini_25:
+            # Gemini 2.5: default to dynamic thinking (-1) unless explicitly disabled
+            model_kwargs["thinking_budget"] = -1  # Dynamic thinking
 
         base_model = ChatGoogleGenerativeAI(**model_kwargs)
 
@@ -513,10 +525,16 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
 
 def get_chat_model(
     provider: Optional[str] = None,
-    model_name: Optional[str] = None
+    model_name: Optional[str] = None,
+    thinking_budget: Optional[int] = None
 ) -> BaseChatModel:
     """
     Get chat model based on provider.
+
+    Args:
+        provider: "gemini" or "openrouter"
+        model_name: Model identifier
+        thinking_budget: For Gemini 2.5+: None=default, 0=disable thinking, -1=dynamic
 
     Environment Variables:
         LLM_PROVIDER: "gemini" or "openrouter"
@@ -544,14 +562,21 @@ def get_chat_model(
         logger.info(f"[Model] Using Gemini with {len(api_keys)} key(s), model: {model}")
 
         if len(api_keys) > 1:
-            return ChatGoogleGenerativeAIWithKeyRotation(api_keys=api_keys, model_name=model)
-        else:
-            return ChatGoogleGenerativeAI(
-                model=model,
-                google_api_key=api_keys[0],
-                temperature=0.7,
-                convert_system_message_to_human=True
+            return ChatGoogleGenerativeAIWithKeyRotation(
+                api_keys=api_keys,
+                model_name=model,
+                thinking_budget=thinking_budget
             )
+        else:
+            model_kwargs = {
+                "model": model,
+                "google_api_key": api_keys[0],
+                "temperature": 0.7,
+                "convert_system_message_to_human": True
+            }
+            if thinking_budget is not None:
+                model_kwargs["thinking_budget"] = thinking_budget
+            return ChatGoogleGenerativeAI(**model_kwargs)
 
     elif provider == "openrouter":
         return ChatOpenAI(
