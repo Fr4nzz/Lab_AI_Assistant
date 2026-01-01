@@ -158,6 +158,8 @@ class BrowserManager:
             if self.page and not self.page.is_closed():
                 # Try to get URL - this will fail if page is actually closed
                 _ = self.page.url
+                # Dismiss any popups that might be blocking
+                await self.dismiss_popups()
                 return self.page
         except Exception:
             pass
@@ -180,7 +182,64 @@ class BrowserManager:
         else:
             raise RuntimeError("Browser context is not available")
 
+        # Dismiss any popups on the new page
+        await self.dismiss_popups()
         return self.page
+
+    async def dismiss_popups(self) -> bool:
+        """
+        Dismiss any notification modals that might be blocking the page.
+
+        These popups (id="notificacion-modal") appear randomly and block all
+        interactions until dismissed. This method clicks "Entendido" or the
+        close button to dismiss them.
+
+        Returns True if a popup was dismissed, False otherwise.
+        """
+        if not self.page:
+            return False
+
+        try:
+            # Check if the notification modal is visible
+            modal = self.page.locator("#notificacion-modal.show")
+
+            # Quick check - don't wait long
+            if await modal.count() == 0:
+                return False
+
+            print("[BrowserManager] Notification popup detected, dismissing...")
+
+            # Try to click "Entendido" button first (preferred)
+            entendido_btn = modal.locator("button.btn-primary", has_text="Entendido")
+            if await entendido_btn.count() > 0:
+                await entendido_btn.click(timeout=2000)
+                print("[BrowserManager] Clicked 'Entendido' button")
+                await asyncio.sleep(0.3)  # Wait for modal animation
+                return True
+
+            # Fallback: try the close button
+            close_btn = modal.locator("button.btn-close")
+            if await close_btn.count() > 0:
+                await close_btn.click(timeout=2000)
+                print("[BrowserManager] Clicked close button")
+                await asyncio.sleep(0.3)  # Wait for modal animation
+                return True
+
+            # Last resort: try any dismiss button
+            dismiss_btn = modal.locator("[data-bs-dismiss='modal']")
+            if await dismiss_btn.count() > 0:
+                await dismiss_btn.first.click(timeout=2000)
+                print("[BrowserManager] Clicked dismiss button")
+                await asyncio.sleep(0.3)
+                return True
+
+            print("[BrowserManager] Could not find dismiss button for popup")
+            return False
+
+        except Exception as e:
+            # Don't fail if popup dismissal fails - just log and continue
+            print(f"[BrowserManager] Popup dismissal error (non-fatal): {e}")
+            return False
 
     async def navigate(self, url: str, wait_for: str = "domcontentloaded"):
         """Navigate to a URL and wait for the page to load.
@@ -313,6 +372,9 @@ class BrowserManager:
         try:
             # Ensure browser is alive before any action
             await self.ensure_page()
+
+            # Dismiss any popups that might block the action
+            await self.dismiss_popups()
 
             if action_type == "navigate":
                 await self.navigate(action["url"])
