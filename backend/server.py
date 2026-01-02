@@ -67,7 +67,7 @@ from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_brows
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts
 from stream_adapter import StreamAdapter
 
 
@@ -1141,6 +1141,57 @@ async def get_usage():
         "numApiKeys": num_keys,
         "freePerKey": 20  # Google AI Studio free tier limit per key
     }
+
+
+# ============================================================
+# PROMPTS CONFIGURATION ENDPOINTS
+# ============================================================
+
+@app.get("/api/prompts")
+async def get_prompts():
+    """Get current prompts configuration."""
+    prompts = load_prompts()
+    return {
+        "prompts": prompts,
+        "sections": [
+            {
+                "key": "system_prompt",
+                "label": "Instrucciones del Sistema",
+                "description": "Instrucciones principales para la IA sobre cómo comportarse"
+            },
+            {
+                "key": "abbreviations",
+                "label": "Abreviaturas",
+                "description": "Abreviaturas comunes usadas en el laboratorio"
+            },
+            {
+                "key": "image_interpretation",
+                "label": "Interpretación de Imágenes",
+                "description": "Instrucciones para interpretar imágenes de resultados"
+            },
+            {
+                "key": "welcome_message",
+                "label": "Mensaje de Bienvenida",
+                "description": "Mensaje que se muestra al iniciar una nueva conversación"
+            }
+        ]
+    }
+
+
+class PromptsUpdateRequest(BaseModel):
+    prompts: dict
+
+
+@app.post("/api/prompts")
+async def update_prompts(request: PromptsUpdateRequest):
+    """Update prompts configuration."""
+    success = save_prompts(request.prompts)
+    if success:
+        # Reload to update cache
+        reload_prompts()
+        return {"success": True, "message": "Prompts actualizados correctamente"}
+    else:
+        raise HTTPException(status_code=500, detail="Error al guardar los prompts")
 
 
 # ============================================================
