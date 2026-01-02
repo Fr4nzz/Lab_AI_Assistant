@@ -108,6 +108,10 @@ class BrowserManager:
             return False
         try:
             # Try to access the browser - this will fail if browser was closed
+            # Also check if the browser is actually connected
+            if hasattr(self.context, 'browser') and self.context.browser:
+                if not self.context.browser.is_connected():
+                    return False
             _ = self.context.pages
             return True
         except Exception:
@@ -167,20 +171,42 @@ class BrowserManager:
         # Page is invalid, need to create a new one
         print("[BrowserManager] Page was closed, opening new tab...")
 
-        if self.context:
-            # Try to use existing page from context
-            if self.context.pages:
-                self.page = self.context.pages[0]
-                print(f"[BrowserManager] Using existing tab: {self.page.url}")
+        try:
+            if self.context:
+                # Try to use existing page from context
+                if self.context.pages:
+                    self.page = self.context.pages[0]
+                    print(f"[BrowserManager] Using existing tab: {self.page.url}")
+                else:
+                    # Create new page
+                    self.page = await self.context.new_page()
+                    print("[BrowserManager] Created new tab")
+                    # Navigate to orders by default
+                    await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+                    print("[BrowserManager] Navigated to orders page")
             else:
-                # Create new page
-                self.page = await self.context.new_page()
-                print("[BrowserManager] Created new tab")
-                # Navigate to orders by default
+                raise RuntimeError("Browser context is not available")
+        except Exception as e:
+            # Browser context is dead, need full restart
+            error_str = str(e).lower()
+            if "closed" in error_str or "target" in error_str or "context" in error_str:
+                print(f"[BrowserManager] Browser context is dead ({e}), performing full restart...")
+                # Force cleanup
+                self.context = None
+                self.page = None
+                self._started = False
+                if self.playwright:
+                    try:
+                        await self.playwright.stop()
+                    except Exception:
+                        pass
+                    self.playwright = None
+                # Restart browser
+                await self.start(headless=self._headless, browser=self._browser_channel)
                 await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
-                print("[BrowserManager] Navigated to orders page")
-        else:
-            raise RuntimeError("Browser context is not available")
+                print("[BrowserManager] Browser restarted successfully")
+            else:
+                raise
 
         # Dismiss any popups on the new page
         await self.dismiss_popups()
