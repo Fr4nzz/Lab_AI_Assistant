@@ -406,7 +406,6 @@ async def extract_initial_context() -> str:
     global browser
     lines = []
     needs_update = False
-    update_reason = ""
 
     try:
         from orders_cache import (
@@ -436,17 +435,13 @@ async def extract_initial_context() -> str:
 
         # Determine if we need to trigger an update
         if not cached_orders:
-            # No cache file exists
             needs_update = True
-            update_reason = "no existe caché de órdenes"
             logger.warning("[Context] No orders cache found - triggering auto-update...")
         elif not has_overlap:
-            # No overlap - cache is stale
             needs_update = True
-            update_reason = "el caché está desactualizado"
             logger.warning("[Context] No overlap between page 1 and cached orders - triggering auto-update...")
 
-        # Trigger background update if needed
+        # Trigger background update if needed (silently, no AI notification to save tokens)
         if needs_update and not _orders_auto_update_in_progress:
             asyncio.create_task(_trigger_orders_auto_update())
 
@@ -457,11 +452,6 @@ async def extract_initial_context() -> str:
         else:
             all_ordenes = ordenes_page1[:20]
             logger.info(f"[Context] No cached orders, showing {len(all_ordenes)} from page 1")
-
-        # Add update notification if triggered
-        if needs_update:
-            lines.append(f"⚠️ **Nota:** Actualizando lista de órdenes automáticamente ({update_reason}). La búsqueda difusa estará disponible pronto.")
-            lines.append("")
 
         if all_ordenes:
             lines.append("# Órdenes Recientes (20 más recientes)")
