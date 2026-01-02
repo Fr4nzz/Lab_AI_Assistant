@@ -39,6 +39,7 @@ from telegram_bot.handlers import (
     chats_command,
     cancel,
     model_command,
+    update_command,
     handle_photo,
     handle_text,
     handle_callback,
@@ -113,6 +114,8 @@ def main() -> None:
     app.add_handler(CommandHandler("chats", chats_command, filters=user_filter))
     app.add_handler(CommandHandler("new", new_command, filters=user_filter))
     app.add_handler(CommandHandler("model", model_command, filters=user_filter))
+    app.add_handler(CommandHandler("actualizar", update_command, filters=user_filter))
+    app.add_handler(CommandHandler("update", update_command, filters=user_filter))
     app.add_handler(CommandHandler("cancel", cancel, filters=user_filter))
 
     # Register photo handler (for single photos and albums)
@@ -136,18 +139,21 @@ def main() -> None:
     logger.info("=" * 50)
     logger.info(f"Backend URL: {os.environ.get('BACKEND_URL', 'http://localhost:8000')}")
 
-    cloudflare_url = os.environ.get("CLOUDFLARE_TUNNEL_URL")
+    # Check for Cloudflare URL (env var or file)
+    from telegram_bot.utils.urls import get_cloudflare_url
+    cloudflare_url = get_cloudflare_url()
     if cloudflare_url:
         logger.info(f"Cloudflare URL: {cloudflare_url}")
     else:
-        logger.info("Cloudflare URL: Not set (will use local IP)")
+        logger.info("Cloudflare URL: Not set (will check file at runtime)")
 
     logger.info("")
     logger.info("Bot is running. Press Ctrl+C to stop.")
     logger.info("")
 
     # Start polling
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # drop_pending_updates=True: Ignore messages sent while bot was offline
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":

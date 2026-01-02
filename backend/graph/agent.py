@@ -134,9 +134,42 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
 
         # Log response type
         if hasattr(response, 'tool_calls') and response.tool_calls:
-            logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls:")
+            # Group tool calls by name and show key params
+            tool_summary = {}
             for tc in response.tool_calls:
-                logger.info(f"  -> {tc.get('name', 'unknown')}")
+                name = tc.get('name', 'unknown')
+                args = tc.get('args', {})
+                # Extract key param for common tools
+                if name == 'search_orders':
+                    key = args.get('search', '')[:30]
+                elif name == 'get_order_results':
+                    nums = args.get('order_nums', [])
+                    key = ', '.join(str(n) for n in nums[:5])
+                    if len(nums) > 5:
+                        key += f'... (+{len(nums)-5})'
+                elif name == 'edit_results':
+                    data = args.get('data', [])
+                    key = f'{len(data)} edits'
+                else:
+                    key = ''
+
+                if name not in tool_summary:
+                    tool_summary[name] = []
+                if key:
+                    tool_summary[name].append(key)
+
+            # Log consolidated summary
+            parts = []
+            for name, keys in tool_summary.items():
+                if keys:
+                    keys_str = ', '.join(keys[:5])
+                    if len(keys) > 5:
+                        keys_str += f'... (+{len(keys)-5})'
+                    parts.append(f"{name}({keys_str})")
+                else:
+                    parts.append(f"{name} x{len([tc for tc in response.tool_calls if tc.get('name') == name])}" if len([tc for tc in response.tool_calls if tc.get('name') == name]) > 1 else name)
+
+            logger.info(f"[Agent] LLM returned {len(response.tool_calls)} tool calls: {', '.join(parts)}")
         elif response.content:
             # Handle both string and list content (Gemini 3 with thinking)
             content = response.content

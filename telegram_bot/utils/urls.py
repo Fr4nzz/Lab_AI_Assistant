@@ -9,22 +9,73 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def is_cloudflared_running() -> bool:
+    """Check if cloudflared process is currently running."""
+    try:
+        # Use tasklist on Windows to check for cloudflared.exe
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq cloudflared.exe", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        # If cloudflared is running, output will contain "cloudflared.exe"
+        is_running = "cloudflared.exe" in result.stdout.lower()
+        logger.debug(f"cloudflared running: {is_running}")
+        return is_running
+    except FileNotFoundError:
+        # Not on Windows, try pgrep
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", "cloudflared"],
+                capture_output=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except Exception as e:
+            logger.debug(f"pgrep check failed: {e}")
+    except Exception as e:
+        logger.debug(f"Process check failed: {e}")
+    return False
+
+
 def get_cloudflare_url() -> str | None:
-    """Get Cloudflare tunnel URL from environment or file."""
+    """Get Cloudflare tunnel URL if tunnel is running.
+
+    Always reads fresh from file (no caching) and verifies the
+    cloudflared process is actually running before returning URL.
+    """
+    # First check if cloudflared is actually running
+    if not is_cloudflared_running():
+        logger.debug("cloudflared is not running, skipping URL lookup")
+        return None
+
     # Check environment variable first
     url = os.environ.get("CLOUDFLARE_TUNNEL_URL")
     if url:
+        logger.debug(f"Using Cloudflare URL from env: {url}")
         return url.rstrip("/")
 
     # Check tunnel URL file (written by cloudflare-quick-tunnel.bat)
     tunnel_file = Path(__file__).parent.parent.parent / "data" / "tunnel_url.txt"
+    logger.debug(f"Checking tunnel URL file: {tunnel_file}")
+
     if tunnel_file.exists():
         try:
-            url = tunnel_file.read_text().strip()
-            if url and url.startswith("http"):
+            # Read with UTF-8 and handle BOM - always read fresh
+            content = tunnel_file.read_text(encoding="utf-8-sig").strip()
+            # Also strip any null bytes or weird characters
+            url = content.replace('\x00', '').strip()
+            logger.debug(f"Tunnel file content: '{url}'")
+            if url and (url.startswith("http://") or url.startswith("https://")):
+                logger.info(f"Using Cloudflare URL from file: {url}")
                 return url.rstrip("/")
+            else:
+                logger.warning(f"Tunnel file exists but content is invalid: '{url}'")
         except Exception as e:
             logger.warning(f"Failed to read tunnel URL file: {e}")
+    else:
+        logger.debug(f"Tunnel URL file not found: {tunnel_file}")
 
     return None
 
@@ -81,8 +132,11 @@ def get_local_ip() -> str | None:
 def get_base_url() -> str:
     """Get the best available base URL for the web UI.
 
+    Always gets a fresh URL (no caching). Checks if cloudflared
+    process is actually running before using tunnel URL.
+
     Priority:
-    1. Cloudflare Tunnel URL (if running)
+    1. Cloudflare Tunnel URL (only if cloudflared is running)
     2. Local network IP (Ethernet preferred over Wi-Fi)
     3. Localhost (fallback)
     """

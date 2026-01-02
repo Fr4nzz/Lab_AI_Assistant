@@ -1,89 +1,60 @@
-import { z } from 'zod'
-import { generateText } from 'ai'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getBestVisionModel } from '../utils/openrouter-vision-models'
-
-defineRouteMeta({
-  openAPI: {
-    description: 'Detect if an image needs rotation correction.',
-    tags: ['image']
-  }
-})
-
-const bodySchema = z.object({
-  imageBase64: z.string(),
-  mimeType: z.string()
-})
-
 /**
- * Detects if an image needs rotation correction.
- * Uses a vision model to analyze the image orientation.
- * Returns the rotation degrees needed (0, 90, 180, 270).
+ * Proxy endpoint for image rotation detection.
+ * Forwards requests to the backend Gemini-powered rotation detector.
  */
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig()
+  const body = await readBody(event)
 
-  if (!config.openrouterApiKey) {
-    console.log('[detect-rotation] No OpenRouter key configured')
-    return { rotation: 0, detected: false }
+  // Support both formats: frontend uses imageBase64, backend uses image
+  const imageData = body.imageBase64 || body.image
+  const mimeType = body.mimeType || 'image/jpeg'
+
+  if (!imageData) {
+    throw createError({
+      statusCode: 400,
+      message: 'Missing image data'
+    })
   }
 
-  const body = await readValidatedBody(event, bodySchema.parse)
-
   try {
-    const modelId = await getBestVisionModel()
-    console.log('[detect-rotation] Using model:', modelId)
+    const backendUrl = config.backendUrl || 'http://localhost:8000'
+    console.log('[API/detect-rotation] Forwarding to backend...')
 
-    const openrouter = createOpenRouter({
-      apiKey: config.openrouterApiKey
+    const response = await fetch(`${backendUrl}/api/detect-rotation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: imageData,
+        mimeType
+      })
     })
 
-    const prompt = `Analyze this image and determine if it needs rotation correction.
-
-Look for these indicators of incorrect orientation:
-- Text that is sideways or upside down
-- People or objects that appear tilted
-- Horizon lines that aren't horizontal
-- Buildings or structures that lean unnaturally
-
-Respond with ONLY one of these values:
-- 0 (image is correctly oriented)
-- 90 (image needs 90 degrees clockwise rotation)
-- 180 (image is upside down)
-- 270 (image needs 90 degrees counter-clockwise rotation)
-
-Just respond with the number, nothing else.`
-
-    const { text } = await generateText({
-      model: openrouter(modelId),
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image',
-              image: `data:${body.mimeType};base64,${body.imageBase64}`
-            }
-          ]
-        }
-      ],
-      temperature: 0.1,
-      maxTokens: 10
-    })
-
-    // Parse the rotation value
-    const rotation = parseInt(text.trim(), 10)
-
-    if ([0, 90, 180, 270].includes(rotation)) {
-      console.log('[detect-rotation] Detected rotation:', rotation)
-      return { rotation, detected: true }
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[API/detect-rotation] Backend error:', response.status, errorText)
+      throw createError({
+        statusCode: response.status,
+        message: `Backend error: ${errorText}`
+      })
     }
 
-    console.log('[detect-rotation] Invalid response:', text)
-    return { rotation: 0, detected: false }
+    const result = await response.json()
+    console.log('[API/detect-rotation] Result:', {
+      rotation: result.rotation,
+      detected: result.detected,
+      timing: result.timing
+    })
+
+    return result
   } catch (error) {
-    console.error('[detect-rotation] Error:', error)
-    return { rotation: 0, detected: false, error: 'Detection failed' }
+    console.error('[API/detect-rotation] Error:', error)
+
+    // Return fallback (no rotation) on error
+    return {
+      rotation: 0,
+      detected: false,
+      error: String(error)
+    }
   }
 })

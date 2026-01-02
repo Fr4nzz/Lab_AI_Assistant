@@ -11,9 +11,10 @@ export default defineNuxtConfig({
     enabled: false
   },
 
-  // Expose dev server on network
+  // Stable dev server configuration (works with Cloudflare tunnel and LAN access)
   devServer: {
-    host: '0.0.0.0'
+    host: '0.0.0.0',  // Bind to all interfaces for LAN access
+    port: 3000
   },
 
   css: ['~/assets/css/main.css'],
@@ -43,11 +44,51 @@ export default defineNuxtConfig({
     }
   },
 
+  // Vite configuration for stable HMR and dependency optimization
+  vite: {
+    // Pre-bundle heavy dependencies to prevent "optimized dependencies changed" reloads
+    optimizeDeps: {
+      include: [
+        // AI SDK packages (heavy, frequently cause re-optimization)
+        'ai',
+        '@ai-sdk/vue',
+
+        // Database packages
+        'drizzle-orm',
+        'better-sqlite3',
+
+        // UI dependencies
+        'date-fns'
+      ],
+      // Hold first results until static imports are crawled
+      holdUntilCrawlEnd: true
+    },
+
+    // Stable HMR configuration
+    server: {
+      host: '0.0.0.0',  // Bind to all interfaces for LAN access
+      strictPort: true,
+      allowedHosts: true, // Allow Cloudflare tunnel and other proxy hosts
+      hmr: {
+        protocol: 'ws',
+        host: true,  // Auto-detect host for HMR (works with LAN and tunnels)
+        port: 3000,
+        clientPort: 3000
+      },
+      watch: {
+        // Use polling on Windows for better reliability
+        usePolling: process.platform === 'win32',
+        interval: 100
+      }
+    }
+  },
+
   // Runtime configuration
   runtimeConfig: {
     // Server-side only
     backendUrl: process.env.BACKEND_URL || 'http://localhost:8000',
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+    geminiApiKey: process.env.GEMINI_API_KEY || (process.env.GEMINI_API_KEYS || '').split(',')[0] || '',
     allowedEmails: process.env.ALLOWED_EMAILS || '',
     adminEmails: process.env.ADMIN_EMAILS || '',
     databasePath: process.env.DATABASE_PATH || './data/lab-assistant.db',

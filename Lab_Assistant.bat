@@ -11,22 +11,58 @@ echo:
 set "SCRIPT_DIR=%~dp0"
 
 :: Parse command line arguments
-set "START_TUNNEL="
+set "DEBUG_MODE="
 set "NO_TUNNEL="
 set "NO_TELEGRAM="
 set "RESTART_MODE="
 set "INSTALL_DEPS="
+set "STOP_MODE="
+set "STATUS_MODE="
 
 :parse_args
 if "%~1"=="" goto :done_args
-if /i "%~1"=="--tunnel" set "START_TUNNEL=1"
+if /i "%~1"=="--debug" set "DEBUG_MODE=1"
 if /i "%~1"=="--no-tunnel" set "NO_TUNNEL=1"
 if /i "%~1"=="--no-telegram" set "NO_TELEGRAM=1"
 if /i "%~1"=="--restart" set "RESTART_MODE=1"
 if /i "%~1"=="--install" set "INSTALL_DEPS=1"
+if /i "%~1"=="--stop" set "STOP_MODE=1"
+if /i "%~1"=="--status" set "STATUS_MODE=1"
 shift
 goto :parse_args
 :done_args
+
+:: Handle --stop flag: stop all services and exit
+if defined STOP_MODE (
+    echo Stopping all Lab Assistant services...
+    echo:
+    call :stop_all_services
+    echo:
+    echo All services stopped.
+    pause
+    exit /b 0
+)
+
+:: Handle --status flag: check if services are running and exit
+if defined STATUS_MODE (
+    call :check_status
+    pause
+    exit /b 0
+)
+
+:: Set window style based on debug mode
+:: DEBUG: visible windows that stay open on exit (cmd /k)
+:: NORMAL: completely hidden background processes (PowerShell -WindowStyle Hidden)
+if defined DEBUG_MODE (
+    set "RUN_HIDDEN="
+) else (
+    set "RUN_HIDDEN=1"
+)
+
+:: Create logs directory for silent mode
+if defined RUN_HIDDEN (
+    if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs"
+)
 
 :: ============================================
 :: STEP 1: Check Prerequisites
@@ -226,6 +262,8 @@ taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
 taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
 taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+:: Kill the tunnel manager script first (otherwise it restarts cloudflared)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 taskkill /IM cloudflared.exe /F 2>nul
 
 timeout /t 1 /nobreak >nul
@@ -257,6 +295,7 @@ set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\nuxt" set "NEED_INSTALL=1"
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\better-sqlite3" set "NEED_INSTALL=1"
+if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\@ai-sdk\google" set "NEED_INSTALL=1"
 if defined INSTALL_DEPS set "NEED_INSTALL=1"
 
 if defined NEED_INSTALL (
@@ -300,34 +339,49 @@ for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "$ips = Get-N
 )
 
 :: Start Backend
-echo   Starting Backend (Python FastAPI)...
-start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
-timeout /t 3 /nobreak >nul
+echo   Starting Backend...
+if defined RUN_HIDDEN (
+    :: Use helper script that loads .env properly (handles special chars in API keys)
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" backend \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Backend" cmd /k "cd /d %SCRIPT_DIR%backend && python server.py"
+)
 
-:: Start Frontend
-echo   Starting Frontend (Nuxt)...
-start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
-timeout /t 5 /nobreak >nul
+:: Start Frontend (parallel - no wait)
+echo   Starting Frontend...
+if defined RUN_HIDDEN (
+    :: Use helper script for consistent env handling
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" frontend \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Frontend" cmd /k "cd /d %SCRIPT_DIR%frontend-nuxt && npm run dev"
+)
 
-:: Start Telegram bot if configured
+:: Start Telegram bot if configured (parallel - no wait)
 set "TELEGRAM_STARTED="
 if defined TELEGRAM_BOT_TOKEN (
     if not defined NO_TELEGRAM (
         echo   Starting Telegram Bot...
-        start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
+        call :start_telegram_bot
         set "TELEGRAM_STARTED=1"
+    ) else (
+        echo   [!] Telegram Bot disabled via --no-telegram
     )
+) else (
+    echo   [!] Telegram Bot skipped - TELEGRAM_BOT_TOKEN not set in .env
 )
 
-:: Start Cloudflare Tunnel if requested
+:: Start Cloudflare Tunnel (parallel - no wait)
 set "TUNNEL_STARTED="
-if defined START_TUNNEL (
+if not defined NO_TUNNEL (
     call :start_cloudflare_tunnel
 )
 
+:: Single wait for all services to initialize (instead of multiple sequential waits)
+echo   Waiting for services to initialize...
+timeout /t 5 /nobreak >nul
+
 :: Open browser (skip in restart mode)
 if not defined RESTART_MODE (
-    timeout /t 2 /nobreak >nul
     start "" "http://localhost:3000"
 )
 
@@ -351,21 +405,33 @@ if "!NETWORK_IPS!"=="" (
 )
 echo:
 echo  Services:
-echo    [*] Backend (FastAPI)
-echo    [*] Frontend (Nuxt)
+echo    [*] Backend
+echo    [*] Frontend
 if defined TELEGRAM_STARTED (
     echo    [*] Telegram Bot
+) else (
+    echo    [ ] Telegram Bot - not configured
 )
 if defined TUNNEL_STARTED (
     echo    [*] Cloudflare Tunnel
 ) else (
-    echo:
-    echo  Tip: Run with --tunnel to enable remote access
+    echo    [ ] Cloudflare Tunnel - disabled
 )
 echo:
+if defined DEBUG_MODE (
+    echo  Mode: DEBUG - windows visible
+) else (
+    echo  Mode: Silent - services running in background
+    echo  Logs: logs\backend.log, frontend.log, telegram.log, tunnel.log
+)
+echo:
+echo  Commands:
+echo    --debug    Show console windows
+echo    --stop     Stop all services
+echo    --status   Check if services are running
 echo ----------------------------------------
 echo  Press any key to close this window
-echo  (Services will keep running)
+echo  Services will keep running in background
 echo ----------------------------------------
 pause >nul
 goto :eof
@@ -386,33 +452,117 @@ for /f "tokens=1* delims=|" %%a in ("!TEMP_IPS!") do (
 if not "!TEMP_IPS!"=="" goto :print_ips_loop
 goto :eof
 
-:start_cloudflare_tunnel
-set "CLOUDFLARED_CMD="
-where cloudflared >nul 2>&1
-if !errorlevel! equ 0 (
-    set "CLOUDFLARED_CMD=cloudflared"
-    goto :run_tunnel
+:start_telegram_bot
+if defined RUN_HIDDEN (
+    :: Use helper script that loads .env properly
+    powershell -NoProfile -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c call \"%SCRIPT_DIR%scripts\run-service.bat\" telegram \"%SCRIPT_DIR%\"' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Telegram Bot" cmd /k "cd /d %SCRIPT_DIR% && python -m telegram_bot.bot"
 )
-if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
-    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
-    goto :run_tunnel
-)
-echo   Installing cloudflared...
-winget install Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements >nul 2>&1
-where cloudflared >nul 2>&1
-if !errorlevel! equ 0 (
-    set "CLOUDFLARED_CMD=cloudflared"
-    goto :run_tunnel
-)
-if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
-    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
-    goto :run_tunnel
-)
-echo   [!] Could not install cloudflared
 goto :eof
 
-:run_tunnel
+:start_cloudflare_tunnel
+:: Start Cloudflare tunnel
+set "DATA_DIR=%SCRIPT_DIR%data"
+set "URL_FILE=%DATA_DIR%\tunnel_url.txt"
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
+
+:: Find cloudflared
+set "CLOUDFLARED_CMD="
+where cloudflared >nul 2>&1
+if %errorlevel% equ 0 (
+    set "CLOUDFLARED_CMD=cloudflared"
+) else if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe" (
+    set "CLOUDFLARED_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"
+)
+
+if not defined CLOUDFLARED_CMD (
+    echo   [!] cloudflared not found - run cloudflare-quick-tunnel.bat manually first
+    goto :eof
+)
+
 echo   Starting Cloudflare Tunnel...
-start "Lab Assistant - Tunnel" cmd /k "!CLOUDFLARED_CMD! tunnel --url http://localhost:3000"
+if defined RUN_HIDDEN (
+    :: Launch PowerShell script as a background job (non-blocking)
+    powershell -NoProfile -Command "Start-Process -FilePath 'powershell' -ArgumentList '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%SCRIPT_DIR%scripts\start-tunnel.ps1\" -CloudflaredPath \"%CLOUDFLARED_CMD%\" -LogFile \"%SCRIPT_DIR%logs\tunnel.log\" -UrlFile \"%URL_FILE%\"' -WindowStyle Hidden"
+) else (
+    start "Lab Assistant - Tunnel" cmd /k "cd /d %SCRIPT_DIR% && cloudflare-quick-tunnel.bat"
+)
 set "TUNNEL_STARTED=1"
+goto :eof
+
+:stop_all_services
+echo   Stopping processes on ports 8000, 3000, 24678...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+timeout /t 1 /nobreak >nul
+
+echo   Stopping Lab Assistant windows...
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+
+echo   Stopping Cloudflare tunnel...
+:: First kill the PowerShell script that manages cloudflared (otherwise it will restart cloudflared)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
+:: Then kill cloudflared itself
+taskkill /IM cloudflared.exe /F 2>nul
+
+echo   Stopping Telegram bot...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
+
+timeout /t 1 /nobreak >nul
+goto :eof
+
+:check_status
+echo:
+echo ========================================
+echo     Lab Assistant Service Status
+echo ========================================
+echo:
+set "SCRIPT_DIR=%~dp0"
+
+:: Check Backend (port 8000)
+powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if($c) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Backend        - port 8000
+) else (
+    echo  [STOPPED] Backend        - port 8000
+)
+
+:: Check Frontend (port 3000)
+powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue; if($c) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Frontend       - port 3000
+) else (
+    echo  [STOPPED] Frontend       - port 3000
+)
+
+:: Check Telegram bot (python process with telegram_bot in command line)
+:: Use Get-CimInstance to access CommandLine property
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' }; if($p) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Telegram Bot
+) else (
+    echo  [STOPPED] Telegram Bot
+)
+
+:: Check Cloudflare tunnel (cloudflared.exe process)
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" -ErrorAction SilentlyContinue; if($p) { exit 0 } else { exit 1 }" 2>nul
+if %errorlevel% equ 0 (
+    echo  [RUNNING] Cloudflare Tunnel
+) else (
+    echo  [STOPPED] Cloudflare Tunnel
+)
+
+echo:
+echo ----------------------------------------
+echo  Log files location: %SCRIPT_DIR%logs\
+echo    backend.log, frontend.log
+echo    telegram.log, tunnel.log
+echo ----------------------------------------
 goto :eof

@@ -29,6 +29,7 @@ from extractors import (
     EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS,
     EXTRACT_AVAILABLE_EXAMS_JS, EXTRACT_ADDED_EXAMS_JS, PageDataExtractor
 )
+from orders_cache import fuzzy_search_patient, format_fuzzy_results
 
 logger = logging.getLogger(__name__)
 
@@ -763,6 +764,9 @@ async def _edit_order_exams_impl(
 
     await page.bring_to_front()
 
+    # Dismiss any notification popups that might block interactions
+    await _browser.dismiss_popups()
+
     result = {
         "identifier": identifier,
         "tab_index": tab_index,
@@ -855,6 +859,8 @@ async def _edit_order_exams_impl(
                     button_id = matched_exam['button_id']
                     btn = page.locator(f'#{button_id}')
                     if await btn.count() > 0:
+                        # Dismiss popups before clicking (they can appear anytime)
+                        await _browser.dismiss_popups()
                         await btn.click()
                         result["added"].append(exam_code_upper)
                         await page.wait_for_timeout(300)
@@ -900,6 +906,9 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     # Wait for page to load and exams table to be ready
     await page.wait_for_load_state('networkidle', timeout=10000)
 
+    # Dismiss any notification popups that might block interactions
+    await _browser.dismiss_popups()
+
     # FIRST: Add all exams (before cedula to avoid "new patient" popup blocking buttons)
     added_codes = []
     failed_exams = []
@@ -920,6 +929,8 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         if button_id:
             btn = page.locator(f'#{button_id}')
             if await btn.count() > 0:
+                # Dismiss popups before clicking (they can appear anytime)
+                await _browser.dismiss_popups()
                 await btn.click()
                 added_codes.append(exam_code_upper)
                 await page.wait_for_timeout(100)
@@ -1029,8 +1040,27 @@ async def search_orders(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> str:
-    """Search orders by patient/cedula. Returns 'num' and 'id' for each order."""
+    """Search orders by patient/cedula. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches."""
     result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
+
+    # If no results and there's a search term, try fuzzy search
+    if search and (not result.get("ordenes") or len(result.get("ordenes", [])) == 0):
+        logger.info(f"[search_orders] No exact matches for '{search}', trying fuzzy search...")
+        fuzzy_results = fuzzy_search_patient(search, min_score=70, max_results=10)
+
+        if fuzzy_results:
+            logger.info(f"[search_orders] Fuzzy search found {len(fuzzy_results)} matches:")
+            for r in fuzzy_results[:3]:  # Log first 3 matches
+                logger.info(f"  -> {r['patient_name']} ({r['similarity_score']}%) - Ord. {r['order_num']}")
+            result["fuzzy_fallback"] = True
+            result["fuzzy_suggestions"] = fuzzy_results
+            result["fuzzy_message"] = format_fuzzy_results(fuzzy_results, search)
+        else:
+            logger.warning(f"[search_orders] Fuzzy search returned no results (is orders cache empty?)")
+            result["fuzzy_fallback"] = True
+            result["fuzzy_suggestions"] = []
+            result["fuzzy_message"] = f"No se encontraron coincidencias para '{search}'. Nota: El caché de órdenes puede estar vacío - usa 'Actualizar lista de órdenes' en el panel de admin."
+
     return json.dumps(result, ensure_ascii=False)
 
 
