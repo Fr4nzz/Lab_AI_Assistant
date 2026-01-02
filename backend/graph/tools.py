@@ -1115,7 +1115,7 @@ async def create_new_order(cedula: str, exams: List[str]) -> str:
 
 @tool
 def ask_user(message: str, options: Optional[List[str]] = None) -> str:
-    """Display message with clickable options. options=["Opción 1", "Opción 2"] creates buttons that send the option text as user message when clicked."""
+    """Display message with clickable options to the user. After calling this tool, you MUST stop and respond to the user with the message. Do NOT call any other tools after ask_user - just respond and wait for user input."""
     result = {
         "message": message,
         "status": "waiting_for_user"
