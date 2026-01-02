@@ -245,6 +245,18 @@ export function useAdmin() {
     }
   }
 
+  async function fetchDefaultPrompts(): Promise<Record<string, string> | null> {
+    if (!isAdmin.value) return null
+
+    try {
+      const data = await $fetch<{ prompts: Record<string, string> }>('/api/admin/prompts/defaults')
+      return data.prompts
+    } catch (error) {
+      console.error('Failed to fetch default prompts:', error)
+      throw error
+    }
+  }
+
   return {
     adminStatus,
     isAdmin,
@@ -270,6 +282,7 @@ export function useAdmin() {
     fetchOrdersLastUpdate,
     triggerOrdersUpdate,
     fetchPrompts,
-    savePrompts
+    savePrompts,
+    fetchDefaultPrompts
   }
 }

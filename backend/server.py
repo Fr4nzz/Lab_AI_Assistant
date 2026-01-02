@@ -67,7 +67,7 @@ from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_brows
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
-from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts
+from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts, get_default_prompts
 from stream_adapter import StreamAdapter
 
 
@@ -1192,6 +1192,12 @@ async def update_prompts(request: PromptsUpdateRequest):
         return {"success": True, "message": "Prompts actualizados correctamente"}
     else:
         raise HTTPException(status_code=500, detail="Error al guardar los prompts")
+
+
+@app.get("/api/prompts/defaults")
+async def get_default_prompts_endpoint():
+    """Get default prompts configuration (for restore functionality)."""
+    return {"prompts": get_default_prompts()}
 
 
 # ============================================================
