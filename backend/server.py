@@ -297,15 +297,116 @@ async def get_browser_tabs_context() -> str:
 # LIFESPAN
 # ============================================================
 
+# Track if an auto-update is already in progress
+_orders_auto_update_in_progress = False
+
+
+async def _trigger_orders_auto_update():
+    """Background task to auto-update orders list."""
+    global _orders_auto_update_in_progress, browser
+
+    if _orders_auto_update_in_progress:
+        logger.info("[Context] Orders auto-update already in progress, skipping...")
+        return
+
+    _orders_auto_update_in_progress = True
+    try:
+        logger.info("[Context] Starting automatic orders list update...")
+
+        if not browser:
+            logger.warning("[Context] Browser not initialized, cannot auto-update orders")
+            return
+
+        await browser.ensure_page()
+
+        # Create a new tab for this operation
+        new_page = await browser.context.new_page()
+
+        try:
+            # Navigate to ordenes report page
+            logger.info("[Orders-Auto] Navigating to ordenes report page...")
+            await new_page.goto("https://laboratoriofranz.orion-labs.com/informes/ordenes", timeout=30000)
+            await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+            await asyncio.sleep(1)
+
+            # Calculate 1 year ago from today
+            from datetime import timedelta
+            one_year_ago = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+            # Set fecha-desde
+            logger.info(f"[Orders-Auto] Setting date range from {one_year_ago}...")
+            fecha_desde = new_page.locator("#fecha-desde")
+            await fecha_desde.click()
+            await new_page.keyboard.press("Control+a")
+            await fecha_desde.type(one_year_ago, delay=50)
+            await asyncio.sleep(0.3)
+
+            await new_page.locator("label[for='fecha-desde']").click()
+            await asyncio.sleep(0.5)
+
+            # Set up download handler
+            download_dir = Path(__file__).parent / "downloads"
+            download_dir.mkdir(exist_ok=True)
+
+            # Click "Generar informe" dropdown
+            logger.info("[Orders-Auto] Clicking 'Generar informe' dropdown...")
+            dropdown_btn = new_page.locator("button.dropdown-toggle", has_text="Generar informe")
+            await dropdown_btn.click()
+            await asyncio.sleep(0.5)
+
+            # Click "Excel" option and wait for download
+            logger.info("[Orders-Auto] Clicking 'Excel' and waiting for download...")
+            async with new_page.expect_download(timeout=120000) as download_info:
+                excel_btn = new_page.locator("#generar-informe-ordenes-excel")
+                await excel_btn.click()
+
+            download = await download_info.value
+
+            # Save the downloaded file
+            xlsx_path = download_dir / download.suggested_filename
+            await download.save_as(xlsx_path)
+            logger.info(f"[Orders-Auto] Downloaded: {xlsx_path}")
+
+            # Process the XLSX
+            logger.info("[Orders-Auto] Processing XLSX...")
+            from scripts.process_ordenes import process_ordenes
+            process_ordenes(str(xlsx_path))
+
+            # Reload the orders cache
+            from orders_cache import reload_orders_cache, set_orders_last_update
+            orders = reload_orders_cache()
+
+            # Save the update timestamp
+            timestamp = datetime.now().isoformat()
+            set_orders_last_update(timestamp)
+
+            # Clean up
+            xlsx_path.unlink(missing_ok=True)
+
+            logger.info(f"[Orders-Auto] Update complete! {len(orders)} orders loaded.")
+
+        finally:
+            await new_page.close()
+
+    except Exception as e:
+        logger.error(f"[Orders-Auto] Auto-update failed: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        _orders_auto_update_in_progress = False
+
+
 async def extract_initial_context() -> str:
     """
     Extract orders list and available exams from the page for AI context.
 
     Only fetches page 1 (20 orders), checks overlap with cached orders,
-    and triggers update if no overlap exists.
+    and triggers update if no overlap exists or cache is empty.
     """
     global browser
     lines = []
+    needs_update = False
+    update_reason = ""
 
     try:
         from orders_cache import (
@@ -333,10 +434,21 @@ async def extract_initial_context() -> str:
         cached_orders = get_cached_orders()
         has_overlap, overlap_count = check_overlap(page1_order_nums)
 
-        if cached_orders and not has_overlap:
-            # No overlap - orders cache is stale, needs update
-            logger.warning("[Context] No overlap between page 1 and cached orders - cache needs update!")
-            # We'll show a notification but not block - the user can trigger update manually
+        # Determine if we need to trigger an update
+        if not cached_orders:
+            # No cache file exists
+            needs_update = True
+            update_reason = "no existe caché de órdenes"
+            logger.warning("[Context] No orders cache found - triggering auto-update...")
+        elif not has_overlap:
+            # No overlap - cache is stale
+            needs_update = True
+            update_reason = "el caché está desactualizado"
+            logger.warning("[Context] No overlap between page 1 and cached orders - triggering auto-update...")
+
+        # Trigger background update if needed
+        if needs_update and not _orders_auto_update_in_progress:
+            asyncio.create_task(_trigger_orders_auto_update())
 
         # Merge page 1 with cached orders (20 most recent)
         if cached_orders:
@@ -345,6 +457,11 @@ async def extract_initial_context() -> str:
         else:
             all_ordenes = ordenes_page1[:20]
             logger.info(f"[Context] No cached orders, showing {len(all_ordenes)} from page 1")
+
+        # Add update notification if triggered
+        if needs_update:
+            lines.append(f"⚠️ **Nota:** Actualizando lista de órdenes automáticamente ({update_reason}). La búsqueda difusa estará disponible pronto.")
+            lines.append("")
 
         if all_ordenes:
             lines.append("# Órdenes Recientes (20 más recientes)")
