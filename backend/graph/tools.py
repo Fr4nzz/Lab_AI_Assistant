@@ -29,6 +29,7 @@ from extractors import (
     EXTRACT_ORDENES_JS, EXTRACT_REPORTES_JS, EXTRACT_ORDEN_EDIT_JS,
     EXTRACT_AVAILABLE_EXAMS_JS, EXTRACT_ADDED_EXAMS_JS, PageDataExtractor
 )
+from orders_cache import fuzzy_search_patient, format_fuzzy_results
 
 logger = logging.getLogger(__name__)
 
@@ -1039,8 +1040,24 @@ async def search_orders(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> str:
-    """Search orders by patient/cedula. Returns 'num' and 'id' for each order."""
+    """Search orders by patient/cedula. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches."""
     result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
+
+    # If no results and there's a search term, try fuzzy search
+    if search and (not result.get("ordenes") or len(result.get("ordenes", [])) == 0):
+        logger.info(f"[search_orders] No exact matches for '{search}', trying fuzzy search...")
+        fuzzy_results = fuzzy_search_patient(search, min_score=70, max_results=10)
+
+        if fuzzy_results:
+            logger.info(f"[search_orders] Found {len(fuzzy_results)} fuzzy matches")
+            result["fuzzy_fallback"] = True
+            result["fuzzy_suggestions"] = fuzzy_results
+            result["fuzzy_message"] = format_fuzzy_results(fuzzy_results, search)
+        else:
+            result["fuzzy_fallback"] = True
+            result["fuzzy_suggestions"] = []
+            result["fuzzy_message"] = f"No se encontraron coincidencias para '{search}'."
+
     return json.dumps(result, ensure_ascii=False)
 
 

@@ -298,12 +298,22 @@ async def get_browser_tabs_context() -> str:
 # ============================================================
 
 async def extract_initial_context() -> str:
-    """Extract initial orders list and available exams from the page for AI context."""
+    """
+    Extract orders list and available exams from the page for AI context.
+
+    Only fetches page 1 (20 orders), checks overlap with cached orders,
+    and triggers update if no overlap exists.
+    """
     global browser
     lines = []
 
     try:
-        # Fetch orders from page 1
+        from orders_cache import (
+            get_cached_orders, check_overlap, merge_orders,
+            reload_orders_cache
+        )
+
+        # Fetch orders from page 1 only
         page1_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=1"
         logger.info("[Context] Fetching orders page 1...")
         await browser.page.goto(page1_url, timeout=30000)
@@ -314,30 +324,35 @@ async def extract_initial_context() -> str:
             await browser.page.wait_for_timeout(500)
         ordenes_page1 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
 
-        # Fetch orders from page 2
-        page2_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=2"
-        logger.info("[Context] Fetching orders page 2...")
-        await browser.page.goto(page2_url, timeout=30000)
-        try:
-            await browser.page.wait_for_selector('table tbody tr, .order-row', timeout=5000)
-        except Exception:
-            await browser.page.wait_for_timeout(500)
-        ordenes_page2 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
+        logger.info(f"[Context] Extracted {len(ordenes_page1)} orders from page 1")
 
-        # Combine orders from both pages
-        all_ordenes = ordenes_page1 + ordenes_page2
+        # Get page 1 order numbers
+        page1_order_nums = {o.get('num', '') for o in ordenes_page1 if o.get('num')}
+
+        # Check overlap with cached orders
+        cached_orders = get_cached_orders()
+        has_overlap, overlap_count = check_overlap(page1_order_nums)
+
+        if cached_orders and not has_overlap:
+            # No overlap - orders cache is stale, needs update
+            logger.warning("[Context] No overlap between page 1 and cached orders - cache needs update!")
+            # We'll show a notification but not block - the user can trigger update manually
+
+        # Merge page 1 with cached orders (20 most recent)
+        if cached_orders:
+            all_ordenes = merge_orders(ordenes_page1, cached_orders, max_orders=20)
+            logger.info(f"[Context] Merged {len(ordenes_page1)} page 1 orders with cache, showing {len(all_ordenes)}")
+        else:
+            all_ordenes = ordenes_page1[:20]
+            logger.info(f"[Context] No cached orders, showing {len(all_ordenes)} from page 1")
 
         if all_ordenes:
-            lines.append("# Órdenes Recientes (40 más recientes)")
-            lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado | ID |")
-            lines.append("|---|-------|-------|----------|--------|--------|-----|")
-            for i, o in enumerate(all_ordenes[:40]):
-                paciente = (o.get('paciente', '') or '')[:30]
-                lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} | {o.get('id','')} |")
-            logger.info(f"[Context] Extracted {len(all_ordenes)} orders from 2 pages")
-
-        # Navigate back to orders page
-        await browser.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+            lines.append("# Órdenes Recientes (20 más recientes)")
+            lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado |")
+            lines.append("|---|-------|-------|----------|--------|--------|")
+            for i, o in enumerate(all_ordenes[:20]):
+                paciente = (o.get('paciente', '') or o.get('patient_name', '') or '')[:30]
+                lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} |")
 
     except Exception as e:
         logger.warning(f"Could not extract orders context: {e}")
@@ -400,20 +415,9 @@ async def lifespan(app: FastAPI):
                     if "/bienvenida" in browser.page.url:
                         logger.info("[Startup] Redirected to welcome page, navigating to orders...")
                         await browser.navigate("https://laboratoriofranz.orion-labs.com/ordenes?page=1")
-
-                    # Extract orders
-                    logger.info("[Startup] Extracting orders context after login...")
-                    try:
-                        orders_context = await extract_initial_context()
-                        if orders_context:
-                            initial_orders_context = orders_context
-                            logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
-                        else:
-                            initial_orders_context = ""
-                            logger.info("[Startup] No orders found")
-                    except Exception as e:
-                        logger.error(f"[Startup] Failed to extract orders: {e}")
-                        initial_orders_context = ""
+                    # Orders context will be extracted on-demand by get_orders_context()
+                    initial_orders_context = ""
+                    logger.info("[Startup] Login successful, orders will be fetched on-demand")
             else:
                 logger.warning("[Startup] 'Ingresar' button not found on login page")
                 initial_orders_context = "⚠️ SESIÓN NO INICIADA: No se encontró el botón 'Ingresar'."
@@ -421,18 +425,9 @@ async def lifespan(app: FastAPI):
             logger.error(f"[Startup] Auto-login failed: {e}")
             initial_orders_context = f"⚠️ SESIÓN NO INICIADA: Error al intentar login automático: {e}"
     else:
-        logger.info("[Startup] Extracting orders context on startup...")
-        try:
-            orders_context = await extract_initial_context()
-            if orders_context:
-                initial_orders_context = orders_context
-                logger.info(f"[Startup] Extracted {len(orders_context)} chars of orders context")
-            else:
-                initial_orders_context = ""
-                logger.info("[Startup] No orders found")
-        except Exception as e:
-            logger.error(f"[Startup] Failed to extract orders: {e}")
-            initial_orders_context = ""
+        # Already logged in - orders context will be extracted on-demand by get_orders_context()
+        initial_orders_context = ""
+        logger.info("[Startup] Already logged in, orders will be fetched on-demand")
 
     # Initialize checkpointer for conversation persistence
     # Using MemorySaver for development (in-memory, not persistent across restarts)
@@ -892,6 +887,126 @@ async def update_exams_list():
 
     except Exception as e:
         logger.error(f"[Exams] Update failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# ORDERS LIST UPDATE ENDPOINTS
+# ============================================================
+
+ORDERS_LAST_UPDATE_FILE = Path(__file__).parent / "config" / "ordenes_last_update.txt"
+
+
+@app.get("/api/orders/last-update")
+async def get_orders_last_update():
+    """Get the timestamp of the last orders list update."""
+    if ORDERS_LAST_UPDATE_FILE.exists():
+        timestamp = ORDERS_LAST_UPDATE_FILE.read_text().strip()
+        return {"lastUpdate": timestamp}
+    return {"lastUpdate": None}
+
+
+@app.post("/api/orders/update")
+async def update_orders_list():
+    """
+    Download the orders XLSX from the website and update the orders list.
+
+    Uses Playwright to:
+    1. Navigate to the ordenes report page
+    2. Set date range: desde="2023-01-01", hasta=today
+    3. Click "Generar informe" -> "Excel"
+    4. Wait for XLSX download
+    5. Process with scripts/process_ordenes.py
+    """
+    global browser
+
+    try:
+        logger.info("[Orders] Starting orders list update...")
+
+        # Use the existing browser
+        if not browser:
+            raise HTTPException(status_code=503, detail="Browser not initialized")
+
+        await browser.ensure_page()
+
+        # Create a new tab for this operation
+        new_page = await browser.context.new_page()
+
+        try:
+            # Navigate to ordenes report page
+            logger.info("[Orders] Navigating to ordenes report page...")
+            await new_page.goto("https://laboratoriofranz.orion-labs.com/informes/ordenes", timeout=30000)
+            await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+            await asyncio.sleep(1)  # Wait for page to settle
+
+            # Set fecha-desde to 2023-01-01
+            logger.info("[Orders] Setting date range...")
+            fecha_desde = new_page.locator("#fecha-desde")
+            await fecha_desde.click()
+            await new_page.keyboard.press("Control+a")
+            await fecha_desde.type("2023-01-01", delay=50)
+            await asyncio.sleep(0.3)
+
+            # Click somewhere else to close datepicker and apply the date
+            await new_page.locator("label[for='fecha-desde']").click()
+            await asyncio.sleep(0.5)
+
+            # Set up download handler
+            download_dir = Path(__file__).parent / "downloads"
+            download_dir.mkdir(exist_ok=True)
+
+            # Click "Generar informe" dropdown
+            logger.info("[Orders] Clicking 'Generar informe' dropdown...")
+            dropdown_btn = new_page.locator("button.dropdown-toggle", has_text="Generar informe")
+            await dropdown_btn.click()
+            await asyncio.sleep(0.5)
+
+            # Click "Excel" option and wait for download
+            logger.info("[Orders] Clicking 'Excel' and waiting for download...")
+            async with new_page.expect_download(timeout=120000) as download_info:
+                excel_btn = new_page.locator("#generar-informe-ordenes-excel")
+                await excel_btn.click()
+
+            download = await download_info.value
+
+            # Save the downloaded file
+            xlsx_path = download_dir / download.suggested_filename
+            await download.save_as(xlsx_path)
+            logger.info(f"[Orders] Downloaded: {xlsx_path}")
+
+            # Process the XLSX with process_ordenes.py
+            logger.info("[Orders] Processing XLSX...")
+            from scripts.process_ordenes import process_ordenes
+            process_ordenes(str(xlsx_path))
+
+            # Reload the orders cache
+            from orders_cache import reload_orders_cache, set_orders_last_update
+            orders = reload_orders_cache()
+
+            # Save the update timestamp
+            timestamp = datetime.now().isoformat()
+            set_orders_last_update(timestamp)
+
+            # Clean up downloaded file
+            xlsx_path.unlink(missing_ok=True)
+
+            logger.info(f"[Orders] Update complete! {len(orders)} orders loaded.")
+
+            return {
+                "success": True,
+                "message": f"Lista de órdenes actualizada: {len(orders)} órdenes",
+                "orderCount": len(orders),
+                "lastUpdate": timestamp
+            }
+
+        finally:
+            # Close the tab we opened
+            await new_page.close()
+
+    except Exception as e:
+        logger.error(f"[Orders] Update failed: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
