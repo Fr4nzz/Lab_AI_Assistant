@@ -120,6 +120,76 @@ function groupMessageParts(parts: Array<{ type: string; [key: string]: unknown }
   return steps
 }
 
+// Group consecutive tools of the same name into a single display unit
+interface GroupedPart {
+  type: string
+  toolName?: string
+  // For grouped tools, contains array of args from each tool
+  groupedArgs?: Array<Record<string, unknown>>
+  // For grouped tools, contains array of results
+  groupedResults?: unknown[]
+  // Single tool or non-tool part data
+  args?: Record<string, unknown>
+  result?: unknown
+  state?: string
+  // Original part data for non-grouped parts
+  [key: string]: unknown
+}
+
+function groupConsecutiveTools(parts: Array<{ type: string;[key: string]: unknown }>): GroupedPart[] {
+  const grouped: GroupedPart[] = []
+  let i = 0
+
+  while (i < parts.length) {
+    const part = parts[i]
+
+    if (!isToolPart(part)) {
+      // Non-tool parts pass through unchanged
+      grouped.push(part as GroupedPart)
+      i++
+      continue
+    }
+
+    const toolName = getToolName(part)
+
+    // Collect consecutive tools of the same name
+    const sameToolParts = [part]
+    let j = i + 1
+    while (j < parts.length && isToolPart(parts[j]) && getToolName(parts[j]) === toolName) {
+      sameToolParts.push(parts[j])
+      j++
+    }
+
+    if (sameToolParts.length === 1) {
+      // Single tool, pass through unchanged
+      grouped.push(part as GroupedPart)
+    } else {
+      // Multiple consecutive same-name tools - group them
+      const groupedArgs = sameToolParts.map(p => (p as any).args || (p as any).input || {})
+      const groupedResults = sameToolParts.map(p => (p as any).result || (p as any).output)
+      // Use the "worst" state (pending > call > result)
+      const states = sameToolParts.map(p => getToolState(p))
+      const finalState = states.includes('pending') ? 'pending'
+        : states.includes('call') ? 'call'
+          : states.includes('partial-call') ? 'partial-call'
+            : states.includes('error') ? 'error'
+              : 'result'
+
+      grouped.push({
+        type: 'tool-grouped',
+        toolName,
+        groupedArgs,
+        groupedResults,
+        state: finalState
+      })
+    }
+
+    i = j
+  }
+
+  return grouped
+}
+
 const {
   dropzoneRef,
   isDragging,
@@ -369,8 +439,8 @@ onUnmounted(() => {
                   :is-streaming="step.reasoning.state !== 'done'"
                 />
 
-                <!-- Parts for this step (tools or text) -->
-                <template v-for="(part, partIndex) in step.parts" :key="`${message.id}-step-${step.stepNumber}-part-${partIndex}`">
+                <!-- Parts for this step (tools or text) - group consecutive same-name tools -->
+                <template v-for="(part, partIndex) in groupConsecutiveTools(step.parts)" :key="`${message.id}-step-${step.stepNumber}-part-${partIndex}`">
                   <MDCCached
                     v-if="part.type === 'text'"
                     :value="(part as any).text"
@@ -379,6 +449,16 @@ onUnmounted(() => {
                     :parser-options="{ highlight: false }"
                     class="*:first:mt-0 *:last:mb-0"
                   />
+                  <!-- Grouped tools (multiple consecutive same-name tools) -->
+                  <ToolLabTool
+                    v-else-if="part.type === 'tool-grouped'"
+                    :name="(part as any).toolName"
+                    :args="{}"
+                    :grouped-args="(part as any).groupedArgs"
+                    :result="(part as any).groupedResults?.[0]"
+                    :state="(part as any).state"
+                  />
+                  <!-- Single tool -->
                   <ToolLabTool
                     v-else-if="isToolPart(part)"
                     :name="getToolName(part)"
