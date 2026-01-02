@@ -900,7 +900,8 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     is_cotizacion = not cedula or cedula.strip() == ""
     logger.info(f"[create_order] Creating {'cotización' if is_cotizacion else 'order'} with {len(exams)} exams: {exams}")
 
-    page = await _browser.ensure_page()
+    # Use get_page_for_new_order to preserve existing cotización tabs
+    page = await _browser.get_page_for_new_order()
     await page.goto("https://laboratoriofranz.orion-labs.com/ordenes/create")
 
     # Wait for page to load and exams table to be ready
