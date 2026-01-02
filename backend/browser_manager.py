@@ -108,6 +108,10 @@ class BrowserManager:
             return False
         try:
             # Try to access the browser - this will fail if browser was closed
+            # Also check if the browser is actually connected
+            if hasattr(self.context, 'browser') and self.context.browser:
+                if not self.context.browser.is_connected():
+                    return False
             _ = self.context.pages
             return True
         except Exception:
@@ -167,24 +171,85 @@ class BrowserManager:
         # Page is invalid, need to create a new one
         print("[BrowserManager] Page was closed, opening new tab...")
 
-        if self.context:
-            # Try to use existing page from context
-            if self.context.pages:
-                self.page = self.context.pages[0]
-                print(f"[BrowserManager] Using existing tab: {self.page.url}")
+        try:
+            if self.context:
+                # Try to use existing page from context
+                if self.context.pages:
+                    self.page = self.context.pages[0]
+                    print(f"[BrowserManager] Using existing tab: {self.page.url}")
+                else:
+                    # Create new page
+                    self.page = await self.context.new_page()
+                    print("[BrowserManager] Created new tab")
+                    # Navigate to orders by default
+                    await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
+                    print("[BrowserManager] Navigated to orders page")
             else:
-                # Create new page
-                self.page = await self.context.new_page()
-                print("[BrowserManager] Created new tab")
-                # Navigate to orders by default
+                raise RuntimeError("Browser context is not available")
+        except Exception as e:
+            # Browser context is dead, need full restart
+            error_str = str(e).lower()
+            if "closed" in error_str or "target" in error_str or "context" in error_str:
+                print(f"[BrowserManager] Browser context is dead ({e}), performing full restart...")
+                # Force cleanup
+                self.context = None
+                self.page = None
+                self._started = False
+                if self.playwright:
+                    try:
+                        await self.playwright.stop()
+                    except Exception:
+                        pass
+                    self.playwright = None
+                # Restart browser
+                await self.start(headless=self._headless, browser=self._browser_channel)
                 await self.page.goto("https://laboratoriofranz.orion-labs.com/ordenes", timeout=30000)
-                print("[BrowserManager] Navigated to orders page")
-        else:
-            raise RuntimeError("Browser context is not available")
+                print("[BrowserManager] Browser restarted successfully")
+            else:
+                raise
 
         # Dismiss any popups on the new page
         await self.dismiss_popups()
         return self.page
+
+    async def get_page_for_new_order(self) -> Page:
+        """
+        Get a page for creating a new order/cotización.
+
+        Logic:
+        - If current page is on orders list (/ordenes), reuse it
+        - Otherwise, create a new tab to preserve existing cotización tabs
+
+        Returns the page to use for the new order.
+        """
+        await self.ensure_browser()
+
+        # Check current page URL
+        current_url = ""
+        try:
+            if self.page and not self.page.is_closed():
+                current_url = self.page.url
+        except Exception:
+            pass
+
+        # If on orders list page, reuse this tab
+        if "/ordenes" in current_url and "/ordenes/create" not in current_url and "/ordenes/" not in current_url.split("/ordenes")[1][:5]:
+            print(f"[BrowserManager] On orders list, reusing tab for new order")
+            await self.dismiss_popups()
+            return self.page
+
+        # Otherwise, create a new tab to preserve existing work
+        print(f"[BrowserManager] Creating new tab for order (current: {current_url[:50]}...)")
+        try:
+            new_page = await self.context.new_page()
+            self.page = new_page
+            print("[BrowserManager] New tab created for order")
+            await self.dismiss_popups()
+            return new_page
+        except Exception as e:
+            # If can't create new page, fall back to ensure_page
+            print(f"[BrowserManager] Could not create new tab ({e}), using ensure_page")
+            return await self.ensure_page()
 
     async def dismiss_popups(self) -> bool:
         """
