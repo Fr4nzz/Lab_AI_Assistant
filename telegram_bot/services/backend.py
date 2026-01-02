@@ -170,7 +170,7 @@ class BackendService:
 
         # Add images first
         if images:
-            for img_bytes in images:
+            for i, img_bytes in enumerate(images):
                 base64_img = base64.b64encode(img_bytes).decode("utf-8")
                 # Detect image type
                 if img_bytes[:3] == b'\xff\xd8\xff':
@@ -181,10 +181,14 @@ class BackendService:
                     mime_type = "image/jpeg"  # Default
 
                 # Use parts format for Frontend API
+                # Include url for web UI display and rotationPending for server-side rotation
                 parts.append({
                     "type": "file",
                     "data": base64_img,
-                    "mediaType": mime_type
+                    "mediaType": mime_type,
+                    "url": f"data:{mime_type};base64,{base64_img}",
+                    "name": f"telegram_image_{i + 1}",
+                    "rotationPending": True  # Let server detect and apply rotation
                 })
 
         # Add text message

@@ -41,6 +41,15 @@ export default defineNuxtConfig({
     // Externalize native modules that can't be bundled
     externals: {
       external: ['sharp']
+    },
+    // Route rules for headers
+    routeRules: {
+      '/**': {
+        headers: {
+          // Prevent "Look for and connect to any device on your local network" popup
+          'Permissions-Policy': 'local-network=()'
+        }
+      }
     }
   },
 
