@@ -1,9 +1,9 @@
 codigo,nombre,seccion,precio_particular,precio_descuento,tiempo,muestra,tecnica
 DENGIG,ANTI DENGUE IGG,Autoinmunes e Infecciosas,4.5,0.0,1 día,Suero,MEIA
 DENIM,ANTI DENGUE IGM,Autoinmunes e Infecciosas,6.0,0.0,4 horas,Suero,Electroquimioluminiscencia
-ATPO,ANTI MICROSOMALES (TPO) (PEROXIDASA TIROIDEA),Autoinmunes e Infecciosas,16.5,11.5,1 día,Suero,SCM-EIA Automatizado
+ATPO,ANTI MICROSOMALES (TPO) (PEROXIDASA TIROIDEA),Autoinmunes e Infecciosas,17.0,12.0,1 día,Suero,SCM-EIA Automatizado
 ACCP,ANTI-CCP (CITRULINA),Autoinmunes e Infecciosas,23.0,18.0,2 días,Suero,SCM-EIA Automatizado
-ATG,ANTI-TIROGLOBULINA,Autoinmunes e Infecciosas,16.5,11.5,1 día,Suero,Electroquimioluminiscencia
+ATG,ANTI-TIROGLOBULINA,Autoinmunes e Infecciosas,17.0,12.0,1 día,Suero,Electroquimioluminiscencia
 CELULE,CELULAS LE,Autoinmunes e Infecciosas,3.0,3.0,1 día,Sangre Total EDTA,
 CMVIG,CITOMEGALOVIRUS (CMV) IGG,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
 CMVIM,CITOMEGALOVIRUS (CMV) IGM,Autoinmunes e Infecciosas,4.5,0.0,2 días,Suero,SCM-EIA Automatizado
@@ -105,6 +105,7 @@ T3,T3 TOTAL,Estudios Hormonales,8.0,0.0,2 horas,Suero,Inmunofluorescencia
 T4,T4 TIROXINA TOTAL,Estudios Hormonales,8.0,6.0,2 horas,Suero,Inmunofluorescencia
 TESTO,TESTOSTERONA TOTAL,Estudios Hormonales,12.5,7.2,1 día,Suero,Quimioluminiscencia
 FT4,TIROXINA T4 LIBRE,Estudios Hormonales,8.0,0.0,1 día,Suero,Inmunofluorescencia
+HOMAIR,ÍNDICE HOMA,Estudios Hormonales,0.0,0.0,2 horas,Suero,Electroquimioluminiscencia
 IGE,INMUNOGLOBULINA E (IGE),Estudios de Alergias,14.0,0.0,1 día,Suero,Quimioluminiscencia
 BHVSG,BIOMETRIA HEMATICA+VSG,Hematología,7.0,0.0,2 horas,Sangre Total EDTA 2,CBC-IMI Automatizado
 BH,BIOMETRÍA HEMÁTICA,Hematología,4.0,3.5,3 horas,Sangre Total EDTA,CBC-IMI Automatizado
@@ -136,7 +137,7 @@ FPSA,ANTÍGENO PROSTÁTICO LIBRE (FPSA),Marcadores Tumorales,8.0,8.0,5 horas,Sue
 CA125,MARCADOR TUMORAL CA 125,Marcadores Tumorales,16.0,11.0,1 hora,Suero,Fotometría Automatizada
 CA153,MARCADOR TUMORAL CA 15-3,Marcadores Tumorales,20.0,15.0,1 día,Suero,Electroquimioluminiscencia
 CA199,MARCADOR TUMORAL CA 19-9,Marcadores Tumorales,21.0,16.0,1 día,Suero,Electroquimioluminiscencia
-TG,TIROGLOBULINA,Marcadores Tumorales,16.5,11.5,1 día,Suero,SCM-EIA Automatizado
+TG,TIROGLOBULINA,Marcadores Tumorales,17.0,12.0,1 día,Suero,SCM-EIA Automatizado
 CITO,CITOBACTERIOLOGICO DE SECRECION VAGINAL,Microbiología,7.5,5.0,3 días,Secreción Vaginal,Cultivo
 CULTCO,COPROCULTIVO,Microbiología,12.0,12.0,3 horas,Materia Fecal Cultivo,
 CAGUA,CULTIVO DE AGUA,Microbiología,10.0,0.0,3 días,AGUA,
