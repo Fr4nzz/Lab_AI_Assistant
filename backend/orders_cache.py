@@ -158,12 +158,28 @@ def fuzzy_search_patient(
     # Normalize query
     query_upper = query.upper().strip()
 
-    # Use rapidfuzz to find matches
-    # Use WRatio which handles partial matches and different string lengths well
+    # Custom scorer that weighs surname (apellido) matching more heavily
+    # This gives better results since surnames are more distinctive
+    def weighted_scorer(query: str, name: str, **kwargs) -> float:
+        # Score against full name
+        full_score = fuzz.WRatio(query, name)
+
+        # Extract apellidos (before comma) for separate scoring
+        if ',' in name:
+            apellidos = name.split(',', 1)[0].strip()
+        else:
+            apellidos = name.split()[0] if name.split() else name
+
+        apellido_score = fuzz.WRatio(query, apellidos)
+
+        # Weighted: 50% apellido, 50% full name
+        return (apellido_score * 0.5) + (full_score * 0.5)
+
+    # Use rapidfuzz to find matches with custom weighted scorer
     matches = process.extract(
         query_upper,
         patient_names,
-        scorer=fuzz.WRatio,
+        scorer=weighted_scorer,
         limit=50  # Get more initially, then filter
     )
 
