@@ -1472,6 +1472,10 @@ async def chat_aisdk(request: AISdkChatRequest):
                     tool_call_id = f"call_{run_id[:12]}" if run_id else None
                     tool_output = event.get("data", {}).get("output", "")
 
+                    # Extract content from ToolMessage if it's a LangChain message object
+                    if hasattr(tool_output, 'content'):
+                        tool_output = tool_output.content
+
                     # Parse JSON string to object if possible (for ask_user, etc.)
                     result_data = tool_output
                     if isinstance(tool_output, str) and tool_output.startswith('{'):
