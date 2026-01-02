@@ -165,11 +165,15 @@ def is_logged_in() -> bool:
     return False
 
 
-async def get_orders_context() -> str:
+async def get_orders_context(force_refresh: bool = False) -> str:
     """
     Get orders context, checking login state first.
     Returns empty string with login message if not logged in.
     Returns orders table if logged in and orders found.
+
+    Args:
+        force_refresh: If True, re-fetch orders even if already cached.
+                       Use this for new chats to get fresh data.
     """
     global browser, initial_orders_context, orders_context_sent
 
@@ -177,8 +181,8 @@ async def get_orders_context() -> str:
         logger.info("[Context] User not logged in - browser is on login page")
         return "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión en el navegador para que pueda acceder a las órdenes del laboratorio."
 
-    # If we haven't sent valid orders yet, try to extract them
-    if not orders_context_sent or not initial_orders_context:
+    # Force refresh for new chats, or if we haven't sent valid orders yet
+    if force_refresh or not orders_context_sent or not initial_orders_context:
         logger.info("[Context] Extracting orders context...")
         initial_orders_context = await extract_initial_context()
         if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
@@ -1416,8 +1420,8 @@ async def chat_aisdk(request: AISdkChatRequest):
             if is_first_message:
                 reset_tab_state()
 
-            # Get context
-            current_context = await get_orders_context()
+            # Get context (force refresh for new chats to get latest orders)
+            current_context = await get_orders_context(force_refresh=is_first_message)
             tabs_context = await get_browser_tabs_context()
 
             # Build initial state
@@ -1805,8 +1809,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 if is_first_message:
                     reset_tab_state()
 
-                # Get current context (checks login state, fetches orders if needed)
-                current_context = await get_orders_context()
+                # Get current context (force refresh for new chats to get latest orders)
+                current_context = await get_orders_context(force_refresh=is_first_message)
 
                 # Get browser tabs context (always at each user message)
                 tabs_context = await get_browser_tabs_context()
@@ -2065,8 +2069,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             if is_first_message:
                 reset_tab_state()
 
-            # Get current context (checks login state, fetches orders if needed)
-            current_context = await get_orders_context()
+            # Get current context (force refresh for new chats to get latest orders)
+            current_context = await get_orders_context(force_refresh=is_first_message)
 
             # Get browser tabs context (always at each user message)
             tabs_context = await get_browser_tabs_context()
