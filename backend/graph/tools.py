@@ -271,6 +271,7 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
                 return page
 
     # Create new tab
+    await _browser.ensure_browser()  # Auto-restart if browser was closed
     page = await _browser.context.new_page()
     url = f"https://laboratoriofranz.orion-labs.com/reportes2?numeroOrden={order_num}"
     await page.goto(url, timeout=30000)
@@ -289,6 +290,7 @@ async def _find_or_create_results_tab(order_num: str) -> Any:
 
 async def _find_order_tab_by_index(tab_index: int) -> Any:
     """Find an order tab (nueva_orden or orden_edit) by its index in the browser."""
+    await _browser.ensure_browser()  # Auto-restart if browser was closed
     pages = _browser.context.pages
     if tab_index < 0 or tab_index >= len(pages):
         raise ValueError(f"Tab index {tab_index} out of range (0-{len(pages)-1})")
@@ -327,6 +329,7 @@ async def _find_or_create_order_tab(order_id: int) -> Any:
                 return page
 
     # Create new tab
+    await _browser.ensure_browser()  # Auto-restart if browser was closed
     page = await _browser.context.new_page()
     url = f"https://laboratoriofranz.orion-labs.com/ordenes/{order_id}/edit"
     await page.goto(url, timeout=30000)
@@ -459,9 +462,10 @@ async def _get_all_tabs_info() -> dict:
     """
     global _tab_state_manager
 
-    if not _browser or not _browser.context:
+    if not _browser:
         return {"error": "Browser not available", "tabs": []}
 
+    await _browser.ensure_browser()  # Auto-restart if browser was closed
     pages = _browser.context.pages
     tabs_info = []
     current_tab_keys = set()
@@ -578,6 +582,7 @@ async def _search_orders_impl(
         params["fechaHasta"] = fecha_hasta
 
     url = f"https://laboratoriofranz.orion-labs.com/ordenes?{urlencode(params)}"
+    await _browser.ensure_browser()  # Auto-restart if browser was closed
     temp_page = await _browser.context.new_page()
 
     try:
@@ -598,9 +603,13 @@ async def _search_orders_impl(
             "tip": "Use 'num' field for get_order_results(), use 'id' field for get_order_info() or edit_order_exams()"
         }
     finally:
-        pages = _browser.context.pages
-        if len(pages) > 1:
-            await temp_page.close()
+        # Clean up temp page (only if browser is still alive)
+        try:
+            pages = _browser.context.pages
+            if len(pages) > 1:
+                await temp_page.close()
+        except Exception:
+            pass  # Browser was closed, nothing to clean up
 
 
 async def _get_order_results_impl(order_nums: List[str]) -> dict:
