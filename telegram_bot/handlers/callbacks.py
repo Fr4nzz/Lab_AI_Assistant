@@ -10,10 +10,11 @@ from ..keyboards import (
     build_chat_selection_keyboard,
     build_photo_options_keyboard,
     build_model_selection_keyboard,
+    build_ask_user_keyboard,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
 )
-from ..services import BackendService
+from ..services import BackendService, AskUserOptions
 from ..utils import build_chat_url
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("model:"):
         await handle_model_selection(query, context, data[6:])
+
+    elif data.startswith("askopt:"):
+        await handle_ask_user_option(query, context, data[7:])
 
 
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -122,7 +126,7 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
@@ -130,8 +134,14 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
             model=model
         )
 
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
         # Send response
-        await send_response(query, response_text, chat_id, tools)
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -201,7 +211,7 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
@@ -209,8 +219,14 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
             model=model
         )
 
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
         # Send response
-        await send_response(query, response_text, chat_id, tools)
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -300,8 +316,80 @@ async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, mode
     logger.info(f"User selected model: {model_id}")
 
 
-async def send_response(query, response_text: str, chat_id: str, tools: list) -> None:
-    """Send AI response with URL and post-response options."""
+async def handle_ask_user_option(query, context: ContextTypes.DEFAULT_TYPE, option_index: str) -> None:
+    """Handle ask_user option button click.
+
+    Sends the selected option text as a follow-up message to the current chat.
+    """
+    chat_id = context.user_data.get("current_chat_id")
+    options = context.user_data.get("ask_user_options", [])
+
+    if not chat_id:
+        await query.edit_message_text("❌ No hay chat activo.")
+        return
+
+    try:
+        idx = int(option_index)
+        if idx < 0 or idx >= len(options):
+            await query.edit_message_text("❌ Opción no válida.")
+            return
+        selected_option = options[idx]
+    except (ValueError, IndexError):
+        await query.edit_message_text("❌ Opción no válida.")
+        return
+
+    # Clear the stored options
+    context.user_data.pop("ask_user_options", None)
+
+    # Show processing message
+    await query.edit_message_text(f"⏳ Procesando: {selected_option[:50]}...")
+
+    # Send the selected option as a message
+    backend = BackendService()
+    tools_used = []
+
+    try:
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
+            except Exception:
+                pass
+
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
+        response_text, tools, ask_user_options = await backend.send_message(
+            chat_id=chat_id,
+            message=selected_option,
+            images=None,
+            on_tool_call=on_tool,
+            model=model
+        )
+
+        # Store new ask_user options if present
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        # Send response
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+    finally:
+        await backend.close()
+
+
+async def send_response(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    response_text: str,
+    chat_id: str,
+    tools: list,
+    ask_user_options: AskUserOptions = None
+) -> None:
+    """Send AI response with URL and post-response options.
+
+    If ask_user_options is provided, shows those options as buttons instead of the standard keyboard.
+    """
     chat_url = build_chat_url(chat_id)
 
     # Format tools used
@@ -320,7 +408,11 @@ async def send_response(query, response_text: str, chat_id: str, tools: list) ->
         f"🔗 *Ver en web:*\n{chat_url}"
     )
 
-    keyboard = build_post_response_keyboard()
+    # Use ask_user keyboard if options are provided, otherwise standard keyboard
+    if ask_user_options and ask_user_options.options:
+        keyboard = build_ask_user_keyboard(ask_user_options.options)
+    else:
+        keyboard = build_post_response_keyboard()
 
     # Try sending with Markdown, fall back to plain text if parsing fails
     try:

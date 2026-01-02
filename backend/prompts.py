@@ -21,7 +21,7 @@ SYSTEM_PROMPT = """Asistente de laboratorio clínico para Orion Labs.
 
 ## COTIZACIÓN
 Para precios: create_new_order(cedula="", exams=["CODIGO1",...])
-Usa códigos EXACTOS del CONTEXTO. Comunes: BH, EMO, CREA, GLU, COL, TSH
+Usa códigos EXACTOS del CONTEXTO.
 
 ## EDITAR ÓRDENES EXISTENTES
 Para modificar una orden abierta (nueva o guardada):

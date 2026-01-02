@@ -11,8 +11,8 @@ try:
 except ImportError:
     HAS_TELEGRAMIFY = False
 
-from ..keyboards import build_post_response_keyboard, DEFAULT_MODEL
-from ..services import BackendService
+from ..keyboards import build_post_response_keyboard, build_ask_user_keyboard, DEFAULT_MODEL
+from ..services import BackendService, AskUserOptions
 from ..utils import build_chat_url
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         # Get selected model
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
@@ -153,12 +153,18 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         # Clear pending images
         context.user_data["pending_images"] = []
 
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
         # Update chat title if it was generic
         if prompt:
             await backend.update_chat_title(chat_id, prompt[:50])
 
         # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools)
+        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -190,7 +196,7 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         # Get selected model
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=text,
             images=None,
@@ -198,8 +204,14 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             model=model
         )
 
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
         # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools)
+        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -236,7 +248,7 @@ async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYP
         # Get selected model
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=text,
             images=None,
@@ -244,14 +256,29 @@ async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYP
             model=model
         )
 
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
         # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools)
+        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
 
-async def send_ai_response(processing_msg, response_text: str, chat_id: str, tools: list) -> None:
-    """Send AI response with chat URL and post-response options."""
+async def send_ai_response(
+    processing_msg,
+    response_text: str,
+    chat_id: str,
+    tools: list,
+    ask_user_options: AskUserOptions = None
+) -> None:
+    """Send AI response with chat URL and post-response options.
+
+    If ask_user_options is provided, shows those options as buttons instead of the standard keyboard.
+    """
     # Build chat URL
     chat_url = build_chat_url(chat_id)
 
@@ -275,8 +302,11 @@ async def send_ai_response(processing_msg, response_text: str, chat_id: str, too
     # Convert to Telegram-compatible format
     converted_text, parse_mode = convert_markdown_for_telegram(full_text)
 
-    # Edit the processing message with response
-    keyboard = build_post_response_keyboard()
+    # Use ask_user keyboard if options are provided, otherwise standard keyboard
+    if ask_user_options and ask_user_options.options:
+        keyboard = build_ask_user_keyboard(ask_user_options.options)
+    else:
+        keyboard = build_post_response_keyboard()
 
     # Try with converted markdown
     try:
