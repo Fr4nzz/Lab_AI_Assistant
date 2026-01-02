@@ -2,7 +2,9 @@
 @import "@nuxt/ui";
 
 @theme static {
-  --font-sans: 'Public Sans', sans-serif;
+  /* System fonts first for instant render (no FOUT), custom font as fallback */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               'Public Sans', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
   --color-green-50: #EFFDF5;
   --color-green-100: #D9FBE8;

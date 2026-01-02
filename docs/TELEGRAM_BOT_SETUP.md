@@ -79,6 +79,7 @@ Send these commands to BotFather:
 > chats - Ver chats recientes
 > new - Crear nuevo chat
 > model - Cambiar modelo de IA
+> actualizar - Buscar actualizaciones
 > cancel - Cancelar operación
 > ```
 
@@ -114,37 +115,40 @@ To restrict the bot to specific users:
    TELEGRAM_ALLOWED_USERS=
    ```
 
-### 2.3 Optional: Set Cloudflare URL
+### 2.3 Cloudflare URL (Auto-detected)
 
-If you're using Cloudflare tunnel, add the URL:
+The Cloudflare tunnel URL is **automatically detected** when using `Lab_Assistant.bat`. The tunnel saves its URL to `data/tunnel_url.txt`, and the bot reads it automatically.
 
+No configuration needed! The bot will generate clickable links to view chats in the web UI.
+
+**Manual override (optional):** If you need to set a specific URL:
 ```bash
 CLOUDFLARE_TUNNEL_URL=https://your-tunnel.trycloudflare.com
 ```
-
-This allows the bot to generate clickable links to view chats in the web UI.
 
 ---
 
 ## Step 3: Run the Bot
 
-### 3.1 Start the Backend First
+### 3.1 Start Everything with Lab_Assistant.bat
 
-The bot requires the backend to be running:
+The bot starts automatically with the launcher:
 
 ```batch
 .\Lab_Assistant.bat
 ```
 
-### 3.2 Start the Telegram Bot
+This starts:
+- Backend (FastAPI)
+- Frontend (Nuxt)
+- Telegram Bot (if `TELEGRAM_BOT_TOKEN` is set)
+- Cloudflare Tunnel (for remote access)
 
-In a new terminal:
+All services run silently in the background. Use `--debug` to see console windows.
 
-```batch
-.\start-telegram-bot.bat
-```
+### 3.2 Run Bot Manually (Optional)
 
-Or manually:
+If you need to run the bot separately:
 
 ```bash
 python -m telegram_bot.bot
@@ -256,6 +260,7 @@ User sends photo(s)
 | `/chats` | List recent chats |
 | `/new` | Start a new chat |
 | `/model` | Change AI model |
+| `/actualizar` | Check and apply updates |
 | `/cancel` | Cancel current operation |
 
 ### Model Selection
@@ -330,10 +335,19 @@ AI processing can take 10-30 seconds. The bot shows tool usage while processing.
 
 ## Updating the Bot
 
-When you update Lab Assistant:
+### Option 1: Update from Telegram (Recommended)
 
-1. Stop the Telegram bot (Ctrl+C)
-2. Pull updates: `git pull`
-3. Restart: `.\start-telegram-bot.bat`
+Use the `/actualizar` command in Telegram:
 
-The bot will automatically reconnect to Telegram.
+1. Send `/actualizar` to your bot
+2. The bot checks for updates
+3. If updates are available, it pulls and restarts automatically
+
+### Option 2: Manual Update
+
+```batch
+git pull
+.\Lab_Assistant.bat --restart
+```
+
+The `--restart` flag skips opening the browser.

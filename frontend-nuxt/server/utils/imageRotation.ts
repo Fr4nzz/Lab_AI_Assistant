@@ -1,13 +1,10 @@
 /**
  * Server-side image rotation detection and processing utilities.
  *
- * Uses OpenRouter vision models for rotation detection.
+ * Uses Gemini via backend endpoint for rotation detection.
  * Rotation is applied using sharp library on the server.
  */
 
-import { generateText } from 'ai'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getBestVisionModel } from './openrouter-vision-models'
 import sharp from 'sharp'
 
 /**
@@ -26,6 +23,7 @@ export interface ImagePart {
   type: 'file'
   mediaType: string
   url: string
+  originalUrl?: string  // Original URL preserved when rotation is applied
   data?: string
   name?: string
   rotation?: number
@@ -48,74 +46,53 @@ export interface ProcessedImage {
 }
 
 /**
- * Detects the rotation needed for an image using the vision model.
+ * Detects the rotation needed for an image using Gemini vision.
+ * Calls the backend endpoint which handles API key rotation.
  * Returns 0, 90, 180, or 270 degrees.
  */
 export async function detectImageRotation(
   base64Data: string,
   mimeType: string
-): Promise<{ rotation: number; detected: boolean }> {
+): Promise<{ rotation: number; detected: boolean; provider?: string; timing?: number }> {
   const config = useRuntimeConfig()
-
-  if (!config.openrouterApiKey) {
-    console.log('[imageRotation] No OpenRouter key configured')
-    return { rotation: 0, detected: false }
-  }
+  const startTime = Date.now()
 
   try {
-    const modelId = await getBestVisionModel()
-    console.log('[imageRotation] Using model:', modelId)
+    console.log('[imageRotation] Detecting rotation via backend (Gemini)')
 
-    const openrouter = createOpenRouter({
-      apiKey: config.openrouterApiKey
+    const response = await fetch(`${config.backendUrl || 'http://localhost:8000'}/api/detect-rotation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: base64Data,
+        mimeType
+      })
     })
 
-    const prompt = `Analyze this image and determine if it needs rotation correction.
-
-Look for these indicators of incorrect orientation:
-- Text that is sideways or upside down
-- People or objects that appear tilted
-- Horizon lines that aren't horizontal
-- Buildings or structures that lean unnaturally
-
-Respond with ONLY one of these values:
-- 0 (image is correctly oriented)
-- 90 (image needs 90 degrees clockwise rotation)
-- 180 (image is upside down)
-- 270 (image needs 90 degrees counter-clockwise rotation)
-
-Just respond with the number, nothing else.`
-
-    const { text } = await generateText({
-      model: openrouter(modelId),
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image',
-              image: `data:${mimeType};base64,${base64Data}`
-            }
-          ]
-        }
-      ],
-      temperature: 0.1,
-      maxTokens: 10
-    })
-
-    const rotation = parseInt(text.trim(), 10)
-
-    if ([0, 90, 180, 270].includes(rotation)) {
-      console.log('[imageRotation] Detected rotation:', rotation)
-      return { rotation, detected: true }
+    if (!response.ok) {
+      throw new Error(`Backend returned ${response.status}`)
     }
 
-    console.log('[imageRotation] Invalid response:', text)
-    return { rotation: 0, detected: false }
+    const result = await response.json()
+    const timing = Date.now() - startTime
+
+    if (result.error) {
+      console.error(`[imageRotation] Gemini error (${timing}ms):`, result.error)
+      return { rotation: 0, detected: false, provider: 'gemini', timing }
+    }
+
+    const rotation = result.rotation
+    if ([0, 90, 180, 270].includes(rotation)) {
+      console.log(`[imageRotation] Gemini detected: ${rotation}° in ${timing}ms`)
+      return { rotation, detected: rotation !== 0, provider: 'gemini', timing }
+    }
+
+    console.log(`[imageRotation] Gemini invalid response: ${result.raw} (${timing}ms)`)
+    return { rotation: 0, detected: false, provider: 'gemini', timing }
   } catch (error) {
-    console.error('[imageRotation] Detection error:', error)
-    return { rotation: 0, detected: false }
+    const timing = Date.now() - startTime
+    console.error(`[imageRotation] Error (${timing}ms):`, error)
+    return { rotation: 0, detected: false, timing }
   }
 }
 
@@ -269,6 +246,7 @@ export function extractImageParts(parts: unknown[]): ImagePart[] {
 
 /**
  * Replaces image parts in the original parts array with processed versions.
+ * Preserves the original URL when rotation is applied.
  */
 export function replaceImageParts(
   originalParts: unknown[],
@@ -288,14 +266,27 @@ export function replaceImageParts(
     const p = part as Record<string, unknown>
 
     if (p.type === 'file' && typeof p.mediaType === 'string' && p.mediaType.startsWith('image/')) {
+      const originalUrl = p.url as string
+      let processedImage: ImagePart | undefined
+
       // Try to find by name first
       const name = p.name as string | undefined
       if (name && processedByName.has(name)) {
-        return processedByName.get(name)!
+        processedImage = processedByName.get(name)!
+      } else if (processedIndex < processedImages.length) {
+        // Fall back to index-based matching
+        processedImage = processedImages[processedIndex++]
       }
-      // Fall back to index-based matching
-      if (processedIndex < processedImages.length) {
-        return processedImages[processedIndex++]
+
+      if (processedImage) {
+        // If rotation was applied and URL changed, preserve the original
+        if (processedImage.rotation && processedImage.rotation !== 0 && processedImage.url !== originalUrl) {
+          return {
+            ...processedImage,
+            originalUrl // Preserve original for display in UI
+          }
+        }
+        return processedImage
       }
     }
 
