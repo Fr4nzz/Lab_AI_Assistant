@@ -122,3 +122,22 @@ def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardM
             InlineKeyboardButton(text, callback_data=f"model:{model_id}")
         ])
     return InlineKeyboardMarkup(keyboard)
+
+
+def build_ask_user_keyboard(options: List[str]) -> InlineKeyboardMarkup:
+    """Build keyboard for ask_user tool options.
+
+    Args:
+        options: List of option strings to display as buttons
+
+    Each option becomes a button that sends the option text as a message.
+    Callback data format: askopt:<index>
+    """
+    keyboard = []
+    for idx, option in enumerate(options[:6]):  # Limit to 6 options
+        # Truncate for display but keep full text as callback
+        display = (option[:35] + "...") if len(option) > 38 else option
+        keyboard.append([
+            InlineKeyboardButton(display, callback_data=f"askopt:{idx}")
+        ])
+    return InlineKeyboardMarkup(keyboard)

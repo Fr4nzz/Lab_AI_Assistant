@@ -31,6 +31,13 @@ class StreamEvent:
     tool_name: str = ""
 
 
+@dataclass
+class AskUserOptions:
+    """Options from ask_user tool for creating interactive buttons."""
+    message: str
+    options: List[str]
+
+
 class BackendService:
     """Service for communicating with the Lab Assistant via Frontend API."""
 
@@ -193,7 +200,7 @@ class BackendService:
         images: List[bytes] = None,
         on_tool_call: Callable[[str], Union[None, Awaitable[None]]] = None,
         model: str = None,
-    ) -> Tuple[str, List[str]]:
+    ) -> Tuple[str, List[str], Optional[AskUserOptions]]:
         """Send message via Frontend API and get response.
 
         Args:
@@ -204,12 +211,12 @@ class BackendService:
             model: Optional model ID to use (e.g., "gemini-3-flash-preview")
 
         Returns:
-            Tuple of (response_text, tools_used)
+            Tuple of (response_text, tools_used, ask_user_options)
         """
         parts = self._build_message_content(message, images)
 
         if not parts:
-            return "", []
+            return "", [], None
 
         # Build request body for Frontend API
         request_body = {
@@ -222,6 +229,7 @@ class BackendService:
 
         tools_used = []
         response_text = ""
+        ask_user_options: Optional[AskUserOptions] = None
 
         async def notify_tool(tool_name: str):
             """Notify about tool call, handling both sync and async callbacks."""
@@ -264,6 +272,23 @@ class BackendService:
                                 tools_used.append(tool_name)
                                 await notify_tool(tool_name)
 
+                        elif event_type == "tool-result":
+                            # Check for ask_user tool result with options
+                            tool_name = event.get("toolName", "")
+                            if tool_name == "ask_user":
+                                try:
+                                    result_data = event.get("result", {})
+                                    if isinstance(result_data, str):
+                                        result_data = json.loads(result_data)
+                                    if isinstance(result_data, dict) and result_data.get("options"):
+                                        ask_user_options = AskUserOptions(
+                                            message=result_data.get("message", ""),
+                                            options=result_data.get("options", [])
+                                        )
+                                        logger.info(f"ask_user options detected: {ask_user_options.options}")
+                                except (json.JSONDecodeError, TypeError) as e:
+                                    logger.warning(f"Failed to parse ask_user result: {e}")
+
                         # Handle OpenAI format (fallback)
                         elif "choices" in event:
                             choices = event.get("choices", [])
@@ -287,14 +312,14 @@ class BackendService:
             logger.info(f"Message complete. Tools used: {tools_used}")
 
         except httpx.TimeoutException:
-            return "Error: Tiempo de espera agotado. El servidor tardó demasiado.", tools_used
+            return "Error: Tiempo de espera agotado. El servidor tardó demasiado.", tools_used, None
         except httpx.ConnectError:
-            return "Error: No se pudo conectar al servidor. Verifica que el frontend esté corriendo.", tools_used
+            return "Error: No se pudo conectar al servidor. Verifica que el frontend esté corriendo.", tools_used, None
         except Exception as e:
             logger.exception(f"Error sending message: {e}")
-            return f"Error: {str(e)}", tools_used
+            return f"Error: {str(e)}", tools_used, None
 
-        return response_text.strip(), tools_used
+        return response_text.strip(), tools_used, ask_user_options
 
     async def send_message_stream(
         self,

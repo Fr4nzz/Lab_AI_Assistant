@@ -1041,7 +1041,7 @@ async def search_orders(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> str:
-    """Search orders by patient/cedula. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches."""
+    """Search orders by patient name. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches."""
     result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
 
     # If no results and there's a search term, try fuzzy search
@@ -1114,13 +1114,15 @@ async def create_new_order(cedula: str, exams: List[str]) -> str:
 
 
 @tool
-def ask_user(action: str, message: str) -> str:
-    """Display message to user. action: save/info/confirm/clarify"""
-    return json.dumps({
-        "waiting_for": action,
+def ask_user(message: str, options: Optional[List[str]] = None) -> str:
+    """Display message with clickable options. options=["Opción 1", "Opción 2"] creates buttons that send the option text as user message when clicked."""
+    result = {
         "message": message,
         "status": "waiting_for_user"
-    }, ensure_ascii=False)
+    }
+    if options:
+        result["options"] = options
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool
