@@ -282,6 +282,14 @@ async def send_ai_response(
     # Build chat URL
     chat_url = build_chat_url(chat_id)
 
+    # If ask_user has a message, prepend it to the response
+    if ask_user_options and ask_user_options.message:
+        # Use the ask_user message as the main content if response is empty/minimal
+        if not response_text or response_text.strip() in ('', '---', '-'):
+            response_text = ask_user_options.message
+        else:
+            response_text = f"{ask_user_options.message}\n\n{response_text}"
+
     # Truncate response if too long (Telegram limit is 4096)
     max_len = 3500  # Leave room for URL and formatting
     if len(response_text) > max_len:
@@ -290,23 +298,42 @@ async def send_ai_response(
     # Format tools used (plain text, will be converted along with response)
     tools_text = ""
     if tools:
-        tools_text = "\n\n🔧 **Herramientas usadas:**\n" + "\n".join(f"  • {t}" for t in tools[:5])
+        tools_text = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
 
-    # Build full message with standard Markdown
+    # Build full message - avoid markdown formatting for reliability
     full_text = (
         f"{response_text}"
         f"{tools_text}\n\n"
-        f"🔗 **Ver en web:**\n{chat_url}"
+        f"🔗 Ver en web:\n{chat_url}"
     )
-
-    # Convert to Telegram-compatible format
-    converted_text, parse_mode = convert_markdown_for_telegram(full_text)
 
     # Use ask_user keyboard if options are provided, otherwise standard keyboard
     if ask_user_options and ask_user_options.options:
         keyboard = build_ask_user_keyboard(ask_user_options.options)
     else:
         keyboard = build_post_response_keyboard()
+
+    # For ask_user responses, use plain text to avoid markdown parsing issues
+    if ask_user_options and ask_user_options.options:
+        try:
+            await processing_msg.edit_text(
+                text=full_text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
+            return
+        except Exception as e:
+            logger.error(f"Failed to send ask_user response: {e}")
+            # Try reply instead
+            await processing_msg.reply_text(
+                text=full_text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
+            return
+
+    # Convert to Telegram-compatible format for normal responses
+    converted_text, parse_mode = convert_markdown_for_telegram(full_text)
 
     # Try with converted markdown
     try:
@@ -333,14 +360,9 @@ async def send_ai_response(
         logger.warning(f"Markdown also failed: {e}")
 
     # Final fallback: plain text (no formatting)
-    plain_tools = ""
-    if tools:
-        plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
-    plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
-
     try:
         await processing_msg.edit_text(
-            text=plain_text,
+            text=full_text,
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
@@ -348,7 +370,7 @@ async def send_ai_response(
         logger.error(f"Even plain text edit failed: {e}")
         # Last resort: reply instead of edit
         await processing_msg.reply_text(
-            text=plain_text,
+            text=full_text,
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
