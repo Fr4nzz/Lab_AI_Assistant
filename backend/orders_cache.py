@@ -131,6 +131,12 @@ def fuzzy_search_patient(
         return []
 
     orders = get_cached_orders()
+
+    # If cache is empty but file exists, try reloading (handles race condition with background update)
+    if not orders and ORDERS_FILE.exists():
+        logger.info("[OrdersCache] Cache empty but file exists, reloading...")
+        orders = reload_orders_cache()
+
     if not orders:
         return []
 

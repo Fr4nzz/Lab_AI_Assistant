@@ -2,9 +2,14 @@
 const props = defineProps<{
   name: string
   args: Record<string, unknown>
+  groupedArgs?: Array<Record<string, unknown>>  // For grouped consecutive tools
   result?: unknown
   state: 'pending' | 'partial-call' | 'call' | 'result' | 'error'
 }>()
+
+// Check if this is a grouped tool display
+const isGrouped = computed(() => props.groupedArgs && props.groupedArgs.length > 1)
+const groupCount = computed(() => props.groupedArgs?.length || 1)
 
 // Map tool names to display names and icons
 const toolInfo: Record<string, { label: string; icon: string; activeLabel: string }> = {
@@ -78,6 +83,44 @@ function formatValue(value: unknown): string {
   }
   return String(value)
 }
+
+// Consolidated args for grouped tools - extract key param from each
+const consolidatedArgs = computed(() => {
+  if (!isGrouped.value || !props.groupedArgs) return null
+
+  // For search_orders, consolidate 'search' params
+  if (props.name === 'search_orders') {
+    const searches = props.groupedArgs
+      .map(a => a.search)
+      .filter(s => s)
+      .map(s => String(s))
+    const display = searches.slice(0, 4).join(', ')
+    const remaining = searches.length - 4
+    return {
+      search: remaining > 0 ? `${display}... (+${remaining} más)` : display
+    }
+  }
+
+  // For get_order_results, consolidate 'order_nums' params
+  if (props.name === 'get_order_results') {
+    const allNums = props.groupedArgs
+      .flatMap(a => a.order_nums as string[] || [])
+    const display = allNums.slice(0, 6).join(', ')
+    const remaining = allNums.length - 6
+    return {
+      order_nums: remaining > 0 ? `${display}... (+${remaining} más)` : display
+    }
+  }
+
+  // Default: show count
+  return { count: `${props.groupedArgs.length} llamadas` }
+})
+
+// Effective args to display (consolidated or regular)
+const displayArgs = computed(() => {
+  if (consolidatedArgs.value) return consolidatedArgs.value
+  return props.args
+})
 
 // Format image-rotation result for display
 interface RotationResultItem {
@@ -179,12 +222,21 @@ function formatResult(toolName: string, result: unknown): string {
         >
           {{ isRunning ? 'En progreso' : isCompleted ? 'Completado' : isError ? 'Error' : state }}
         </UBadge>
+        <!-- Show count badge for grouped tools -->
+        <UBadge
+          v-if="isGrouped"
+          color="neutral"
+          size="xs"
+          variant="subtle"
+        >
+          x{{ groupCount }}
+        </UBadge>
       </div>
 
-      <!-- Show tool arguments -->
-      <div v-if="Object.keys(args).length > 0" class="mt-2 space-y-1">
+      <!-- Show tool arguments (consolidated for grouped tools) -->
+      <div v-if="Object.keys(displayArgs).length > 0" class="mt-2 space-y-1">
         <div
-          v-for="(value, key) in args"
+          v-for="(value, key) in displayArgs"
           :key="key"
           class="text-xs text-gray-600 dark:text-gray-400 flex gap-2"
         >
