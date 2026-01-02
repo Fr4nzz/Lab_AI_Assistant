@@ -23,6 +23,10 @@ export interface ExamsUpdateInfo {
   lastUpdate: string | null
 }
 
+export interface OrdersUpdateInfo {
+  lastUpdate: string | null
+}
+
 export function useAdmin() {
   const adminStatus = useState<AdminStatus | null>('adminStatus', () => null)
   const allowedEmails = useState<string[]>('allowedEmails', () => [])
@@ -33,6 +37,10 @@ export function useAdmin() {
   // Exams update state
   const examsLastUpdate = useState<string | null>('examsLastUpdate', () => null)
   const isUpdatingExams = useState('isUpdatingExams', () => false)
+
+  // Orders update state
+  const ordersLastUpdate = useState<string | null>('ordersLastUpdate', () => null)
+  const isUpdatingOrders = useState('isUpdatingOrders', () => false)
 
   const isAdmin = computed(() => adminStatus.value?.isAdmin ?? false)
 
@@ -153,6 +161,36 @@ export function useAdmin() {
     }
   }
 
+  async function fetchOrdersLastUpdate() {
+    try {
+      const data = await $fetch<OrdersUpdateInfo>('http://localhost:8000/api/orders/last-update')
+      ordersLastUpdate.value = data.lastUpdate
+      return data.lastUpdate
+    } catch (error) {
+      console.error('Failed to fetch orders last update:', error)
+      return null
+    }
+  }
+
+  async function triggerOrdersUpdate() {
+    if (!isAdmin.value) return null
+
+    isUpdatingOrders.value = true
+    try {
+      const data = await $fetch<{ success: boolean; message: string; orderCount: number; lastUpdate: string }>(
+        'http://localhost:8000/api/orders/update',
+        { method: 'POST', timeout: 180000 }  // 3 minute timeout for download (larger file)
+      )
+      ordersLastUpdate.value = data.lastUpdate
+      return data
+    } catch (error) {
+      console.error('Failed to update orders list:', error)
+      throw error
+    } finally {
+      isUpdatingOrders.value = false
+    }
+  }
+
   return {
     adminStatus,
     isAdmin,
@@ -162,6 +200,8 @@ export function useAdmin() {
     isUpdating,
     examsLastUpdate,
     isUpdatingExams,
+    ordersLastUpdate,
+    isUpdatingOrders,
     fetchAdminStatus,
     fetchAllowedEmails,
     addAllowedEmail,
@@ -169,6 +209,8 @@ export function useAdmin() {
     checkForUpdates,
     triggerUpdate,
     fetchExamsLastUpdate,
-    triggerExamsUpdate
+    triggerExamsUpdate,
+    fetchOrdersLastUpdate,
+    triggerOrdersUpdate
   }
 }
