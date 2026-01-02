@@ -7,7 +7,7 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
 }>()
 
-const { promptsConfig, fetchPrompts, savePrompts, isLoadingPrompts, isSavingPrompts } = useAdmin()
+const { promptsConfig, fetchPrompts, savePrompts, fetchDefaultPrompts, isLoadingPrompts, isSavingPrompts } = useAdmin()
 const toast = useToast()
 
 const isOpen = computed({
@@ -19,6 +19,7 @@ const isOpen = computed({
 const editablePrompts = ref<Record<string, string>>({})
 const activeTab = ref('system_prompt')
 const hasChanges = ref(false)
+const isRestoringDefaults = ref(false)
 
 // Fetch prompts when modal opens
 watch(isOpen, async (open) => {
@@ -63,6 +64,32 @@ function handleReset() {
   if (promptsConfig.value?.prompts) {
     editablePrompts.value = { ...promptsConfig.value.prompts }
     hasChanges.value = false
+  }
+}
+
+async function handleRestoreDefaults() {
+  isRestoringDefaults.value = true
+  try {
+    const defaults = await fetchDefaultPrompts()
+    if (defaults) {
+      editablePrompts.value = { ...defaults }
+      hasChanges.value = true
+      toast.add({
+        title: 'Valores predeterminados cargados',
+        description: 'Haz clic en Guardar para aplicar los cambios',
+        icon: 'i-lucide-undo-2',
+        color: 'primary'
+      })
+    }
+  } catch (error: any) {
+    toast.add({
+      title: 'Error',
+      description: error.message || 'No se pudieron cargar los valores predeterminados',
+      icon: 'i-lucide-alert-circle',
+      color: 'error'
+    })
+  } finally {
+    isRestoringDefaults.value = false
   }
 }
 
@@ -150,14 +177,28 @@ function getSectionInfo(key: string) {
             </div>
           </div>
 
-          <!-- Help text -->
-          <div class="mt-4 p-3 bg-elevated rounded-lg text-xs text-muted">
-            <p class="font-medium mb-1">Consejos:</p>
-            <ul class="list-disc list-inside space-y-1">
-              <li>Usa formato Markdown para estructurar las instrucciones</li>
-              <li>Los cambios se aplicarán en las <strong>nuevas conversaciones</strong></li>
-              <li>Las conversaciones existentes mantienen las instrucciones anteriores</li>
-            </ul>
+          <!-- Help text and restore button -->
+          <div class="mt-4 p-3 bg-elevated rounded-lg">
+            <div class="flex items-start justify-between gap-4">
+              <div class="text-xs text-muted">
+                <p class="font-medium mb-1">Consejos:</p>
+                <ul class="list-disc list-inside space-y-1">
+                  <li>Usa formato Markdown para estructurar las instrucciones</li>
+                  <li>Los cambios se aplicarán en las <strong>nuevas conversaciones</strong></li>
+                  <li>Las conversaciones existentes mantienen las instrucciones anteriores</li>
+                </ul>
+              </div>
+              <UButton
+                icon="i-lucide-undo-2"
+                variant="outline"
+                color="neutral"
+                size="xs"
+                :loading="isRestoringDefaults"
+                @click="handleRestoreDefaults"
+              >
+                Restaurar valores predeterminados
+              </UButton>
+            </div>
           </div>
         </div>
 
