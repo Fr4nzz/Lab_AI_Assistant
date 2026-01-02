@@ -173,9 +173,19 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
         if "Your branch is behind" in status_result.stdout:
-            # Get commit count
+            # Get current branch name
+            branch_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            current_branch = branch_result.stdout.strip() or "main"
+
+            # Get commit count using current branch
             count_result = subprocess.run(
-                ["git", "rev-list", "--count", "HEAD..origin/HEAD"],
+                ["git", "rev-list", "--count", f"HEAD..origin/{current_branch}"],
                 cwd=PROJECT_ROOT,
                 capture_output=True,
                 text=True,
