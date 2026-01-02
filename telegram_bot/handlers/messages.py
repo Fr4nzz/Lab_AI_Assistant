@@ -127,17 +127,17 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["current_chat_id"] = chat_id
 
         # Send processing message
-        processing_msg = await message.reply_text("⏳ Procesando...")
+        await message.reply_text("⏳ Procesando...")
 
-        # Send to backend with tool notifications
+        # Send to backend with tool notifications (send new message for each tool)
         tools_used = []
 
         async def on_tool(tool_display: str):
             tools_used.append(tool_display)
             try:
-                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+                await message.reply_text(tool_display)
             except Exception:
-                pass  # Ignore edit errors
+                pass  # Ignore send errors
 
         # Get selected model
         model = context.user_data.get("model", DEFAULT_MODEL)
@@ -163,8 +163,8 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         if prompt:
             await backend.update_chat_title(chat_id, prompt[:50])
 
-        # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
+        # Send response as new message
+        await send_ai_response(message, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -179,7 +179,7 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return
 
     # Send processing message
-    processing_msg = await message.reply_text("⏳ Procesando...")
+    await message.reply_text("⏳ Procesando...")
 
     # Send to backend (now async)
     backend = BackendService()
@@ -189,7 +189,7 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         async def on_tool(tool_display: str):
             tools_used.append(tool_display)
             try:
-                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+                await message.reply_text(tool_display)
             except Exception:
                 pass
 
@@ -210,8 +210,8 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         else:
             context.user_data.pop("ask_user_options", None)
 
-        # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
+        # Send response as new message
+        await send_ai_response(message, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -233,15 +233,15 @@ async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["current_chat_id"] = chat_id
 
         # Send processing message
-        processing_msg = await message.reply_text("⏳ Procesando...")
+        await message.reply_text("⏳ Procesando...")
 
-        # Send to backend
+        # Send to backend (send new message for each tool)
         tools_used = []
 
         async def on_tool(tool_display: str):
             tools_used.append(tool_display)
             try:
-                await processing_msg.edit_text(f"⏳ Procesando...\n\n{tool_display}")
+                await message.reply_text(tool_display)
             except Exception:
                 pass
 
@@ -262,20 +262,20 @@ async def handle_new_text_chat(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             context.user_data.pop("ask_user_options", None)
 
-        # Send response
-        await send_ai_response(processing_msg, response_text, chat_id, tools, ask_user_options)
+        # Send response as new message
+        await send_ai_response(message, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
 
 async def send_ai_response(
-    processing_msg,
+    message,
     response_text: str,
     chat_id: str,
     tools: list,
     ask_user_options: AskUserOptions = None
 ) -> None:
-    """Send AI response with chat URL and post-response options.
+    """Send AI response as a new message with chat URL and post-response options.
 
     If ask_user_options is provided, shows those options as buttons instead of the standard keyboard.
     """
@@ -295,15 +295,9 @@ async def send_ai_response(
     if len(response_text) > max_len:
         response_text = response_text[:max_len] + "...\n\n_(Respuesta truncada)_"
 
-    # Format tools used (plain text, will be converted along with response)
-    tools_text = ""
-    if tools:
-        tools_text = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
-
     # Build full message - avoid markdown formatting for reliability
     full_text = (
-        f"{response_text}"
-        f"{tools_text}\n\n"
+        f"{response_text}\n\n"
         f"🔗 Ver en web:\n{chat_url}"
     )
 
@@ -316,7 +310,7 @@ async def send_ai_response(
     # For ask_user responses, use plain text to avoid markdown parsing issues
     if ask_user_options and ask_user_options.options:
         try:
-            await processing_msg.edit_text(
+            await message.reply_text(
                 text=full_text,
                 reply_markup=keyboard,
                 disable_web_page_preview=True
@@ -324,12 +318,6 @@ async def send_ai_response(
             return
         except Exception as e:
             logger.error(f"Failed to send ask_user response: {e}")
-            # Try reply instead
-            await processing_msg.reply_text(
-                text=full_text,
-                reply_markup=keyboard,
-                disable_web_page_preview=True
-            )
             return
 
     # Convert to Telegram-compatible format for normal responses
@@ -337,7 +325,7 @@ async def send_ai_response(
 
     # Try with converted markdown
     try:
-        await processing_msg.edit_text(
+        await message.reply_text(
             text=converted_text,
             reply_markup=keyboard,
             parse_mode=parse_mode,
@@ -345,11 +333,11 @@ async def send_ai_response(
         )
         return
     except Exception as e:
-        logger.warning(f"Failed to edit with {parse_mode}: {e}")
+        logger.warning(f"Failed to send with {parse_mode}: {e}")
 
     # Fallback: try plain Markdown
     try:
-        await processing_msg.edit_text(
+        await message.reply_text(
             text=full_text,
             reply_markup=keyboard,
             parse_mode="Markdown",
@@ -361,16 +349,10 @@ async def send_ai_response(
 
     # Final fallback: plain text (no formatting)
     try:
-        await processing_msg.edit_text(
+        await message.reply_text(
             text=full_text,
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
     except Exception as e:
-        logger.error(f"Even plain text edit failed: {e}")
-        # Last resort: reply instead of edit
-        await processing_msg.reply_text(
-            text=full_text,
-            reply_markup=keyboard,
-            disable_web_page_preview=True
-        )
+        logger.error(f"Even plain text send failed: {e}")
