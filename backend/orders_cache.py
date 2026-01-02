@@ -158,28 +158,29 @@ def fuzzy_search_patient(
     # Normalize query
     query_upper = query.upper().strip()
 
-    # Custom scorer that weighs surname (apellido) matching more heavily
-    # This gives better results since surnames are more distinctive
-    def weighted_scorer(query: str, name: str, **kwargs) -> float:
-        # Score against full name
-        full_score = fuzz.WRatio(query, name)
+    # Token-level fuzzy scorer: order-agnostic and handles typos
+    # Matches each query word against each name word, takes best matches
+    def token_fuzzy_scorer(query: str, name: str, **kwargs) -> float:
+        # Split into words (remove comma, normalize)
+        q_words = query.replace(',', ' ').split()
+        n_words = name.replace(',', ' ').split()
 
-        # Extract apellidos (before comma) for separate scoring
-        if ',' in name:
-            apellidos = name.split(',', 1)[0].strip()
-        else:
-            apellidos = name.split()[0] if name.split() else name
+        if not q_words or not n_words:
+            return 0.0
 
-        apellido_score = fuzz.WRatio(query, apellidos)
+        # For each query word, find best matching name word
+        total_score = 0.0
+        for q_word in q_words:
+            best_match = max(fuzz.ratio(q_word, n_word) for n_word in n_words)
+            total_score += best_match
 
-        # Weighted: 50% apellido, 50% full name
-        return (apellido_score * 0.5) + (full_score * 0.5)
+        return total_score / len(q_words)
 
-    # Use rapidfuzz to find matches with custom weighted scorer
+    # Use rapidfuzz to find matches with token-level fuzzy scorer
     matches = process.extract(
         query_upper,
         patient_names,
-        scorer=weighted_scorer,
+        scorer=token_fuzzy_scorer,
         limit=50  # Get more initially, then filter
     )
 
