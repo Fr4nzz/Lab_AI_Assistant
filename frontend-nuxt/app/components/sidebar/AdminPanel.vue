@@ -78,10 +78,11 @@ async function handleUpdate() {
 
   try {
     const result = await triggerUpdate()
+    const lastChange = result.newCommit?.message ? `\nÚltimo cambio: ${result.newCommit.message}` : ''
     toast.add({
-      title: 'Actualizando...',
-      description: result.message,
-      icon: 'i-lucide-refresh-cw',
+      title: 'Actualización completada',
+      description: `${result.message}${lastChange}`,
+      icon: 'i-lucide-check-circle',
       color: 'primary'
     })
   } catch (error: any) {
