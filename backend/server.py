@@ -183,7 +183,9 @@ async def get_orders_context() -> str:
         initial_orders_context = await extract_initial_context()
         if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
             orders_context_sent = True
-            logger.info(f"[Context] Extracted {initial_orders_context.count('|') // 8} orders")
+            # Count orders: 7 pipes per row, subtract 2 for header/separator
+            order_count = max(0, (initial_orders_context.count('|') // 7) - 2)
+            logger.info(f"[Context] Extracted {order_count} orders")
 
     return initial_orders_context
 
@@ -1186,6 +1188,10 @@ async def detect_image_rotation(request: ImageRotationRequest):
         # Call model
         result = await model.ainvoke([message])
 
+        # Track this API call against daily usage (rotation uses same API keys)
+        from models import increment_usage
+        increment_usage("gemini-3-flash-preview")
+
         # Handle Gemini 3 thinking response format
         # When include_thoughts=True, content is a list: [{'type': 'thinking', ...}, {'type': 'text', 'text': '...'}]
         content = result.content
@@ -1425,9 +1431,23 @@ async def chat_aisdk(request: AISdkChatRequest):
                 elif event_type == "on_chat_model_end":
                     output = event.get("data", {}).get("output")
                     if output:
-                        # Count this as an AI response and increment usage
-                        ai_responses += 1
-                        increment_usage(model_name)
+                        # Only count if LLM returned actual tool_calls or content
+                        has_tool_calls = hasattr(output, 'tool_calls') and output.tool_calls
+                        has_content = False
+                        if hasattr(output, 'content') and output.content:
+                            content = output.content
+                            if isinstance(content, str):
+                                has_content = bool(content.strip())
+                            elif isinstance(content, list):
+                                # Check for text content in list format (Gemini 3)
+                                has_content = any(
+                                    isinstance(p, dict) and p.get('type') == 'text' and p.get('text', '').strip()
+                                    for p in content
+                                )
+
+                        if has_tool_calls or has_content:
+                            ai_responses += 1
+                            increment_usage(model_name)
 
                         # Handle usage metadata
                         usage = getattr(output, 'usage_metadata', None)
