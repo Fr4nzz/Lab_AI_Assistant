@@ -156,10 +156,10 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
         if fetch_result.returncode != 0:
+            # Send error without markdown to avoid parsing issues
             await update.message.reply_text(
                 "❌ Error al verificar actualizaciones:\n"
-                f"`{fetch_result.stderr}`",
-                parse_mode="Markdown"
+                f"{fetch_result.stderr}"
             )
             return
 
@@ -208,10 +208,10 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
 
             if pull_result.returncode != 0:
+                # Send error without markdown to avoid parsing issues
                 await update.message.reply_text(
                     "❌ Error al aplicar actualizaciones:\n"
-                    f"`{pull_result.stderr}`",
-                    parse_mode="Markdown"
+                    f"{pull_result.stderr}"
                 )
                 return
 
@@ -224,10 +224,12 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 timeout=10
             )
             last_commit = log_result.stdout.strip()
+            # Escape special markdown characters in commit message
+            last_commit_escaped = last_commit.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`').replace('[', '\\[')
 
             await update.message.reply_text(
                 "✅ **Actualización completada**\n\n"
-                f"Último cambio: {last_commit}\n\n"
+                f"Último cambio: {last_commit_escaped}\n\n"
                 "🔄 Reiniciando servicios...\n"
                 "El bot volverá en unos segundos.",
                 parse_mode="Markdown"
@@ -257,10 +259,9 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "No hay nuevas actualizaciones disponibles."
             )
         else:
-            # Unknown state, show status
+            # Unknown state, show status without markdown to avoid parsing issues
             await update.message.reply_text(
-                f"ℹ️ Estado actual:\n`{status_result.stdout[:500]}`",
-                parse_mode="Markdown"
+                f"ℹ️ Estado actual:\n{status_result.stdout[:500]}"
             )
 
     except subprocess.TimeoutExpired:
