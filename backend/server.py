@@ -915,7 +915,7 @@ async def update_orders_list():
 
     Uses Playwright to:
     1. Navigate to the ordenes report page
-    2. Set date range: desde="2023-01-01", hasta=today
+    2. Set date range: desde=1 year ago, hasta=today
     3. Click "Generar informe" -> "Excel"
     4. Wait for XLSX download
     5. Process with scripts/process_ordenes.py
@@ -941,12 +941,16 @@ async def update_orders_list():
             await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
             await asyncio.sleep(1)  # Wait for page to settle
 
-            # Set fecha-desde to 2023-01-01
-            logger.info("[Orders] Setting date range...")
+            # Calculate 1 year ago from today (max range is 13 months)
+            from datetime import timedelta
+            one_year_ago = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+            # Set fecha-desde to 1 year ago
+            logger.info(f"[Orders] Setting date range from {one_year_ago}...")
             fecha_desde = new_page.locator("#fecha-desde")
             await fecha_desde.click()
             await new_page.keyboard.press("Control+a")
-            await fecha_desde.type("2023-01-01", delay=50)
+            await fecha_desde.type(one_year_ago, delay=50)
             await asyncio.sleep(0.3)
 
             # Click somewhere else to close datepicker and apply the date
