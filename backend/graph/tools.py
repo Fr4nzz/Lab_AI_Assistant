@@ -1049,14 +1049,17 @@ async def search_orders(
         fuzzy_results = fuzzy_search_patient(search, min_score=70, max_results=10)
 
         if fuzzy_results:
-            logger.info(f"[search_orders] Found {len(fuzzy_results)} fuzzy matches")
+            logger.info(f"[search_orders] Fuzzy search found {len(fuzzy_results)} matches:")
+            for r in fuzzy_results[:3]:  # Log first 3 matches
+                logger.info(f"  -> {r['patient_name']} ({r['similarity_score']}%) - Ord. {r['order_num']}")
             result["fuzzy_fallback"] = True
             result["fuzzy_suggestions"] = fuzzy_results
             result["fuzzy_message"] = format_fuzzy_results(fuzzy_results, search)
         else:
+            logger.warning(f"[search_orders] Fuzzy search returned no results (is orders cache empty?)")
             result["fuzzy_fallback"] = True
             result["fuzzy_suggestions"] = []
-            result["fuzzy_message"] = f"No se encontraron coincidencias para '{search}'."
+            result["fuzzy_message"] = f"No se encontraron coincidencias para '{search}'. Nota: El caché de órdenes puede estar vacío - usa 'Actualizar lista de órdenes' en el panel de admin."
 
     return json.dumps(result, ensure_ascii=False)
 
