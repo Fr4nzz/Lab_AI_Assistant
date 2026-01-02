@@ -145,6 +145,8 @@ graphs: dict = {}  # Dictionary of graphs, keyed by model name
 checkpointer = None
 initial_orders_context: str = ""  # Store initial orders for context
 orders_context_sent: bool = False  # Track if we've sent valid orders context
+orders_context_timestamp: float = 0  # When orders were last fetched
+ORDERS_FRESHNESS_SECONDS = 120  # Orders are fresh for 2 minutes
 
 # Available models (must match frontend MODEL_CONFIGS)
 AVAILABLE_MODELS = [
@@ -175,16 +177,25 @@ async def get_orders_context(force_refresh: bool = False) -> str:
         force_refresh: If True, re-fetch orders even if already cached.
                        Use this for new chats to get fresh data.
     """
-    global browser, initial_orders_context, orders_context_sent
+    global browser, initial_orders_context, orders_context_sent, orders_context_timestamp
 
     if not is_logged_in():
         logger.info("[Context] User not logged in - browser is on login page")
         return "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión en el navegador para que pueda acceder a las órdenes del laboratorio."
 
-    # Force refresh for new chats, or if we haven't sent valid orders yet
-    if force_refresh or not orders_context_sent or not initial_orders_context:
-        logger.info("[Context] Extracting orders context...")
+    # Check if orders are stale (older than ORDERS_FRESHNESS_SECONDS)
+    import time
+    current_time = time.time()
+    is_stale = (current_time - orders_context_timestamp) > ORDERS_FRESHNESS_SECONDS
+
+    # Force refresh for new chats, stale data, or if we haven't sent valid orders yet
+    if force_refresh or is_stale or not orders_context_sent or not initial_orders_context:
+        if is_stale and orders_context_sent:
+            logger.info(f"[Context] Orders are stale ({int(current_time - orders_context_timestamp)}s old), refreshing...")
+        else:
+            logger.info("[Context] Extracting orders context...")
         initial_orders_context = await extract_initial_context()
+        orders_context_timestamp = current_time
         if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
             orders_context_sent = True
             # Count orders: 7 pipes per row, subtract 2 for header/separator
@@ -192,6 +203,21 @@ async def get_orders_context(force_refresh: bool = False) -> str:
             logger.info(f"[Context] Extracted {order_count} orders")
 
     return initial_orders_context
+
+
+def get_orders_freshness() -> dict:
+    """Get current orders context freshness status."""
+    import time
+    current_time = time.time()
+    age_seconds = current_time - orders_context_timestamp if orders_context_timestamp else 0
+    is_fresh = age_seconds < ORDERS_FRESHNESS_SECONDS
+
+    return {
+        "has_orders": bool(initial_orders_context and "Órdenes Recientes" in initial_orders_context),
+        "age_seconds": int(age_seconds),
+        "is_fresh": is_fresh,
+        "freshness_threshold": ORDERS_FRESHNESS_SECONDS
+    }
 
 
 async def get_browser_tabs_context() -> str:
@@ -1019,6 +1045,36 @@ async def get_orders_last_update():
         timestamp = ORDERS_LAST_UPDATE_FILE.read_text().strip()
         return {"lastUpdate": timestamp}
     return {"lastUpdate": None}
+
+
+@app.post("/api/orders/prefetch")
+async def prefetch_orders_context():
+    """
+    Prefetch orders context in background.
+    Call this when receiving an image to have orders ready when user sends prompt.
+
+    Returns freshness info and triggers background fetch if needed.
+    """
+    # Get current freshness status
+    freshness = get_orders_freshness()
+
+    # If orders are stale or missing, fetch them
+    if not freshness["is_fresh"] or not freshness["has_orders"]:
+        logger.info("[Prefetch] Orders are stale/missing, prefetching...")
+        await get_orders_context(force_refresh=True)
+        freshness = get_orders_freshness()
+        logger.info(f"[Prefetch] Orders prefetched, now {freshness['age_seconds']}s old")
+
+    return {
+        "success": True,
+        "freshness": freshness
+    }
+
+
+@app.get("/api/orders/freshness")
+async def get_orders_freshness_status():
+    """Get current orders context freshness status without fetching."""
+    return get_orders_freshness()
 
 
 @app.post("/api/orders/update")

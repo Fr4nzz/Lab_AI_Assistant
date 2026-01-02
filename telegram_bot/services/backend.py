@@ -387,3 +387,120 @@ class BackendService:
 
         except Exception as e:
             yield StreamEvent(type="error", data=str(e))
+
+    # =========================================================================
+    # Prefetch Operations (for async optimization)
+    # =========================================================================
+
+    async def prefetch_orders(self) -> dict:
+        """
+        Prefetch orders context from backend.
+        Call this when receiving an image to have orders ready.
+
+        Returns:
+            Dict with success status and freshness info
+        """
+        try:
+            # Call backend directly for orders prefetch
+            backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+            response = await self.client.post(
+                f"{backend_url}/api/orders/prefetch",
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[Prefetch] Orders prefetched: {result.get('freshness', {})}")
+                return result
+            else:
+                logger.warning(f"[Prefetch] Failed: {response.status_code}")
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+
+        except Exception as e:
+            logger.error(f"[Prefetch] Error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def detect_rotation(self, image_bytes: bytes) -> dict:
+        """
+        Detect image rotation using backend API.
+
+        Args:
+            image_bytes: Raw image bytes (JPEG/PNG)
+
+        Returns:
+            Dict with rotation angle and detection status
+        """
+        try:
+            # Encode image to base64
+            base64_img = base64.b64encode(image_bytes).decode("utf-8")
+
+            # Detect mime type
+            if image_bytes[:3] == b'\xff\xd8\xff':
+                mime_type = "image/jpeg"
+            elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                mime_type = "image/png"
+            else:
+                mime_type = "image/jpeg"
+
+            # Call frontend API (which proxies to backend)
+            response = await self.client.post(
+                f"{FRONTEND_URL}/api/detect-rotation",
+                json={
+                    "imageBase64": base64_img,
+                    "mimeType": mime_type
+                },
+                headers=self._headers,
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[Rotation] Detected: {result.get('rotation', 0)}° (detected={result.get('detected', False)})")
+                return result
+            else:
+                logger.warning(f"[Rotation] Detection failed: {response.status_code}")
+                return {"rotation": 0, "detected": False}
+
+        except Exception as e:
+            logger.error(f"[Rotation] Error: {e}")
+            return {"rotation": 0, "detected": False, "error": str(e)}
+
+    async def rotate_image(self, image_bytes: bytes, rotation: int) -> bytes:
+        """
+        Rotate image by specified degrees.
+
+        Args:
+            image_bytes: Raw image bytes
+            rotation: Rotation angle in degrees (90, 180, 270)
+
+        Returns:
+            Rotated image bytes
+        """
+        if rotation == 0:
+            return image_bytes
+
+        try:
+            from PIL import Image
+            import io
+
+            # Load image
+            img = Image.open(io.BytesIO(image_bytes))
+
+            # Rotate (PIL uses counter-clockwise, we want clockwise)
+            rotated = img.rotate(-rotation, expand=True)
+
+            # Save to bytes
+            output = io.BytesIO()
+            img_format = 'JPEG' if image_bytes[:3] == b'\xff\xd8\xff' else 'PNG'
+            rotated.save(output, format=img_format, quality=95)
+            output.seek(0)
+
+            logger.info(f"[Rotation] Rotated image by {rotation}°")
+            return output.read()
+
+        except ImportError:
+            logger.warning("[Rotation] PIL not available, returning original image")
+            return image_bytes
+        except Exception as e:
+            logger.error(f"[Rotation] Error rotating image: {e}")
+            return image_bytes
