@@ -272,22 +272,18 @@ class BackendService:
                                 tools_used.append(tool_name)
                                 await notify_tool(tool_name)
 
-                        elif event_type == "tool-result":
+                        elif event_type == "tool-output-available":
                             # Check for ask_user tool result with options
-                            tool_name = event.get("toolName", "")
-                            if tool_name == "ask_user":
-                                try:
-                                    result_data = event.get("result", {})
-                                    if isinstance(result_data, str):
-                                        result_data = json.loads(result_data)
-                                    if isinstance(result_data, dict) and result_data.get("options"):
-                                        ask_user_options = AskUserOptions(
-                                            message=result_data.get("message", ""),
-                                            options=result_data.get("options", [])
-                                        )
-                                        logger.info(f"ask_user options detected: {ask_user_options.options}")
-                                except (json.JSONDecodeError, TypeError) as e:
-                                    logger.warning(f"Failed to parse ask_user result: {e}")
+                            tool_call_id = event.get("toolCallId", "")
+                            output = event.get("output", {})
+
+                            # Check if this is ask_user based on the output structure
+                            if isinstance(output, dict) and output.get("options"):
+                                ask_user_options = AskUserOptions(
+                                    message=output.get("message", ""),
+                                    options=output.get("options", [])
+                                )
+                                logger.info(f"ask_user options detected: {ask_user_options.options}")
 
                         # Handle OpenAI format (fallback)
                         elif "choices" in event:
