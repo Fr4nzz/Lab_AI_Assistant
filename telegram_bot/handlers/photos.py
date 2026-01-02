@@ -18,47 +18,19 @@ media_groups: Dict[str, Dict] = {}
 
 async def prefetch_in_background(photos: List[bytes], user_data: dict) -> None:
     """
-    Prefetch orders and detect image rotation in background.
+    Prefetch orders in background while user decides what to do.
     Results are stored in user_data for later use.
+
+    Note: Image rotation is NOT done here - it's handled by the backend's
+    image-rotation tool when the agent processes the message.
     """
     backend = BackendService()
     try:
-        # Start both tasks concurrently
-        tasks = []
-
-        # Task 1: Prefetch orders
-        tasks.append(backend.prefetch_orders())
-
-        # Task 2: Detect rotation for first image
-        if photos:
-            tasks.append(backend.detect_rotation(photos[0]))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Store orders prefetch result
-        if len(results) > 0 and not isinstance(results[0], Exception):
-            user_data["prefetch_orders_result"] = results[0]
-            user_data["prefetch_orders_timestamp"] = time.time()
-            logger.info(f"[Prefetch] Orders ready: {results[0].get('freshness', {})}")
-
-        # Store rotation detection result and apply if needed
-        if len(results) > 1 and not isinstance(results[1], Exception):
-            rotation_result = results[1]
-            user_data["prefetch_rotation_result"] = rotation_result
-            rotation = rotation_result.get("rotation", 0)
-
-            # If rotation needed, rotate all images
-            if rotation != 0 and photos:
-                logger.info(f"[Prefetch] Rotating {len(photos)} images by {rotation}°")
-                rotated_photos = []
-                for photo in photos:
-                    rotated = await backend.rotate_image(photo, rotation)
-                    rotated_photos.append(rotated)
-                user_data["pending_images_rotated"] = rotated_photos
-                logger.info(f"[Prefetch] Images rotated and stored")
-            else:
-                # No rotation needed, use original
-                user_data["pending_images_rotated"] = photos
+        # Prefetch orders
+        result = await backend.prefetch_orders()
+        user_data["prefetch_orders_result"] = result
+        user_data["prefetch_orders_timestamp"] = time.time()
+        logger.info(f"[Prefetch] Orders ready: {result.get('freshness', {})}")
 
     except Exception as e:
         logger.error(f"[Prefetch] Background prefetch error: {e}")

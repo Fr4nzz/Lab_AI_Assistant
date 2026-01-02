@@ -71,8 +71,8 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle 'new chat' buttons (cotizar, pasar, caption, custom)."""
-    # Use pre-rotated images if available, otherwise use original
-    images = context.user_data.get("pending_images_rotated") or context.user_data.get("pending_images", [])
+    # Use original images - rotation is handled by backend's image-rotation tool
+    images = context.user_data.get("pending_images", [])
 
     if action == "custom":
         # Wait for user to type custom prompt
@@ -109,7 +109,6 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
 
         context.user_data["current_chat_id"] = chat_id
         context.user_data["pending_images"] = []
-        context.user_data["pending_images_rotated"] = []  # Clear rotated images
         context.user_data["pending_caption"] = None  # Clear caption after use
 
         # Show processing message
@@ -175,8 +174,8 @@ async def handle_continue_chat(query, context: ContextTypes.DEFAULT_TYPE, short_
 
 async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle prompt selection after choosing to continue a chat."""
-    # Use pre-rotated images if available, otherwise use original
-    images = context.user_data.get("pending_images_rotated") or context.user_data.get("pending_images", [])
+    # Use original images - rotation is handled by backend's image-rotation tool
+    images = context.user_data.get("pending_images", [])
     chat_id = context.user_data.get("pending_chat_id")
 
     if not chat_id:
@@ -195,7 +194,6 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
 
     context.user_data["current_chat_id"] = chat_id
     context.user_data["pending_images"] = []
-    context.user_data["pending_images_rotated"] = []  # Clear rotated images
 
     # Show processing message
     await query.message.reply_text("⏳ Procesando...")
