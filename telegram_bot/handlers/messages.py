@@ -108,8 +108,8 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handle custom prompt input after user selected 'Escribe el prompt'."""
     message = update.message
 
-    # Get pending data
-    images = context.user_data.get("pending_images", [])
+    # Get pending data - use pre-rotated images if available
+    images = context.user_data.get("pending_images_rotated") or context.user_data.get("pending_images", [])
     chat_id = context.user_data.get("pending_chat_id")
 
     # Clear the awaiting flag
@@ -152,6 +152,7 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Clear pending images
         context.user_data["pending_images"] = []
+        context.user_data["pending_images_rotated"] = []
 
         # Store ask_user options for callback handling
         if ask_user_options:

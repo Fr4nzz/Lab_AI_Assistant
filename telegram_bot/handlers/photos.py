@@ -1,7 +1,9 @@
 """Photo and media group handling for Telegram bot."""
 
+import asyncio
 import logging
-from typing import Dict
+import time
+from typing import Dict, List
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -12,6 +14,56 @@ logger = logging.getLogger(__name__)
 
 # Temporary storage for media groups (keyed by media_group_id)
 media_groups: Dict[str, Dict] = {}
+
+
+async def prefetch_in_background(photos: List[bytes], user_data: dict) -> None:
+    """
+    Prefetch orders and detect image rotation in background.
+    Results are stored in user_data for later use.
+    """
+    backend = BackendService()
+    try:
+        # Start both tasks concurrently
+        tasks = []
+
+        # Task 1: Prefetch orders
+        tasks.append(backend.prefetch_orders())
+
+        # Task 2: Detect rotation for first image
+        if photos:
+            tasks.append(backend.detect_rotation(photos[0]))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Store orders prefetch result
+        if len(results) > 0 and not isinstance(results[0], Exception):
+            user_data["prefetch_orders_result"] = results[0]
+            user_data["prefetch_orders_timestamp"] = time.time()
+            logger.info(f"[Prefetch] Orders ready: {results[0].get('freshness', {})}")
+
+        # Store rotation detection result and apply if needed
+        if len(results) > 1 and not isinstance(results[1], Exception):
+            rotation_result = results[1]
+            user_data["prefetch_rotation_result"] = rotation_result
+            rotation = rotation_result.get("rotation", 0)
+
+            # If rotation needed, rotate all images
+            if rotation != 0 and photos:
+                logger.info(f"[Prefetch] Rotating {len(photos)} images by {rotation}°")
+                rotated_photos = []
+                for photo in photos:
+                    rotated = await backend.rotate_image(photo, rotation)
+                    rotated_photos.append(rotated)
+                user_data["pending_images_rotated"] = rotated_photos
+                logger.info(f"[Prefetch] Images rotated and stored")
+            else:
+                # No rotation needed, use original
+                user_data["pending_images_rotated"] = photos
+
+    except Exception as e:
+        logger.error(f"[Prefetch] Background prefetch error: {e}")
+    finally:
+        await backend.close()
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -89,6 +141,10 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
     app_user_data["pending_caption"] = caption  # Store caption for "caption" action
 
+    # Start prefetch in background (orders + image rotation)
+    # This runs concurrently while user decides what to do
+    asyncio.create_task(prefetch_in_background(photos, app_user_data))
+
     # Get recent chats for keyboard (now async)
     backend = BackendService()
     try:
@@ -124,9 +180,14 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         photo_bytes = await file.download_as_bytearray()
 
         # Store in user context (including caption)
-        context.user_data["pending_images"] = [bytes(photo_bytes)]
+        photos = [bytes(photo_bytes)]
+        context.user_data["pending_images"] = photos
         context.user_data["pending_chat_id"] = None
         context.user_data["pending_caption"] = caption  # Store caption for "caption" action
+
+        # Start prefetch in background (orders + image rotation)
+        # This runs concurrently while user decides what to do
+        asyncio.create_task(prefetch_in_background(photos, context.user_data))
 
         # Get recent chats (now async)
         backend = BackendService()
