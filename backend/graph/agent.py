@@ -185,7 +185,7 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
         return {"messages": [response]}
 
     # ============================================================
-    # ROUTING FUNCTION
+    # ROUTING FUNCTIONS
     # ============================================================
 
     def should_continue(state: LabAssistantState) -> Literal["tools", "__end__"]:
@@ -204,6 +204,24 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
 
         # No tool calls - agent is done, return response to user
         return END
+
+    def after_tools(state: LabAssistantState) -> Literal["agent", "__end__"]:
+        """
+        Determine if we should continue after tools or stop.
+
+        If ask_user was called, we should stop and let the user respond.
+        The frontend will render the options and send the user's choice.
+        """
+        # Check recent messages for ask_user tool calls
+        for msg in reversed(state["messages"]):
+            # ToolMessage has 'name' attribute with the tool name
+            if hasattr(msg, 'name') and msg.name == 'ask_user':
+                logger.info("[Agent] ask_user called - stopping loop to wait for user input")
+                return END
+            # Only check the last batch of tool messages
+            if hasattr(msg, 'tool_calls'):
+                break
+        return "agent"
 
     # ============================================================
     # GRAPH CONSTRUCTION
@@ -228,8 +246,15 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
         }
     )
 
-    # After tools, always go back to agent
-    builder.add_edge("tools", "agent")
+    # After tools, check if we should continue or stop (ask_user stops the loop)
+    builder.add_conditional_edges(
+        "tools",
+        after_tools,
+        {
+            "agent": "agent",
+            END: END
+        }
+    )
 
     return builder
 
