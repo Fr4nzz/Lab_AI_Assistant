@@ -14,6 +14,7 @@ from ..keyboards import (
     DEFAULT_MODEL,
 )
 from ..services import BackendService
+from ..utils.urls import get_cloudflare_url, get_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -29,22 +30,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if "model" not in context.user_data:
         context.user_data["model"] = DEFAULT_MODEL
 
+    # Get current web URL
+    web_url = get_base_url()
+
     await update.message.reply_text(
         f"¡Hola {user.first_name}! 👋\n\n"
         "Soy el bot de Lab Assistant. Puedo ayudarte a:\n\n"
-        "📸 **Envía una foto** de un cuaderno o documento para:\n"
+        "📸 Envía una foto de un cuaderno o documento para:\n"
         "   • Crear cotizaciones\n"
         "   • Pasar datos al sistema\n"
         "   • Hacer consultas con imágenes\n\n"
-        "📝 **Comandos disponibles:**\n"
+        "📝 Comandos disponibles:\n"
         "   /chats - Ver chats recientes\n"
         "   /new - Crear nuevo chat\n"
         "   /model - Cambiar modelo de IA\n"
         "   /actualizar - Buscar actualizaciones\n"
         "   /help - Mostrar ayuda\n"
         "   /cancel - Cancelar operación actual\n\n"
-        "¡Envía una foto para comenzar!",
-        parse_mode="Markdown"
+        f"🔗 Web: {web_url}\n\n"
+        "¡Envía una foto para comenzar!"
     )
 
 
