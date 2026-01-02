@@ -212,6 +212,45 @@ class BrowserManager:
         await self.dismiss_popups()
         return self.page
 
+    async def get_page_for_new_order(self) -> Page:
+        """
+        Get a page for creating a new order/cotización.
+
+        Logic:
+        - If current page is on orders list (/ordenes), reuse it
+        - Otherwise, create a new tab to preserve existing cotización tabs
+
+        Returns the page to use for the new order.
+        """
+        await self.ensure_browser()
+
+        # Check current page URL
+        current_url = ""
+        try:
+            if self.page and not self.page.is_closed():
+                current_url = self.page.url
+        except Exception:
+            pass
+
+        # If on orders list page, reuse this tab
+        if "/ordenes" in current_url and "/ordenes/create" not in current_url and "/ordenes/" not in current_url.split("/ordenes")[1][:5]:
+            print(f"[BrowserManager] On orders list, reusing tab for new order")
+            await self.dismiss_popups()
+            return self.page
+
+        # Otherwise, create a new tab to preserve existing work
+        print(f"[BrowserManager] Creating new tab for order (current: {current_url[:50]}...)")
+        try:
+            new_page = await self.context.new_page()
+            self.page = new_page
+            print("[BrowserManager] New tab created for order")
+            await self.dismiss_popups()
+            return new_page
+        except Exception as e:
+            # If can't create new page, fall back to ensure_page
+            print(f"[BrowserManager] Could not create new tab ({e}), using ensure_page")
+            return await self.ensure_page()
+
     async def dismiss_popups(self) -> bool:
         """
         Dismiss any notification modals that might be blocking the page.
