@@ -1471,9 +1471,21 @@ async def chat_aisdk(request: AISdkChatRequest):
                     run_id = event.get("run_id", "")
                     tool_call_id = f"call_{run_id[:12]}" if run_id else None
                     tool_output = event.get("data", {}).get("output", "")
-                    result_str = str(tool_output)[:500] if tool_output else "completed"
+
+                    # Parse JSON string to object if possible (for ask_user, etc.)
+                    result_data = tool_output
+                    if isinstance(tool_output, str) and tool_output.startswith('{'):
+                        try:
+                            result_data = json.loads(tool_output)
+                        except json.JSONDecodeError:
+                            result_data = tool_output[:500] if tool_output else "completed"
+                    elif tool_output:
+                        result_data = str(tool_output)[:500]
+                    else:
+                        result_data = "completed"
+
                     # Don't log here - tools.py already logs details
-                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_str)
+                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_data)
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")

@@ -54,6 +54,8 @@ Título:`
       maxTokens: 20
     })
 
+    console.log('[API/chats] Raw title response:', text)
+
     let title = text.trim()
       .replace(/^\*\*|\*\*$/g, '')
       .replace(/^#+\s*/, '')
@@ -69,6 +71,8 @@ Título:`
     if (title && title !== 'Nuevo Chat' && title.length > 0) {
       await updateChatTitle(chatId, title)
       console.log('[API/chats] Generated title:', title)
+    } else {
+      console.log('[API/chats] Title empty or invalid after parsing, raw was:', text)
     }
   } catch (error) {
     console.error('[API/chats] Title generation error:', error)
