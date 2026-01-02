@@ -159,11 +159,11 @@ def fuzzy_search_patient(
     query_upper = query.upper().strip()
 
     # Use rapidfuzz to find matches
-    # Use token_set_ratio which handles word order differences well
+    # Use WRatio which handles partial matches and different string lengths well
     matches = process.extract(
         query_upper,
         patient_names,
-        scorer=fuzz.token_set_ratio,
+        scorer=fuzz.WRatio,
         limit=50  # Get more initially, then filter
     )
 
