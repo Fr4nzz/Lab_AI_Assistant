@@ -276,15 +276,16 @@ function formatResult(toolName: string, result: unknown): string {
       </div>
 
       <!-- Ask user options as clickable buttons -->
-      <div v-if="name === 'ask_user' && askUserOptions.length > 0 && isCompleted" class="mt-3 space-y-2">
-        <p v-if="askUserMessage" class="text-sm text-gray-700 dark:text-gray-300">{{ askUserMessage }}</p>
-        <div class="flex flex-wrap gap-2">
+      <div v-if="name === 'ask_user' && askUserOptions.length > 0 && isCompleted" class="mt-3 space-y-3">
+        <p v-if="askUserMessage" class="text-base text-gray-700 dark:text-gray-300 font-medium">{{ askUserMessage }}</p>
+        <div class="flex flex-wrap gap-3">
           <UButton
             v-for="(option, idx) in askUserOptions"
             :key="idx"
             color="primary"
             variant="soft"
-            size="sm"
+            size="lg"
+            class="text-base px-4 py-2"
             @click="handleOptionClick(option)"
           >
             {{ option }}

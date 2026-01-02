@@ -37,21 +37,10 @@ abbreviations: |
   Copro: D=Dura, B=Blanda, S=Semiblanda, C=Café, CA=Café Amarillento, NSO=No se observan parásitos
   BH: valores numéricos directos (Hb 15.5, Hto 46)
 
-# Instrucciones para interpretar imágenes de resultados de laboratorio
+# Instrucciones para interpretar imágenes de órdenes médicas
 image_interpretation: |
   ## INTERPRETACIÓN DE IMÁGENES
-  Al recibir imágenes de resultados de laboratorio:
-
-  1. **Identificación del paciente**: Busca nombre, cédula, fecha en la parte superior
-  2. **Tipo de examen**: Identifica si es BH, EMO, Copro, Química, etc.
-  3. **Valores**: Lee cada valor con cuidado, prestando atención a:
-     - Números decimales (15.5 vs 155)
-     - Unidades de medida
-     - Valores de referencia si están presentes
-  4. **Escritura manuscrita**:
-     - Números: 1 vs 7, 0 vs O, 5 vs S
-     - Si hay duda, prefiere el valor clínicamente probable
-  5. **Orientación**: Si la imagen está rotada, interpreta correctamente la orientación
+  Para cotizar examenes, las ordenes usualmente son templates impresos que el medico escoge los examenes marcando los cuadros que corresponden a cada examen con una x, visto, guion, subrayando los examenes, etc. A veces se agregan examenes que no estan en el template escribiendolos a mano. Ignora los examenes que no estan marcados.
 
 # Mensaje de bienvenida para nuevas conversaciones
 welcome_message: |
