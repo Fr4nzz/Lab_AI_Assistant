@@ -1381,6 +1381,7 @@ async def chat_aisdk(request: AISdkChatRequest):
             total_input_tokens = 0
             total_output_tokens = 0
             ai_responses = 0  # Track actual AI responses (for usage tracking)
+            counted_run_ids = set()  # Track which LLM calls we've already counted
 
             # Gemini pricing (per 1M tokens)
             # Gemini Flash: $0.075 input, $0.30 output
@@ -1429,7 +1430,13 @@ async def chat_aisdk(request: AISdkChatRequest):
                             yield adapter.text_delta(content)
 
                 elif event_type == "on_chat_model_end":
+                    run_id = event.get("run_id", "")
                     output = event.get("data", {}).get("output")
+
+                    # Skip if we've already counted this run_id (avoid double-counting)
+                    if run_id and run_id in counted_run_ids:
+                        continue
+
                     if output:
                         # Only count if LLM returned actual tool_calls or content
                         has_tool_calls = hasattr(output, 'tool_calls') and output.tool_calls
@@ -1446,6 +1453,8 @@ async def chat_aisdk(request: AISdkChatRequest):
                                 )
 
                         if has_tool_calls or has_content:
+                            if run_id:
+                                counted_run_ids.add(run_id)
                             ai_responses += 1
                             increment_usage(model_name)
 
