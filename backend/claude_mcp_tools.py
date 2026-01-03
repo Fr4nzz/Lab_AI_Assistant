@@ -2,10 +2,12 @@
 MCP Tools Wrapper for Claude Agent SDK.
 
 Converts LangGraph/LangChain tools to MCP format for use with Claude Code.
-Uses the langchain-tool-to-mcp-adapter library for seamless conversion.
+Uses the official langchain-mcp-adapters library for seamless conversion.
 
 This allows Claude to use the same tools as Gemini (search_orders, edit_results, etc.)
 without duplicating tool definitions.
+
+Reference: https://github.com/langchain-ai/langchain-mcp-adapters
 """
 import logging
 from typing import List, Optional
@@ -39,7 +41,7 @@ def create_lab_mcp_server():
     """
     Create an MCP server with all lab tools converted from LangGraph format.
 
-    Uses langchain-tool-to-mcp-adapter to convert existing tools.
+    Uses the official langchain-mcp-adapters to convert existing tools.
     Falls back to manual tool creation if adapter is not available.
 
     Returns:
@@ -51,29 +53,35 @@ def create_lab_mcp_server():
         return _mcp_server
 
     try:
-        # Try using the adapter library first
-        from fastmcp import FastMCP
-        from langchain_tool_to_mcp_adapter import add_langchain_tool_to_server
+        # Use the official langchain-mcp-adapters library
+        from langchain_mcp_adapters.tools import to_fastmcp
+        from mcp.server.fastmcp import FastMCP
         from graph.tools import ALL_TOOLS
 
-        logger.info("[MCP] Creating lab MCP server with langchain-tool-to-mcp-adapter...")
+        logger.info("[MCP] Creating lab MCP server with langchain-mcp-adapters...")
 
-        server = FastMCP("lab")
-
+        # Convert each LangChain tool to FastMCP format
+        fastmcp_tools = []
         for tool in ALL_TOOLS:
             try:
-                add_langchain_tool_to_server(server, tool)
-                logger.info(f"[MCP] Added tool: {tool.name}")
+                fastmcp_tool = to_fastmcp(tool)
+                fastmcp_tools.append(fastmcp_tool)
+                logger.info(f"[MCP] Converted tool: {tool.name}")
+            except NotImplementedError as e:
+                logger.warning(f"[MCP] Tool {tool.name} uses InjectedToolArg (not supported): {e}")
             except Exception as e:
-                logger.error(f"[MCP] Failed to add tool {tool.name}: {e}")
+                logger.error(f"[MCP] Failed to convert tool {tool.name}: {e}")
+
+        # Create FastMCP server with converted tools
+        server = FastMCP("lab", tools=fastmcp_tools)
 
         _mcp_server = server
         _mcp_tools_available = True
-        logger.info(f"[MCP] Lab MCP server created with {len(ALL_TOOLS)} tools")
+        logger.info(f"[MCP] Lab MCP server created with {len(fastmcp_tools)} tools")
         return server
 
     except ImportError as e:
-        logger.warning(f"[MCP] Adapter library not available: {e}")
+        logger.warning(f"[MCP] langchain-mcp-adapters not available: {e}")
         logger.info("[MCP] Attempting to create MCP tools manually...")
         return _create_manual_mcp_server()
     except Exception as e:
