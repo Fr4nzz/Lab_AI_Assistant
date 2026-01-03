@@ -1,10 +1,9 @@
 # LangGraph and LangChain
-# Note: langchain-tool-to-mcp-adapter requires langchain>=0.1.0,<0.4.0
 langgraph>=0.2.31
 langgraph-checkpoint-sqlite
 langgraph-checkpoint-postgres
-langchain>=0.3.0,<0.4.0
-langchain-core>=0.3.0,<0.4.0
+langchain>=1.0.8
+langchain-core>=1.0.0,<2.0.0
 langchain-google-genai>=2.0.0
 langchain-openai>=0.2.0
 
@@ -32,8 +31,6 @@ openpyxl>=3.1.0
 claude-agent-sdk>=0.1.0
 
 # MCP (Model Context Protocol) for Claude custom tools
-# Converts LangGraph tools to MCP format for Claude Agent SDK
-# Note: fastmcp>=2.2.0 requires mcp>=1.24.0
-mcp>=1.24.0,<2.0
-fastmcp>=2.2.0,<3.0
-langchain-tool-to-mcp-adapter>=0.1.0
+# Official LangChain adapter - supports bidirectional conversion
+# https://github.com/langchain-ai/langchain-mcp-adapters
+langchain-mcp-adapters>=0.1.0
