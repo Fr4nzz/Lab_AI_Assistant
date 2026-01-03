@@ -31,7 +31,9 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     filters,
+    ContextTypes,
 )
+from telegram.error import NetworkError, TimedOut
 
 from telegram_bot.handlers import (
     start,
@@ -80,6 +82,20 @@ def create_user_filter(allowed_users: set):
         return filters.ALL  # Allow all if no restriction
 
     return filters.User(user_id=list(allowed_users))
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle errors gracefully, especially network errors during sleep/wake cycles."""
+    error = context.error
+
+    # Network errors are expected during laptop sleep/wake or tunnel restarts
+    if isinstance(error, (NetworkError, TimedOut)):
+        # Log at INFO level since this is expected behavior
+        logger.info(f"Network interruption (expected during sleep/tunnel restart): {type(error).__name__}")
+        return
+
+    # For other errors, log as warning with details
+    logger.warning(f"Update {update} caused error: {error}", exc_info=context.error)
 
 
 def main() -> None:
@@ -132,6 +148,9 @@ def main() -> None:
 
     # Register callback query handler for inline keyboards
     app.add_handler(CallbackQueryHandler(handle_callback))
+
+    # Register error handler for graceful error handling
+    app.add_error_handler(error_handler)
 
     # Log startup info
     logger.info("=" * 50)
