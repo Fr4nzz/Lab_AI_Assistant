@@ -135,6 +135,30 @@ if not defined NPM_OK (
     )
 )
 
+:: Check Claude Code status (optional - will use Gemini fallback if not available)
+set "CLAUDE_OK="
+set "CLAUDE_AUTH="
+where claude >nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code %%v found
+    set "CLAUDE_OK=1"
+    :: Quick auth check (just test if it runs without error)
+    set "ANTHROPIC_API_KEY="
+    claude -p "OK" --max-turns 1 >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo   [OK] Claude Code authenticated (Max subscription)
+        set "CLAUDE_AUTH=1"
+    ) else (
+        echo   [!] Claude Code not authenticated - run: claude login
+        echo       Will use Gemini as fallback until authenticated
+    )
+) else (
+    echo   [!] Claude Code not installed - Claude models unavailable
+    echo       Install with: npm install -g @anthropic-ai/claude-code
+    echo       Or run: scripts\setup-claude.bat
+    echo       Will use Gemini as fallback
+)
+
 echo:
 
 :: If missing prerequisites, offer to install
@@ -418,6 +442,16 @@ if defined TUNNEL_STARTED (
     echo    [ ] Cloudflare Tunnel - disabled
 )
 echo:
+echo  AI Models:
+if defined CLAUDE_AUTH (
+    echo    [*] Claude Opus/Sonnet 4.5 (Max subscription)
+) else if defined CLAUDE_OK (
+    echo    [!] Claude - not authenticated (run: claude login)
+) else (
+    echo    [ ] Claude - not installed (run: scripts\setup-claude.bat)
+)
+echo    [*] Gemini 3/2.5 Flash (fallback)
+echo:
 if defined DEBUG_MODE (
     echo  Mode: DEBUG - windows visible
 ) else (
@@ -558,6 +592,22 @@ if %errorlevel% equ 0 (
 ) else (
     echo  [STOPPED] Cloudflare Tunnel
 )
+
+echo:
+echo  AI Models:
+where claude >nul 2>&1
+if %errorlevel% equ 0 (
+    set "ANTHROPIC_API_KEY="
+    claude -p "OK" --max-turns 1 >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo  [READY]   Claude Opus/Sonnet 4.5 (Max subscription)
+    ) else (
+        echo  [!]       Claude installed but not authenticated
+    )
+) else (
+    echo  [!]       Claude not installed
+)
+echo  [READY]   Gemini 3/2.5 Flash (fallback)
 
 echo:
 echo ----------------------------------------

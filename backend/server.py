@@ -69,6 +69,7 @@ from extractors import EXTRACT_ORDENES_JS
 from config import settings
 from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts, get_default_prompts
 from stream_adapter import StreamAdapter
+from claude_provider import ClaudeCodeProvider, get_claude_provider, check_claude_code_status, CLAUDE_SDK_AVAILABLE
 
 
 def load_exams_from_csv() -> List[dict]:
@@ -149,11 +150,25 @@ orders_context_timestamp: float = 0  # When orders were last fetched
 ORDERS_FRESHNESS_SECONDS = 120  # Orders are fresh for 2 minutes
 
 # Available models (must match frontend MODEL_CONFIGS)
+# Claude models use Claude Code CLI with Max subscription (no API key needed)
+# Gemini models use direct API with key rotation
 AVAILABLE_MODELS = [
-    "gemini-3-flash-preview",
-    "gemini-flash-latest",
+    "claude-opus-4-5",       # Claude Opus 4.5 via Claude Code (most capable)
+    "claude-sonnet-4-5",     # Claude Sonnet 4.5 via Claude Code (fast)
+    "gemini-3-flash-preview",  # Gemini 3 Flash (fallback)
+    "gemini-flash-latest",   # Gemini 2.5 Flash
 ]
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "claude-opus-4-5"  # Default to Claude Opus 4.5
+
+# Claude model mapping (short name -> full model ID)
+CLAUDE_MODELS = {
+    "claude-opus-4-5": "claude-opus-4-5-20250514",
+    "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+}
+
+# Gemini models (for fallback)
+GEMINI_MODELS = ["gemini-3-flash-preview", "gemini-flash-latest"]
+GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
 
 
 # ============================================================
@@ -1358,6 +1373,133 @@ async def detect_image_rotation(request: ImageRotationRequest):
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 
+async def chat_aisdk_claude(request, thread_id: str, model_name: str):
+    """
+    Handle chat using Claude Code (Max subscription).
+
+    This streams responses from Claude Code CLI using the claude-agent-sdk.
+    No API key needed - uses your authenticated Claude Code installation.
+    """
+    global orders_context_sent
+
+    logger.info(f"[Claude] Using model: {model_name}")
+    logger.info(f"[Claude] Thread: {thread_id}, Messages: {len(request.messages)}")
+
+    # Get Claude provider with Gemini fallback
+    gemini_fallback = None
+    if GEMINI_FALLBACK_MODEL in graphs:
+        # Get the underlying model from the graph for fallback
+        from models import get_chat_model
+        gemini_fallback = get_chat_model(model_name=GEMINI_FALLBACK_MODEL)
+
+    claude_provider = get_claude_provider(gemini_fallback=gemini_fallback)
+
+    async def generate():
+        adapter = StreamAdapter()
+
+        try:
+            # Check if first message and get context
+            is_first_message = len(request.messages) <= 2
+            if is_first_message:
+                reset_tab_state()
+
+            # Get context
+            current_context = await get_orders_context(force_refresh=is_first_message)
+            tabs_context = await get_browser_tabs_context()
+
+            context_parts = []
+            if is_first_message or not orders_context_sent:
+                if current_context:
+                    context_parts.append(current_context)
+            if tabs_context:
+                context_parts.append(tabs_context)
+
+            context = "\n\n".join(context_parts) if context_parts else None
+
+            # Start message
+            yield adapter.start_message()
+
+            # Stream from Claude
+            full_response = []
+            claude_responses = 0
+
+            async for event in claude_provider.stream_chat(
+                messages=request.messages,
+                system_prompt=SYSTEM_PROMPT,
+                context=context
+            ):
+                if event.type == "text":
+                    full_response.append(event.content or "")
+                    yield adapter.text_delta(event.content or "")
+                    claude_responses += 1
+
+                elif event.type == "thinking":
+                    # Send thinking as reasoning (if frontend supports it)
+                    yield adapter.text_delta(f"\n*[Thinking: {(event.content or '')[:100]}...]*\n")
+
+                elif event.type == "tool_call":
+                    yield adapter.tool_status(
+                        event.tool_name or "unknown",
+                        "start",
+                        event.tool_input,
+                        tool_call_id=event.tool_id
+                    )
+
+                elif event.type == "tool_result":
+                    yield adapter.tool_status(
+                        "tool",
+                        "end",
+                        tool_call_id=event.tool_id,
+                        result=event.tool_output
+                    )
+
+                elif event.type == "error":
+                    yield adapter.text_delta(f"\n*Error: {event.content}*\n")
+
+                elif event.type == "done":
+                    metadata = event.metadata or {}
+                    if request.showStats:
+                        # Show stats (cost is $0 with Max subscription)
+                        cost = metadata.get("total_cost_usd", 0)
+                        duration = metadata.get("duration_ms", 0)
+                        turns = metadata.get("num_turns", 0)
+
+                        stats_msg = f"\n\n---\n📊 **Stats**: Claude {model_name}"
+                        if metadata.get("fallback"):
+                            stats_msg += " (Gemini fallback)"
+                        if duration:
+                            stats_msg += f" | {duration/1000:.1f}s"
+                        if turns:
+                            stats_msg += f" | {turns} turns"
+                        stats_msg += f" | ${cost:.4f} (Max subscription)"
+                        stats_msg += "\n"
+
+                        yield adapter.text_delta(stats_msg)
+
+            # Finish
+            yield adapter.finish("stop")
+
+            # Log summary
+            response_preview = ''.join(full_response)[:100]
+            logger.info(f"[Claude] Done: {claude_responses} responses, preview: {response_preview}...")
+
+        except Exception as e:
+            logger.error(f"[Claude] Error: {e}", exc_info=True)
+            yield adapter.error(str(e))
+            yield adapter.finish("error")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "x-vercel-ai-ui-message-stream": "v1",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Chat-Id": thread_id,
+        }
+    )
+
+
 class AISdkChatRequest(BaseModel):
     messages: List[dict]
     chatId: Optional[str] = None
@@ -1373,20 +1515,42 @@ async def chat_aisdk(request: AISdkChatRequest):
     This endpoint streams responses in the Vercel AI SDK format,
     which can be consumed directly by useChat on the frontend.
 
+    Supports both Claude (via Claude Code CLI) and Gemini (via LangGraph).
+    Claude models use your Max subscription - no API key needed.
+
     Documentation: https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol
     """
     global orders_context_sent
 
     thread_id = request.chatId or str(uuid.uuid4())
+
+    # Determine model and provider
+    model_name = request.model or DEFAULT_MODEL
+
+    # Check if this is a Claude model
+    is_claude_model = model_name in CLAUDE_MODELS
+
+    # If Claude model requested but Claude Code not available, fall back to Gemini
+    if is_claude_model:
+        claude_provider = get_claude_provider()
+        if not claude_provider.is_available:
+            logger.warning(f"[AI SDK] Claude Code not available, falling back to {GEMINI_FALLBACK_MODEL}")
+            model_name = GEMINI_FALLBACK_MODEL
+            is_claude_model = False
+
+    # Route to Claude or Gemini
+    if is_claude_model:
+        return await chat_aisdk_claude(request, thread_id, model_name)
+
+    # Gemini/LangGraph path
     config = {"configurable": {"thread_id": thread_id}}
 
     # Select the appropriate graph based on requested model
-    model_name = request.model or DEFAULT_MODEL
     if model_name not in graphs:
-        logger.warning(f"[AI SDK] Unknown model '{model_name}', using default: {DEFAULT_MODEL}")
-        model_name = DEFAULT_MODEL
+        logger.warning(f"[AI SDK] Unknown model '{model_name}', using default: {GEMINI_FALLBACK_MODEL}")
+        model_name = GEMINI_FALLBACK_MODEL
     graph = graphs[model_name]
-    logger.info(f"[AI SDK] Using model: {model_name}")
+    logger.info(f"[AI SDK] Using Gemini model: {model_name}")
 
     # Convert messages to LangChain format
     conversation_messages = []
