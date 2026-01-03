@@ -99,8 +99,9 @@ else:
 
 # Check if claude-agent-sdk is available
 CLAUDE_SDK_AVAILABLE = False
+CLAUDE_SDK_CLIENT_AVAILABLE = False
 try:
-    from claude_agent_sdk import query, ClaudeAgentOptions
+    from claude_agent_sdk import query, ClaudeAgentOptions, ClaudeSDKClient
     from claude_agent_sdk.types import (
         AssistantMessage,
         TextBlock,
@@ -110,9 +111,33 @@ try:
         ThinkingBlock,
     )
     CLAUDE_SDK_AVAILABLE = True
-    logger.info("[Claude] claude-agent-sdk is available")
+    CLAUDE_SDK_CLIENT_AVAILABLE = True
+    logger.info("[Claude] claude-agent-sdk is available (with ClaudeSDKClient)")
 except ImportError:
-    logger.warning("[Claude] claude-agent-sdk not installed - Claude models will use Gemini fallback")
+    try:
+        # Fallback: try older SDK without ClaudeSDKClient
+        from claude_agent_sdk import query, ClaudeAgentOptions
+        from claude_agent_sdk.types import (
+            AssistantMessage,
+            TextBlock,
+            ToolUseBlock,
+            ToolResultBlock,
+            ResultMessage,
+            ThinkingBlock,
+        )
+        CLAUDE_SDK_AVAILABLE = True
+        logger.info("[Claude] claude-agent-sdk is available (query only, no ClaudeSDKClient)")
+    except ImportError:
+        logger.warning("[Claude] claude-agent-sdk not installed - Claude models will use Gemini fallback")
+
+# Check if MCP tools are available
+MCP_TOOLS_AVAILABLE = False
+try:
+    from claude_mcp_tools import get_mcp_server, get_mcp_tool_names, is_mcp_available
+    MCP_TOOLS_AVAILABLE = True
+    logger.info("[Claude] MCP tools module loaded")
+except ImportError:
+    logger.warning("[Claude] MCP tools module not available - Claude will use built-in tools only")
 
 
 @dataclass
@@ -221,18 +246,17 @@ class ClaudeCodeProvider:
             # Build the prompt from messages
             prompt = self._build_prompt(messages, system_prompt, context)
 
-            # Configure Claude Code options
-            options = ClaudeAgentOptions(
-                max_turns=self.max_turns,
-                # Don't allow dangerous tools in chat context
-                allowed_tools=[],
-            )
+            # Check if we can use ClaudeSDKClient with MCP tools
+            use_mcp_tools = CLAUDE_SDK_CLIENT_AVAILABLE and MCP_TOOLS_AVAILABLE and is_mcp_available()
 
-            logger.info(f"[Claude] Starting stream with {len(messages)} messages")
-
-            # Stream from Claude Code
-            async for message in query(prompt=prompt, options=options):
-                async for event in self._process_message(message):
+            if use_mcp_tools:
+                # Use ClaudeSDKClient with MCP tools (lab tools)
+                async for event in self._stream_with_mcp_tools(prompt):
+                    yield event
+            else:
+                # Fallback to query() without custom tools
+                logger.warning("[Claude] MCP tools not available, using query() without tools")
+                async for event in self._stream_with_query(prompt):
                     yield event
 
             # Restore API key if it was set
@@ -251,6 +275,50 @@ class ClaudeCodeProvider:
                     yield event
             else:
                 yield ClaudeEvent(type="error", content=str(e))
+
+    async def _stream_with_mcp_tools(self, prompt: str) -> AsyncIterator[ClaudeEvent]:
+        """
+        Stream using ClaudeSDKClient with MCP tools.
+
+        This enables Claude to use the lab tools (search_orders, edit_results, etc.)
+        instead of built-in tools like Bash.
+        """
+        mcp_server = get_mcp_server()
+        mcp_tool_names = get_mcp_tool_names()
+
+        logger.info(f"[Claude] Using ClaudeSDKClient with MCP tools: {mcp_tool_names}")
+
+        # Configure options with MCP server and only allow our tools
+        options = ClaudeAgentOptions(
+            max_turns=self.max_turns,
+            mcp_servers={"lab": mcp_server},
+            # Only allow our MCP tools - this disables built-in tools like Bash, Read, etc.
+            allowed_tools=mcp_tool_names,
+        )
+
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(prompt)
+            async for message in client.receive_response():
+                async for event in self._process_message(message):
+                    yield event
+
+    async def _stream_with_query(self, prompt: str) -> AsyncIterator[ClaudeEvent]:
+        """
+        Stream using query() without custom tools (fallback).
+
+        This is used when ClaudeSDKClient or MCP tools are not available.
+        """
+        options = ClaudeAgentOptions(
+            max_turns=self.max_turns,
+            # Don't allow any tools in fallback mode
+            allowed_tools=[],
+        )
+
+        logger.info(f"[Claude] Using query() without tools (fallback mode)")
+
+        async for message in query(prompt=prompt, options=options):
+            async for event in self._process_message(message):
+                yield event
 
     async def _process_message(self, message) -> AsyncIterator[ClaudeEvent]:
         """Convert SDK message to our event format."""
