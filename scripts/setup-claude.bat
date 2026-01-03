@@ -83,14 +83,7 @@ for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code 
 :: ============================================
 :authenticate
 echo:
-echo [3/4] Authenticating with Max subscription...
-echo:
-echo   IMPORTANT: When the browser opens, log in with your
-echo   Claude Max subscription account (NOT API Console).
-echo:
-echo   If you have an ANTHROPIC_API_KEY set, it will be ignored
-echo   so that your Max subscription is used instead.
-echo:
+echo [3/4] Checking authentication...
 
 :: Remove API key to force subscription auth
 set "ANTHROPIC_API_KEY="
@@ -98,24 +91,50 @@ set "ANTHROPIC_API_KEY="
 :: Check if already authenticated by looking for token file
 set "TOKEN_FILE=%USERPROFILE%\.claude\oauth_token.json"
 if exist "%TOKEN_FILE%" (
-    echo   Found existing authentication token.
+    echo   [OK] Already authenticated (token file found)
     echo:
     choice /c YN /m "Do you want to re-authenticate? (Y=Yes, N=No)"
     if errorlevel 2 goto :install_sdk
+    echo:
+    echo   Logging out first...
+    claude logout 2>nul
 )
 
 echo:
-echo   Opening browser for authentication...
-echo   Please complete the login in your browser.
+echo   IMPORTANT: When the browser opens, log in with your
+echo   Claude Max subscription account (NOT API Console).
 echo:
+echo   After logging in, the browser will show a success message.
+echo   Then return to this window.
+echo:
+pause
 
-:: Run claude login
-claude login
+:: Use 'claude auth login' for non-interactive login flow
+:: If that doesn't work, fall back to opening browser manually
+echo   Opening authentication...
 
+:: Try the auth login command (opens browser, returns when done)
+claude auth login 2>nul
 if %errorlevel% neq 0 (
+    :: Fallback: just tell user to run claude and use /login
     echo:
-    echo   [!] Authentication may have failed or was cancelled.
-    echo   You can try again later by running: claude login
+    echo   [!] Direct login not available in this version.
+    echo:
+    echo   Please run 'claude' in a terminal and type /login
+    echo   Or the login browser should have opened automatically.
+    echo:
+    pause
+)
+
+:: Verify token was created
+if exist "%TOKEN_FILE%" (
+    echo:
+    echo   [OK] Authentication successful!
+) else (
+    echo:
+    echo   [!] Authentication may not have completed.
+    echo   If you didn't see a browser, run: claude
+    echo   Then type /login inside Claude Code.
     echo:
     choice /c YN /m "Continue anyway? (Y=Yes, N=No)"
     if errorlevel 2 (
@@ -123,9 +142,6 @@ if %errorlevel% neq 0 (
         exit /b 1
     )
 )
-
-echo:
-echo   [OK] Authentication completed!
 
 :: ============================================
 :: STEP 4: Install Python SDK
@@ -177,26 +193,7 @@ if %errorlevel% equ 0 (
 if exist "%USERPROFILE%\.claude\oauth_token.json" (
     echo   [OK] Authentication token found
 ) else (
-    echo   [!] No authentication token - run 'claude login'
-)
-
-:: Quick test (with timeout to prevent hanging)
-echo:
-echo   Testing Claude Code (this may take a few seconds)...
-set "ANTHROPIC_API_KEY="
-
-:: Use timeout command to prevent hanging (Windows)
-:: Run test in background and wait max 30 seconds
-set "TEST_PASSED=0"
-for /f "delims=" %%i in ('claude -p "Say OK" --max-turns 1 2^>^&1') do (
-    echo %%i | findstr /i "OK" >nul && set "TEST_PASSED=1"
-)
-
-if "%TEST_PASSED%"=="1" (
-    echo   [OK] Claude Code is working with Max subscription!
-) else (
-    echo   [!] Test inconclusive - Claude may still work
-    echo       If you see errors, try: claude login
+    echo   [!] No authentication token - run 'claude' then '/login'
 )
 
 echo:
@@ -210,8 +207,8 @@ echo   2. Select "Claude Opus 4.5" in the model selector
 echo   3. Enjoy using Claude with your Max subscription!
 echo:
 echo If Claude doesn't work:
-echo   - Run: claude login
-echo   - Make sure you log in with your MAX subscription account
-echo   - Don't use API Console credentials
+echo   - Run: claude
+echo   - Type: /login
+echo   - Log in with your MAX subscription account
 echo:
 pause
