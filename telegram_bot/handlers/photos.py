@@ -113,19 +113,12 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
     app_user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-    # Start prefetch in background (orders + image rotation)
+    # Start prefetch in background (orders)
     # This runs concurrently while user decides what to do
     asyncio.create_task(prefetch_in_background(photos, app_user_data))
 
-    # Get recent chats for keyboard (now async)
-    backend = BackendService()
-    try:
-        recent_chats = await backend.get_recent_chats(limit=3)
-    finally:
-        await backend.close()
-
-    # Build and send keyboard (pass caption if present)
-    keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+    # Build keyboard (pass caption if present)
+    keyboard = build_photo_options_keyboard(caption=caption)
 
     # Customize message based on whether caption was provided
     if caption:
@@ -157,19 +150,12 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["pending_chat_id"] = None
         context.user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-        # Start prefetch in background (orders + image rotation)
+        # Start prefetch in background (orders)
         # This runs concurrently while user decides what to do
         asyncio.create_task(prefetch_in_background(photos, context.user_data))
 
-        # Get recent chats (now async)
-        backend = BackendService()
-        try:
-            recent_chats = await backend.get_recent_chats(limit=3)
-        finally:
-            await backend.close()
-
-        # Build and send keyboard (pass caption if present)
-        keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+        # Build keyboard (pass caption if present)
+        keyboard = build_photo_options_keyboard(caption=caption)
 
         # Customize message based on whether caption was provided
         if caption:

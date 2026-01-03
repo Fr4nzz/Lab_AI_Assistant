@@ -5,13 +5,13 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def build_photo_options_keyboard(
-    recent_chats: List[Tuple[str, str]] = None,
     caption: str = None
 ) -> InlineKeyboardMarkup:
     """Build keyboard for photo options.
 
+    Shows only new chat options (no "Continuar en chat" suggestions).
+
     Args:
-        recent_chats: List of (chat_id, title) tuples for recent chats
         caption: Optional caption text sent with the photo
     """
     keyboard = []
@@ -25,23 +25,12 @@ def build_photo_options_keyboard(
             InlineKeyboardButton(f"📨 Nuevo chat: {display_text}", callback_data="new:caption")
         ])
 
-    # Standard options
+    # Standard options (3-4 buttons total)
     keyboard.extend([
         [InlineKeyboardButton("📝 Nuevo chat: Cotizar", callback_data="new:cotizar")],
         [InlineKeyboardButton("📋 Nuevo chat: Pasar datos", callback_data="new:pasar")],
         [InlineKeyboardButton("✏️ Nuevo chat: Escribe el prompt", callback_data="new:custom")],
     ])
-
-    # Add recent chats if available
-    if recent_chats:
-        keyboard.append([InlineKeyboardButton("─── Continuar en chat ───", callback_data="noop")])
-        for chat_id, title in recent_chats[:3]:  # Limit to 3 recent chats
-            # Truncate for display and callback data (64 byte limit)
-            short_id = chat_id[:10]
-            display_title = (title[:22] + "...") if len(title) > 25 else title
-            keyboard.append([
-                InlineKeyboardButton(f"💬 {display_title}", callback_data=f"cont:{short_id}")
-            ])
 
     return InlineKeyboardMarkup(keyboard)
 
