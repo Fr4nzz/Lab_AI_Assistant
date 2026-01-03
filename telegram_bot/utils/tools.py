@@ -21,6 +21,13 @@ TOOL_TRANSLATIONS = {
     "remove_exam": "❌ Removiendo examen",
     "get_order_summary": "📝 Obteniendo resumen",
     "confirm_order": "✅ Confirmando orden",
+    "search_orders": "🔍 Buscando órdenes",
+    "get_order_results": "📋 Obteniendo resultados",
+    "get_order_info": "ℹ️ Info de orden",
+    "edit_results": "✏️ Editando resultados",
+    "edit_order_exams": "📝 Editando exámenes",
+    "get_available_exams": "📋 Exámenes disponibles",
+    "ask_user": "❓ Pregunta al usuario",
 
     # General tools
     "search": "🔎 Buscando",
@@ -38,4 +45,8 @@ def get_tool_display_name(tool_name: str) -> str:
     Returns:
         User-friendly name with emoji (e.g., "📄 Leyendo página")
     """
-    return TOOL_TRANSLATIONS.get(tool_name, f"🔧 {tool_name}")
+    if tool_name in TOOL_TRANSLATIONS:
+        return TOOL_TRANSLATIONS[tool_name]
+    # Fallback: replace underscores with spaces for readability
+    friendly_name = tool_name.replace("_", " ")
+    return f"🔧 {friendly_name}"

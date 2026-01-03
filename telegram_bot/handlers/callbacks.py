@@ -10,10 +10,11 @@ from ..keyboards import (
     build_chat_selection_keyboard,
     build_photo_options_keyboard,
     build_model_selection_keyboard,
+    build_ask_user_keyboard,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
 )
-from ..services import BackendService
+from ..services import BackendService, AskUserOptions
 from ..utils import build_chat_url
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith("model:"):
         await handle_model_selection(query, context, data[6:])
 
+    elif data.startswith("askopt:"):
+        await handle_ask_user_option(query, context, data[7:])
+
 
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle cancel button."""
@@ -67,13 +71,14 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle 'new chat' buttons (cotizar, pasar, caption, custom)."""
+    # Use original images - rotation is handled by backend's image-rotation tool
     images = context.user_data.get("pending_images", [])
 
     if action == "custom":
         # Wait for user to type custom prompt
         context.user_data["awaiting_prompt"] = True
         context.user_data["pending_chat_id"] = None
-        await query.edit_message_text(
+        await query.message.reply_text(
             "✏️ Escribe el prompt para acompañar la(s) imagen(es):"
         )
         return
@@ -82,7 +87,7 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
     if action == "caption":
         caption = context.user_data.get("pending_caption")
         if not caption:
-            await query.edit_message_text("❌ No hay mensaje guardado. Usa otra opción.")
+            await query.message.reply_text("❌ No hay mensaje guardado. Usa otra opción.")
             return
         prompt = caption
         # Use first part of caption as title (up to 50 chars)
@@ -99,7 +104,7 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         chat_id = await backend.create_chat(title=title)
 
         if not chat_id:
-            await query.edit_message_text("❌ Error al crear el chat.")
+            await query.message.reply_text("❌ Error al crear el chat.")
             return
 
         context.user_data["current_chat_id"] = chat_id
@@ -107,22 +112,22 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         context.user_data["pending_caption"] = None  # Clear caption after use
 
         # Show processing message
-        await query.edit_message_text("⏳ Procesando...")
+        await query.message.reply_text("⏳ Procesando...")
 
-        # Send to backend
+        # Send to backend (send new message for each tool)
         tools_used = []
 
         async def on_tool(tool_display: str):
             tools_used.append(tool_display)
             try:
-                await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
+                await query.message.reply_text(tool_display)
             except Exception:
                 pass
 
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
@@ -130,8 +135,14 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
             model=model
         )
 
-        # Send response
-        await send_response(query, response_text, chat_id, tools)
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        # Send response as new message
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -163,16 +174,17 @@ async def handle_continue_chat(query, context: ContextTypes.DEFAULT_TYPE, short_
 
 async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle prompt selection after choosing to continue a chat."""
+    # Use original images - rotation is handled by backend's image-rotation tool
     images = context.user_data.get("pending_images", [])
     chat_id = context.user_data.get("pending_chat_id")
 
     if not chat_id:
-        await query.edit_message_text("❌ No hay chat seleccionado.")
+        await query.message.reply_text("❌ No hay chat seleccionado.")
         return
 
     if action == "custom":
         context.user_data["awaiting_prompt"] = True
-        await query.edit_message_text(
+        await query.message.reply_text(
             "✏️ Escribe el prompt para acompañar la(s) imagen(es):"
         )
         return
@@ -184,9 +196,9 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
     context.user_data["pending_images"] = []
 
     # Show processing message
-    await query.edit_message_text("⏳ Procesando...")
+    await query.message.reply_text("⏳ Procesando...")
 
-    # Send to backend
+    # Send to backend (send new message for each tool)
     backend = BackendService()
     tools_used = []
 
@@ -194,14 +206,14 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
         async def on_tool(tool_display: str):
             tools_used.append(tool_display)
             try:
-                await query.edit_message_text(f"⏳ Procesando...\n\n{tool_display}")
+                await query.message.reply_text(tool_display)
             except Exception:
                 pass
 
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
-        response_text, tools = await backend.send_message(
+        response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
             images=images,
@@ -209,8 +221,14 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
             model=model
         )
 
-        # Send response
-        await send_response(query, response_text, chat_id, tools)
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        # Send response as new message
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
     finally:
         await backend.close()
 
@@ -300,14 +318,82 @@ async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, mode
     logger.info(f"User selected model: {model_id}")
 
 
-async def send_response(query, response_text: str, chat_id: str, tools: list) -> None:
-    """Send AI response with URL and post-response options."""
-    chat_url = build_chat_url(chat_id)
+async def handle_ask_user_option(query, context: ContextTypes.DEFAULT_TYPE, option_index: str) -> None:
+    """Handle ask_user option button click.
 
-    # Format tools used
-    tools_text = ""
-    if tools:
-        tools_text = "\n\n🔧 *Herramientas usadas:*\n" + "\n".join(f"  • {t}" for t in tools[:5])
+    Sends the selected option text as a follow-up message to the current chat.
+    """
+    chat_id = context.user_data.get("current_chat_id")
+    options = context.user_data.get("ask_user_options", [])
+
+    if not chat_id:
+        await query.message.reply_text("❌ No hay chat activo.")
+        return
+
+    try:
+        idx = int(option_index)
+        if idx < 0 or idx >= len(options):
+            await query.message.reply_text("❌ Opción no válida.")
+            return
+        selected_option = options[idx]
+    except (ValueError, IndexError):
+        await query.message.reply_text("❌ Opción no válida.")
+        return
+
+    # Clear the stored options
+    context.user_data.pop("ask_user_options", None)
+
+    # Show processing message with selected option
+    await query.message.reply_text(f"✅ Seleccionado: {selected_option}")
+    await query.message.reply_text("⏳ Procesando...")
+
+    # Send the selected option as a message
+    backend = BackendService()
+    tools_used = []
+
+    try:
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await query.message.reply_text(tool_display)
+            except Exception:
+                pass
+
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
+        response_text, tools, ask_user_options = await backend.send_message(
+            chat_id=chat_id,
+            message=selected_option,
+            images=None,
+            on_tool_call=on_tool,
+            model=model
+        )
+
+        # Store new ask_user options if present
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        # Send response as new message
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+    finally:
+        await backend.close()
+
+
+async def send_response(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    response_text: str,
+    chat_id: str,
+    tools: list,
+    ask_user_options: AskUserOptions = None
+) -> None:
+    """Send AI response as new message with URL and post-response options.
+
+    If ask_user_options is provided, shows those options as buttons instead of the standard keyboard.
+    """
+    chat_url = build_chat_url(chat_id)
 
     # Truncate if needed
     max_len = 3500
@@ -315,41 +401,33 @@ async def send_response(query, response_text: str, chat_id: str, tools: list) ->
         response_text = response_text[:max_len] + "...\n\n_(Respuesta truncada)_"
 
     full_text = (
-        f"{response_text}"
-        f"{tools_text}\n\n"
+        f"{response_text}\n\n"
         f"🔗 *Ver en web:*\n{chat_url}"
     )
 
-    keyboard = build_post_response_keyboard()
+    # Use ask_user keyboard if options are provided, otherwise standard keyboard
+    if ask_user_options and ask_user_options.options:
+        keyboard = build_ask_user_keyboard(ask_user_options.options)
+    else:
+        keyboard = build_post_response_keyboard()
 
     # Try sending with Markdown, fall back to plain text if parsing fails
     try:
-        await query.edit_message_text(
+        await query.message.reply_text(
             text=full_text,
             reply_markup=keyboard,
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
     except Exception as e:
-        logger.warning(f"Failed to edit message: {e}")
-        # Try reply with Markdown
+        logger.warning(f"Markdown parsing failed: {e}")
+        # Build plain text version without markdown
+        plain_text = f"{response_text}\n\n🔗 Ver en web:\n{chat_url}"
         try:
-            await query.message.reply_text(
-                text=full_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-        except Exception as e2:
-            # Markdown parsing failed - send as plain text without formatting
-            logger.warning(f"Markdown parsing failed, sending as plain text: {e2}")
-            # Build plain text version without markdown
-            plain_tools = ""
-            if tools:
-                plain_tools = "\n\n🔧 Herramientas usadas:\n" + "\n".join(f"  • {t}" for t in tools[:5])
-            plain_text = f"{response_text}{plain_tools}\n\n🔗 Ver en web:\n{chat_url}"
             await query.message.reply_text(
                 text=plain_text,
                 reply_markup=keyboard,
                 disable_web_page_preview=True
             )
+        except Exception as e2:
+            logger.error(f"Failed to send response: {e2}")

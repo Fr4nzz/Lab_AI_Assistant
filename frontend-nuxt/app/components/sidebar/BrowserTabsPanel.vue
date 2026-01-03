@@ -55,10 +55,8 @@ async function fetchTabs(isInitial = false) {
     if (isInitial) loading.value = true
     error.value = null
 
-    const config = useRuntimeConfig()
-    const backendUrl = config.public?.backendUrl || 'http://localhost:8000'
-
-    const response = await fetch(`${backendUrl}/api/browser/tabs/detailed`)
+    // Use server-side proxy to avoid Local Network Access prompts
+    const response = await fetch('/api/browser/tabs/detailed')
     if (!response.ok) throw new Error('Failed to fetch tabs')
 
     const data = await response.json()

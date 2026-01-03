@@ -5,14 +5,14 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def build_photo_options_keyboard(
-    recent_chats: List[Tuple[str, str]] = None,
-    caption: str = None
+    caption: str = None,
+    last_chat: Tuple[str, str] = None
 ) -> InlineKeyboardMarkup:
     """Build keyboard for photo options.
 
     Args:
-        recent_chats: List of (chat_id, title) tuples for recent chats
         caption: Optional caption text sent with the photo
+        last_chat: Optional tuple of (chat_id, title) for the most recent chat
     """
     keyboard = []
 
@@ -32,16 +32,14 @@ def build_photo_options_keyboard(
         [InlineKeyboardButton("✏️ Nuevo chat: Escribe el prompt", callback_data="new:custom")],
     ])
 
-    # Add recent chats if available
-    if recent_chats:
-        keyboard.append([InlineKeyboardButton("─── Continuar en chat ───", callback_data="noop")])
-        for chat_id, title in recent_chats[:3]:  # Limit to 3 recent chats
-            # Truncate for display and callback data (64 byte limit)
-            short_id = chat_id[:10]
-            display_title = (title[:22] + "...") if len(title) > 25 else title
-            keyboard.append([
-                InlineKeyboardButton(f"💬 {display_title}", callback_data=f"cont:{short_id}")
-            ])
+    # Add option to continue in the last used chat (single option, not multiple)
+    if last_chat:
+        chat_id, title = last_chat
+        short_id = chat_id[:10]
+        display_title = (title[:25] + "...") if len(title) > 28 else title
+        keyboard.append([
+            InlineKeyboardButton(f"💬 Continuar en: {display_title}", callback_data=f"cont:{short_id}")
+        ])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -120,5 +118,24 @@ def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardM
             text = f"   {display_name}"
         keyboard.append([
             InlineKeyboardButton(text, callback_data=f"model:{model_id}")
+        ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_ask_user_keyboard(options: List[str]) -> InlineKeyboardMarkup:
+    """Build keyboard for ask_user tool options.
+
+    Args:
+        options: List of option strings to display as buttons
+
+    Each option becomes a button that sends the option text as a message.
+    Callback data format: askopt:<index>
+    """
+    keyboard = []
+    for idx, option in enumerate(options[:6]):  # Limit to 6 options
+        # Truncate for display but keep full text as callback
+        display = (option[:35] + "...") if len(option) > 38 else option
+        keyboard.append([
+            InlineKeyboardButton(display, callback_data=f"askopt:{idx}")
         ])
     return InlineKeyboardMarkup(keyboard)
