@@ -61,6 +61,9 @@ class BrowserManager:
             "--disable-restore-background-contents",
             "--hide-crash-restore-bubble",
             "--noerrdialogs",
+            # Suppress the "--no-sandbox" warning infobar
+            # Note: --test-type tells Chrome this is a test environment
+            "--test-type",
         ]
 
         # Additional args for headless/Docker mode (no X11/GPU)

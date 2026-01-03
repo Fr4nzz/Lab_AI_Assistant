@@ -117,8 +117,19 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     # This runs concurrently while user decides what to do
     asyncio.create_task(prefetch_in_background(photos, app_user_data))
 
-    # Build keyboard (pass caption if present)
-    keyboard = build_photo_options_keyboard(caption=caption)
+    # Get the most recent chat to offer "Continuar en chat" option
+    backend = BackendService()
+    try:
+        recent_chats = await backend.get_recent_chats(limit=1)
+        last_chat = recent_chats[0] if recent_chats else None
+    except Exception as e:
+        logger.warning(f"Could not fetch recent chat: {e}")
+        last_chat = None
+    finally:
+        await backend.close()
+
+    # Build keyboard (pass caption and last chat if present)
+    keyboard = build_photo_options_keyboard(caption=caption, last_chat=last_chat)
 
     # Customize message based on whether caption was provided
     if caption:
@@ -154,8 +165,19 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         # This runs concurrently while user decides what to do
         asyncio.create_task(prefetch_in_background(photos, context.user_data))
 
-        # Build keyboard (pass caption if present)
-        keyboard = build_photo_options_keyboard(caption=caption)
+        # Get the most recent chat to offer "Continuar en chat" option
+        backend = BackendService()
+        try:
+            recent_chats = await backend.get_recent_chats(limit=1)
+            last_chat = recent_chats[0] if recent_chats else None
+        except Exception as e:
+            logger.warning(f"Could not fetch recent chat: {e}")
+            last_chat = None
+        finally:
+            await backend.close()
+
+        # Build keyboard (pass caption and last chat if present)
+        keyboard = build_photo_options_keyboard(caption=caption, last_chat=last_chat)
 
         # Customize message based on whether caption was provided
         if caption:
