@@ -1,321 +1,517 @@
-# Claude Integration Research Report
+# Claude Code Integration Research Report
 
 ## Executive Summary
 
-This document researches the feasibility of integrating Claude models (Opus 4.5 and Sonnet 4.5) into the Lab AI Assistant application. After extensive research, **direct Anthropic API integration is the recommended approach** rather than using Claude Code SDK.
+This document researches integrating Claude models (Opus 4.5 and Sonnet 4.5) into the Lab AI Assistant using **Claude Code CLI with your Max subscription** ($100/month) instead of paying per-token API fees.
 
-## Key Findings
+**Key Finding:** Claude Code CLI can be invoked programmatically using your Max subscription authentication. This means you pay your flat monthly fee and get to use Claude through this application at no additional cost.
 
-### Option 1: Claude Code / Claude Agent SDK (NOT Recommended)
+---
 
-The [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) (formerly Claude Code SDK) allows running Claude Code as a subprocess:
+## How Claude Code + Max Subscription Works
+
+When you authenticate Claude Code with your Max subscription (`claude login`), it stores OAuth tokens at `~/.claude/oauth_token.json`. These tokens allow Claude Code to make requests using your subscription instead of API credits.
+
+### The Core Technique
+
+The [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-python) Python package wraps the Claude Code CLI. By default, if you're logged in with your Max subscription, it uses that authentication.
 
 ```python
 from claude_agent_sdk import query
 
 async for message in query(prompt="What is 2 + 2?"):
-    print(message)
+    print(message)  # Uses your Max subscription!
 ```
 
-**Why NOT recommended for this project:**
-- **Designed for code-assistant workflows**, not general chat with tool calling
-- **Subprocess-based**: Spawns Claude Code CLI as a subprocess, adding latency
-- **Different tool paradigm**: Uses MCP (Model Context Protocol) servers, incompatible with our LangChain tools
-- **No direct streaming control**: Would require significant refactoring of our streaming architecture
-- **Overhead**: Bundles full Claude Code CLI (file editing, bash execution, etc.) - overkill for our use case
+### Environment Variables for Forcing Subscription Mode
+
+If the SDK tries to use API keys, you can force subscription mode with these environment variables:
+
+```python
+import os
+
+# Remove API key to force subscription auth
+if "ANTHROPIC_API_KEY" in os.environ:
+    del os.environ["ANTHROPIC_API_KEY"]
+
+# Force subscription mode (optional, usually not needed)
+os.environ["CLAUDE_USE_SUBSCRIPTION"] = "true"
+```
 
 **Sources:**
-- [Claude Agent SDK Overview](https://platform.claude.com/docs/en/agent-sdk/overview)
-- [Claude Code Headless Mode](https://docs.claude.com/en/docs/claude-code/sdk/sdk-headless)
-- [GitHub - anthropics/claude-agent-sdk-python](https://github.com/anthropics/claude-agent-sdk-python)
+- [How I Built claude_max](https://idsc2025.substack.com/p/how-i-built-claude_max-to-unlock)
+- [Using Claude Code in Cline](https://cline.bot/blog/how-to-use-your-claude-max-subscription-in-cline)
+- [Claude Agent SDK Python](https://github.com/anthropics/claude-agent-sdk-python)
 
 ---
 
-### Option 2: Direct Anthropic API (RECOMMENDED)
+## Architecture Comparison
 
-Direct API integration using:
-1. **Backend (LangGraph)**: `langchain-anthropic` package with `ChatAnthropic`
-2. **Frontend (AI SDK)**: `@ai-sdk/anthropic` provider
-
-This approach:
-- **Drop-in compatible** with existing LangGraph agent architecture
-- **Same tool binding pattern** as current Gemini implementation
-- **Native streaming** via AI SDK Data Stream Protocol
-- **Extended thinking support** for reasoning tasks
-
-**Sources:**
-- [LangChain ChatAnthropic Documentation](https://python.langchain.com/docs/integrations/chat/anthropic/)
-- [AI SDK Anthropic Provider](https://ai-sdk.dev/providers/ai-sdk-providers/anthropic)
-- [Vercel + Anthropic Collaboration](https://vercel.com/blog/collaborating-with-anthropic-on-claude-sonnet-4-5)
-
----
-
-## Model Availability
-
-| Model | Model ID | Context Window | Best For |
-|-------|----------|----------------|----------|
-| **Claude Opus 4.5** | `claude-opus-4-5-20250514` | 200K (1M beta) | Complex reasoning, coding, agents |
-| **Claude Sonnet 4.5** | `claude-sonnet-4-5-20250929` | 200K (1M beta) | Fast agentic tasks, coding |
-| **Claude Sonnet 4** | `claude-sonnet-4-20250514` | 200K | Balanced performance/cost |
-
-**Source:** [Anthropic Models Overview](https://platform.claude.com/docs/en/about-claude/models/overview)
-
----
-
-## Integration Architecture
-
-### Current Architecture (Gemini)
+### Option A: n8n + SSH (NetworkChuck approach)
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐
-│   WebUI     │─────▶│   Nuxt API  │─────▶│  FastAPI Backend    │
-│  (Vue 3)    │      │ (AI SDK)    │      │  (LangGraph)        │
+│   n8n       │─SSH─▶│ Linux Server│─────▶│  claude -p "..."    │
+│  Workflow   │      │             │      │  (Max subscription) │
+└─────────────┘      └─────────────┘      └─────────────────────┘
+```
+- Requires separate Linux server with SSH
+- Added latency from SSH connection
+- Complex setup
+
+### Option B: Local Claude Code CLI (OUR APPROACH)
+```
+┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐
+│   WebUI     │─────▶│   FastAPI   │─────▶│  claude-agent-sdk   │
+│  (Vue 3)    │      │  Backend    │      │  (subprocess)       │
 └─────────────┘      └─────────────┘      └─────────────────────┘
                                                     │
                                                     ▼
                                           ┌─────────────────────┐
-                                          │ ChatGoogleGenerativeAI │
-                                          │  (with Key Rotation)  │
+                                          │  Claude Code CLI    │
+                                          │  (Max subscription) │
                                           └─────────────────────┘
 ```
+- Claude Code installed on same Windows PC
+- Direct subprocess invocation (no SSH)
+- Uses your existing Max subscription login
 
-### Proposed Architecture (Multi-Provider with Fallback)
-```
-┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐
-│   WebUI     │─────▶│   Nuxt API  │─────▶│  FastAPI Backend    │
-│  (Vue 3)    │      │ (AI SDK)    │      │  (LangGraph)        │
-└─────────────┘      └─────────────┘      └─────────────────────┘
-       │                                           │
-       │                                           ▼
-       │                              ┌────────────────────────┐
-       │                              │  Model Provider Router │
-       │                              │  (with Fallback Logic) │
-       │                              └────────────────────────┘
-       │                                    │           │
-       │                                    ▼           ▼
-       │                         ┌──────────────┐  ┌──────────────┐
-       │                         │ ChatAnthropic │  │ ChatGemini   │
-       │                         │ (Opus/Sonnet) │  │ (Fallback)   │
-       │                         └──────────────┘  └──────────────┘
-       │
-       └──────────▶ Image Rotation ──────────▶ Gemini 3 Flash (unchanged)
-```
+**We will use Option B - simpler, faster, no SSH needed.**
 
 ---
 
-## Rate Limiting & Fallback Strategy
+## Claude Agent SDK Details
 
-### Anthropic Rate Limits
-- **429 Error**: Rate limit exceeded (includes `retry-after` header)
-- **529 Error**: Server overload (temporary, resolves in seconds)
-
-### Proposed Fallback Logic
-```python
-class ModelProviderRouter:
-    """Routes to Claude (primary) with Gemini fallback."""
-
-    async def invoke(self, messages):
-        try:
-            return await self.claude_model.ainvoke(messages)
-        except (RateLimitError, OverloadedError) as e:
-            logger.warning(f"Claude unavailable: {e}, falling back to Gemini")
-            return await self.gemini_fallback.ainvoke(messages)
+### Installation
+```bash
+pip install claude-agent-sdk
 ```
 
-**Source:** [Anthropic Rate Limits Documentation](https://docs.claude.com/en/api/rate-limits)
+Requirements:
+- Python 3.10+
+- Claude Code CLI installed and authenticated (`claude login`)
+
+### Message Types
+
+The SDK returns these message/content types:
+
+| Type | Description |
+|------|-------------|
+| `AssistantMessage` | Claude's response with content blocks |
+| `TextBlock` | Text content (`.text` attribute) |
+| `ToolUseBlock` | Tool invocation (tool name + arguments) |
+| `ToolResultBlock` | Tool execution results |
+| `ResultMessage` | Final result with metadata |
+
+### Basic Usage Pattern
+
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk.types import AssistantMessage, TextBlock, ToolUseBlock
+
+async def chat_with_claude(prompt: str):
+    options = ClaudeAgentOptions(
+        max_turns=10,  # Limit agent iterations
+        allowed_tools=["Read", "Write", "Bash"],  # Restrict tools
+    )
+
+    full_response = ""
+    async for message in query(prompt=prompt, options=options):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    full_response += block.text
+                elif isinstance(block, ToolUseBlock):
+                    print(f"Tool: {block.name}({block.input})")
+
+    return full_response
+```
+
+### Custom Tools (MCP Integration)
+
+You can define Python functions as tools Claude can call:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server
+
+@tool("search_orders", "Search lab orders by patient name", {"patient_name": str})
+async def search_orders(args):
+    # Your existing order search logic
+    results = await search_orders_db(args["patient_name"])
+    return {"content": [{"type": "text", "text": str(results)}]}
+
+server = create_sdk_mcp_server(
+    name="lab-tools",
+    version="1.0.0",
+    tools=[search_orders]
+)
+
+options = ClaudeAgentOptions(
+    mcp_servers={"lab": server},
+    allowed_tools=["mcp__lab__search_orders"]
+)
+```
+
+**Sources:**
+- [Claude Agent SDK Reference](https://platform.claude.com/docs/en/agent-sdk/python)
+- [DataCamp Claude Agent SDK Tutorial](https://www.datacamp.com/tutorial/how-to-use-claude-agent-sdk)
+
+---
+
+## Headless Mode (CLI Flags)
+
+For direct CLI invocation (alternative to SDK):
+
+```bash
+# Basic query
+claude -p "Your prompt here"
+
+# With JSON output (for parsing)
+claude -p "Your prompt" --output-format json
+
+# With streaming JSON (real-time)
+claude -p "Your prompt" --output-format stream-json
+
+# Limit iterations
+claude -p "Your prompt" --max-turns 5
+
+# Specify model
+claude -p "Your prompt" --model claude-sonnet-4-5-20250929
+
+# Continue previous session
+claude -c -p "Follow-up question"
+```
+
+**Source:** [Claude Code CLI Commands](https://gist.github.com/dai/51b06d2ed1c1b11a90d16c1a913c96f8)
+
+---
+
+## Integration Architecture for Lab Assistant
+
+### Current Flow (Gemini)
+```
+User → WebUI → Nuxt API → FastAPI → LangGraph → Gemini API
+```
+
+### Proposed Flow (Claude Code + Max)
+```
+User → WebUI → Nuxt API → FastAPI → ClaudeCodeProvider → claude-agent-sdk → Claude Code CLI
+                                           │
+                                           └─→ Fallback to Gemini on rate limit
+```
+
+### Key Changes
+
+1. **New Provider Class**: `ClaudeCodeProvider` wraps claude-agent-sdk
+2. **No LangGraph for Claude**: Claude Code has its own agent loop
+3. **Tool Bridging**: Expose existing tools via MCP to Claude Code
+4. **Fallback Logic**: If Claude hits Max subscription limits, fall back to Gemini
+
+---
+
+## Rate Limits & Fallback
+
+### Claude Max Subscription Limits
+- Max plan has usage limits (not publicly documented exact numbers)
+- When limits are hit, Claude Code shows rate limit messages
+- The SDK will raise errors we can catch
+
+### Fallback Strategy
+```python
+class ClaudeCodeProvider:
+    async def invoke(self, messages):
+        try:
+            return await self._invoke_claude(messages)
+        except (RateLimitError, ProcessError) as e:
+            if "rate limit" in str(e).lower():
+                logger.warning("Claude Max limit hit, falling back to Gemini")
+                return await self._invoke_gemini_fallback(messages)
+            raise
+```
 
 ---
 
 ## Image Rotation Decision
 
 **Keep with Gemini 3 Flash** - Reasons:
-1. **Fast & cheap**: Uses `thinking_level="minimal"` for sub-1s detection
-2. **Already working**: No need to change working code
-3. **Vision-optimized**: Gemini excels at simple image analysis tasks
-4. **API key rotation**: Existing rotation logic handles rate limits
+1. **Fast & cheap**: Uses free tier with key rotation
+2. **Simple task**: Just needs to detect rotation angle
+3. **Already working**: No need to change
+4. **Saves Claude quota**: Reserve Claude for complex reasoning
 
 ---
 
-## LangGraph Integration Details
+## Comparison: Claude Code vs Direct API
 
-### Current Gemini Tool Binding
-```python
-# backend/graph/agent.py (current)
-model = get_chat_model(model_name=model_name)
-model_with_tools = model.bind_tools(tools)
-```
+| Feature | Claude Code + Max | Direct API |
+|---------|-------------------|------------|
+| **Cost** | $100/month flat | ~$15-75/million tokens |
+| **Authentication** | OAuth (subscription) | API key |
+| **Tool Support** | Built-in + MCP custom | LangChain tools |
+| **Agent Loop** | Built-in | Manual with LangGraph |
+| **Streaming** | AsyncIterator | SSE |
+| **Best For** | Heavy usage | Pay-per-use |
 
-### Proposed Claude Tool Binding
-```python
-# backend/graph/agent.py (proposed)
-from langchain_anthropic import ChatAnthropic
-
-model = ChatAnthropic(
-    model="claude-opus-4-5-20250514",
-    api_key=os.environ.get("ANTHROPIC_API_KEY"),
-    temperature=0.7,
-    max_tokens=4096,
-)
-model_with_tools = model.bind_tools(tools)  # Same pattern!
-```
-
-**Key Compatibility Notes:**
-- `bind_tools()` works identically to Gemini
-- Tool call format is compatible with existing `should_continue()` routing
-- Extended thinking can be enabled via `thinking` parameter
-
-**Source:** [LangChain Anthropic Tool Use](https://python.langchain.com/api_reference/anthropic/chat_models/langchain_anthropic.chat_models.ChatAnthropic.html)
+**Verdict:** For your use case with Max subscription, Claude Code is significantly more cost-effective.
 
 ---
 
-## AI SDK Frontend Integration
+## Prerequisites
 
-### Current Frontend Pattern (unchanged)
-```typescript
-// frontend-nuxt/server/api/chats/[id].post.ts
-// This proxies to backend - no changes needed
-const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
-  method: 'POST',
-  body: JSON.stringify({ messages, chatId, model })
-})
-```
+### On the Windows PC running Lab Assistant:
 
-### Backend AI SDK Streaming (already compatible)
-The backend's `/api/chat/aisdk` endpoint uses Vercel AI SDK Data Stream Protocol, which is model-agnostic. Claude responses will stream correctly.
+1. **Install Claude Code CLI**
+   ```powershell
+   npm install -g @anthropic-ai/claude-code
+   ```
 
----
+2. **Authenticate with Max subscription**
+   ```bash
+   claude login
+   ```
+   This opens browser for OAuth login. Use your Max account.
 
-## Dependencies to Install
+3. **Verify authentication**
+   ```bash
+   claude -p "Hello, what model are you?"
+   ```
 
-### Backend (Python)
-```bash
-pip install langchain-anthropic>=0.3.14
-```
-
-### Frontend (optional - for direct Claude access)
-```bash
-npm install @ai-sdk/anthropic
-```
-
----
-
-## Environment Variables
-
-```env
-# .env (add to existing)
-ANTHROPIC_API_KEY=sk-ant-api03-...
-
-# Optional: for specific model override
-CLAUDE_MODEL=claude-opus-4-5-20250514
-CLAUDE_FALLBACK_MODEL=gemini-3-flash-preview
-```
-
----
-
-## Comparison: Claude Code SDK vs Direct API
-
-| Feature | Claude Code SDK | Direct Anthropic API |
-|---------|-----------------|---------------------|
-| Integration complexity | High (subprocess) | Low (drop-in) |
-| Tool compatibility | MCP-based (incompatible) | LangChain tools (compatible) |
-| Streaming | Via events | Native AI SDK protocol |
-| Latency | Higher (subprocess) | Lower (direct HTTP) |
-| Customization | Limited | Full control |
-| Cost | Same API pricing | Same API pricing |
-
-**Verdict**: Direct API integration is simpler, faster, and fully compatible with our existing architecture.
-
----
-
-## References
-
-1. [Claude API Integration Guide 2025](https://collabnix.com/claude-api-integration-guide-2025-complete-developer-tutorial-with-code-examples/)
-2. [AI Framework Comparison 2025: OpenAI Agents SDK vs Claude vs LangGraph](https://enhancial.substack.com/p/choosing-the-right-ai-framework-a)
-3. [Building agents with Claude Agent SDK](https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk)
-4. [LangChain + Claude Multi-Tool Agent Tutorial](https://www.marktechpost.com/2025/05/24/step-by-step-guide-to-build-a-customizable-multi-tool-ai-agent-with-langgraph-and-claude-for-dynamic-agent-creation/)
-5. [Anthropic API Rate Limits: How to Handle 429 Errors](https://markaicode.com/anthropic-api-rate-limits-429-errors/)
+4. **Install Python SDK**
+   ```bash
+   pip install claude-agent-sdk
+   ```
 
 ---
 
 # Implementation Plan
 
-## Phase 1: Backend Claude Integration
+## Phase 1: Setup & Basic Integration
 
-### Step 1.1: Add Anthropic Dependencies
+### Step 1.1: Install Claude Code on Windows
+```powershell
+# In PowerShell (Administrator)
+npm install -g @anthropic-ai/claude-code
+
+# Login with Max subscription
+claude login
+
+# Verify it works
+claude -p "Say hello"
+```
+
+### Step 1.2: Add Python Dependencies
 **File:** `backend/requirements.txt`
 
 Add:
 ```
-langchain-anthropic>=0.3.14
+claude-agent-sdk>=0.1.0
 ```
 
-### Step 1.2: Create ChatAnthropicWithFallback Wrapper
-**File:** `backend/models.py`
-
-Create a new model wrapper class that:
-1. Tries Claude (Opus 4.5 by default, Sonnet 4.5 as option)
-2. Catches rate limit errors (429) and server overload (529)
-3. Falls back to Gemini 3 Flash on failure
-4. Logs fallback events for monitoring
+### Step 1.3: Create ClaudeCodeProvider
+**File:** `backend/claude_provider.py` (new file)
 
 ```python
-class ChatAnthropicWithFallback(BaseChatModel):
-    """Claude model with automatic Gemini fallback on rate limits."""
+"""
+Claude Code Provider - Uses Max subscription via Claude Code CLI.
+No API key needed - uses your authenticated Claude Code installation.
+"""
+import asyncio
+import logging
+from typing import List, Optional, AsyncIterator, Dict, Any
+from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+    ResultMessage
+)
 
-    claude_model: ChatAnthropic
-    gemini_fallback: ChatGoogleGenerativeAIWithKeyRotation
+logger = logging.getLogger(__name__)
 
-    def __init__(self, claude_model_name: str, gemini_fallback_name: str, ...):
-        # Initialize both models
-        # Store bound tools for re-binding on fallback
-        pass
 
-    async def _agenerate(self, messages, ...):
+class ClaudeCodeProvider:
+    """
+    Wraps claude-agent-sdk for use with Max subscription.
+    Falls back to Gemini if Claude is unavailable.
+    """
+
+    def __init__(
+        self,
+        model: str = "claude-opus-4-5-20250514",
+        max_turns: int = 20,
+        gemini_fallback = None
+    ):
+        self.model = model
+        self.max_turns = max_turns
+        self.gemini_fallback = gemini_fallback
+
+    async def invoke(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Any]] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Send messages to Claude Code and stream response.
+
+        Yields dict events:
+        - {"type": "text", "content": "..."}
+        - {"type": "tool_call", "name": "...", "input": {...}}
+        - {"type": "tool_result", "output": "..."}
+        - {"type": "done", "result": {...}}
+        """
         try:
-            return await self.claude_model._agenerate(messages, ...)
-        except (anthropic.RateLimitError, anthropic.APIStatusError) as e:
-            if self._is_retriable(e):
-                logger.warning(f"Claude rate limited, falling back to Gemini")
-                return await self.gemini_fallback._agenerate(messages, ...)
-            raise
+            # Convert messages to prompt format
+            prompt = self._messages_to_prompt(messages)
+
+            options = ClaudeAgentOptions(
+                max_turns=self.max_turns,
+                # Don't allow file/bash tools in chat context
+                allowed_tools=[],
+            )
+
+            async for message in query(prompt=prompt, options=options):
+                async for event in self._process_message(message):
+                    yield event
+
+        except Exception as e:
+            error_str = str(e).lower()
+            if "rate limit" in error_str or "quota" in error_str:
+                logger.warning(f"Claude Max limit hit: {e}")
+                if self.gemini_fallback:
+                    logger.info("Falling back to Gemini")
+                    async for event in self._gemini_fallback_invoke(messages):
+                        yield event
+                else:
+                    yield {"type": "error", "message": str(e)}
+            else:
+                raise
+
+    async def _process_message(self, message) -> AsyncIterator[Dict[str, Any]]:
+        """Convert SDK message to our event format."""
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    yield {"type": "text", "content": block.text}
+                elif isinstance(block, ToolUseBlock):
+                    yield {
+                        "type": "tool_call",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input
+                    }
+                elif isinstance(block, ToolResultBlock):
+                    yield {
+                        "type": "tool_result",
+                        "id": block.tool_use_id,
+                        "output": block.content
+                    }
+        elif isinstance(message, ResultMessage):
+            yield {
+                "type": "done",
+                "result": {
+                    "duration_ms": message.duration_ms,
+                    "num_turns": message.num_turns,
+                    "session_id": message.session_id
+                }
+            }
+
+    def _messages_to_prompt(self, messages: List[Dict[str, Any]]) -> str:
+        """Convert chat messages to a single prompt for Claude Code."""
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                # Handle multimodal content
+                text_parts = [p.get("text", "") for p in content if p.get("type") == "text"]
+                content = "\n".join(text_parts)
+            parts.append(f"{role.upper()}: {content}")
+        return "\n\n".join(parts)
+
+    async def _gemini_fallback_invoke(self, messages):
+        """Fallback to Gemini when Claude is unavailable."""
+        if not self.gemini_fallback:
+            yield {"type": "error", "message": "No fallback available"}
+            return
+
+        # Use existing Gemini implementation
+        response = await self.gemini_fallback.ainvoke(messages)
+        yield {"type": "text", "content": response.content}
+        yield {"type": "done", "result": {"fallback": True}}
 ```
 
-### Step 1.3: Update Model Configuration
+---
+
+## Phase 2: Integrate with Backend
+
+### Step 2.1: Update Model Configuration
 **File:** `backend/server.py`
 
-Update `AVAILABLE_MODELS` to include Claude models:
+Add Claude models to available models:
 ```python
 AVAILABLE_MODELS = [
-    "claude-opus-4-5",      # Claude Opus 4.5 (default)
-    "claude-sonnet-4-5",    # Claude Sonnet 4.5
-    "gemini-3-flash-preview",
+    "claude-opus-4-5",      # Claude Opus 4.5 via Claude Code (default)
+    "claude-sonnet-4-5",    # Claude Sonnet 4.5 via Claude Code
+    "gemini-3-flash-preview",  # Gemini (fallback)
     "gemini-flash-latest",
 ]
 DEFAULT_MODEL = "claude-opus-4-5"
 ```
 
-### Step 1.4: Update get_chat_model Function
-**File:** `backend/models.py`
+### Step 2.2: Create Claude Endpoint
+**File:** `backend/server.py`
 
-Add Claude provider handling:
+Add new endpoint for Claude Code streaming:
 ```python
-def get_chat_model(provider=None, model_name=None, ...):
-    # Detect if Claude model requested
-    if model_name and model_name.startswith("claude-"):
-        return ChatAnthropicWithFallback(
-            claude_model_name=model_name,
-            gemini_fallback_name="gemini-3-flash-preview"
-        )
-    # Existing Gemini logic...
+from claude_provider import ClaudeCodeProvider
+
+# Initialize provider
+claude_provider = ClaudeCodeProvider(
+    model="claude-opus-4-5-20250514",
+    gemini_fallback=get_chat_model(model_name="gemini-3-flash-preview")
+)
+
+@app.post("/api/chat/claude")
+async def chat_claude(request: AISdkChatRequest):
+    """Stream chat using Claude Code (Max subscription)."""
+
+    async def generate():
+        async for event in claude_provider.invoke(request.messages):
+            # Convert to AI SDK stream format
+            if event["type"] == "text":
+                yield f'data: {{"type":"text-delta","delta":"{event["content"]}"}}\n\n'
+            elif event["type"] == "tool_call":
+                yield f'data: {{"type":"tool-call","..."}}\n\n'
+            elif event["type"] == "done":
+                yield 'data: [DONE]\n\n'
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
+
+### Step 2.3: Route Models to Providers
+**File:** `backend/server.py`
+
+Update the `/api/chat/aisdk` endpoint to route based on model:
+```python
+@app.post("/api/chat/aisdk")
+async def chat_aisdk(request: AISdkChatRequest):
+    model = request.model or DEFAULT_MODEL
+
+    if model.startswith("claude-"):
+        # Use Claude Code provider
+        return await chat_claude(request)
+    else:
+        # Use existing Gemini/LangGraph implementation
+        return await chat_gemini(request)
 ```
 
 ---
 
-## Phase 2: Frontend Model Selection
+## Phase 3: Frontend Model Selection
 
-### Step 2.1: Update Model Configs
+### Step 3.1: Update Model Configs
 **File:** `frontend-nuxt/app/composables/useModels.ts`
 
-Add Claude models to the selection:
 ```typescript
 export const MODEL_CONFIGS: ModelConfig[] = [
   {
@@ -330,7 +526,6 @@ export const MODEL_CONFIGS: ModelConfig[] = [
     icon: 'i-lucide-zap',
     isLabAssistant: true
   },
-  // Keep existing Gemini models as fallback options
   {
     id: 'gemini-3-flash-preview',
     displayName: 'Lab Assistant (Gemini 3 Flash)',
@@ -340,10 +535,9 @@ export const MODEL_CONFIGS: ModelConfig[] = [
 ]
 ```
 
-### Step 2.2: Update Telegram Bot Models
+### Step 3.2: Update Telegram Bot
 **File:** `telegram_bot/keyboards/inline.py`
 
-Update `AVAILABLE_MODELS`:
 ```python
 AVAILABLE_MODELS = {
     "claude-opus-4-5": "🧠 Claude Opus 4.5 (más inteligente)",
@@ -355,81 +549,133 @@ DEFAULT_MODEL = "claude-opus-4-5"
 
 ---
 
-## Phase 3: Extended Thinking Support (Optional)
+## Phase 4: Custom Tools via MCP
 
-### Step 3.1: Add Thinking Parameter
-**File:** `backend/models.py`
+### Step 4.1: Expose Existing Tools to Claude Code
+**File:** `backend/claude_tools.py` (new file)
 
-For Claude models, support extended thinking:
 ```python
-model_kwargs = {
-    "model": model_name,
-    "api_key": api_key,
-    "temperature": 0.7,
-}
+"""
+MCP tools for Claude Code - bridges our existing tools to Claude's MCP format.
+"""
+from claude_agent_sdk import tool, create_sdk_mcp_server
+from graph.tools import (
+    search_order_from_database,
+    navigate_to_order,
+    # ... other tools
+)
 
-# Enable extended thinking for complex reasoning
-if enable_thinking:
-    model_kwargs["thinking"] = {
-        "type": "enabled",
-        "budget_tokens": 8000  # Configurable
-    }
+@tool("search_orders", "Search for lab orders by patient name", {"patient_name": str})
+async def mcp_search_orders(args):
+    """Wrapper for existing search_order_from_database tool."""
+    result = await search_order_from_database(args["patient_name"])
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+@tool("navigate_to_order", "Navigate to a specific order in the lab system", {"order_number": str})
+async def mcp_navigate_to_order(args):
+    """Wrapper for existing navigate_to_order tool."""
+    result = await navigate_to_order(args["order_number"])
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+# Create MCP server with all tools
+lab_mcp_server = create_sdk_mcp_server(
+    name="lab-assistant",
+    version="1.0.0",
+    tools=[
+        mcp_search_orders,
+        mcp_navigate_to_order,
+        # Add more tools...
+    ]
+)
 ```
 
-### Step 3.2: Parse Thinking Blocks in Stream
-**File:** `backend/server.py`
+### Step 4.2: Update ClaudeCodeProvider with Tools
+**File:** `backend/claude_provider.py`
 
-The existing reasoning parsing should work - Claude returns thinking in `thinking` content blocks similar to Gemini's approach.
+```python
+from claude_tools import lab_mcp_server
+
+options = ClaudeAgentOptions(
+    max_turns=self.max_turns,
+    mcp_servers={"lab": lab_mcp_server},
+    allowed_tools=[
+        "mcp__lab__search_orders",
+        "mcp__lab__navigate_to_order",
+        # ... more tools
+    ]
+)
+```
 
 ---
 
-## Phase 4: Environment & Testing
+## Phase 5: Testing
 
-### Step 4.1: Update Environment Files
-**Files:** `.env.example`, `README.md`
-
-Add documentation for Anthropic API key:
-```env
-# Claude Configuration (Optional - falls back to Gemini if not set)
-ANTHROPIC_API_KEY=sk-ant-api03-...
-CLAUDE_MODEL=claude-opus-4-5  # or claude-sonnet-4-5
+### Step 5.1: Test Claude Code Directly
+```bash
+# On Windows, in the Lab_AI_Assistant directory
+claude -p "Hello, are you using my Max subscription?"
 ```
 
-### Step 4.2: Create Test Script
-**File:** `backend/test_claude.py`
-
-Simple test to verify Claude integration:
+### Step 5.2: Test Python SDK
 ```python
-async def test_claude_integration():
-    model = get_chat_model(model_name="claude-opus-4-5")
-    response = await model.ainvoke([
-        HumanMessage(content="Say 'Claude integration working!'")
-    ])
-    print(response.content)
+# backend/test_claude_code.py
+import anyio
+from claude_agent_sdk import query
+
+async def test():
+    async for msg in query(prompt="Say 'Claude Code working!'"):
+        print(msg)
+
+anyio.run(test)
+```
+
+### Step 5.3: Test Full Integration
+```bash
+# Start backend
+python -m uvicorn server:app --reload
+
+# In another terminal, test endpoint
+curl -X POST http://localhost:8000/api/chat/claude \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ---
 
 ## Implementation Priority
 
-| Priority | Task | Effort | Impact |
+| Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 1 | Add `langchain-anthropic` dependency | 5 min | Required |
-| 2 | Create `ChatAnthropicWithFallback` wrapper | 2 hours | Core feature |
-| 3 | Update `get_chat_model()` for Claude | 30 min | Core feature |
-| 4 | Update frontend model configs | 15 min | UX |
-| 5 | Update Telegram bot models | 15 min | UX |
-| 6 | Add ANTHROPIC_API_KEY to env | 5 min | Required |
-| 7 | Test integration end-to-end | 1 hour | Verification |
+| 1 | Install Claude Code CLI on Windows | 10 min | Required |
+| 2 | Authenticate with Max subscription | 5 min | Required |
+| 3 | Add `claude-agent-sdk` to requirements | 5 min | Required |
+| 4 | Create `ClaudeCodeProvider` class | 2 hours | Core |
+| 5 | Update `/api/chat/aisdk` routing | 1 hour | Core |
+| 6 | Update frontend model configs | 15 min | UX |
+| 7 | Update Telegram bot models | 15 min | UX |
+| 8 | Create MCP tool wrappers | 2 hours | Optional |
+| 9 | Test integration end-to-end | 1 hour | Verification |
 
-**Total Estimated Effort: ~4-5 hours**
+**Total Estimated Effort: ~6-8 hours**
 
 ---
 
-## Notes
+## Important Notes
 
-1. **Image rotation stays with Gemini** - Fast, cheap, already working
-2. **No frontend changes needed for streaming** - Backend handles everything
-3. **Fallback is automatic** - Users won't notice rate limit hits
-4. **Extended thinking** - Can be enabled per-model or per-request
-5. **Cost consideration** - Claude Opus 4.5 is more expensive than Gemini; Sonnet 4.5 is a good balance
+1. **Claude Code must be installed and authenticated** on the PC running Lab Assistant
+2. **No API key needed** - uses your Max subscription OAuth tokens
+3. **Image rotation stays with Gemini** - saves Claude quota for reasoning
+4. **Fallback is automatic** - if Claude hits limits, falls back to Gemini
+5. **Different agent loop** - Claude Code has its own agentic capabilities, doesn't use LangGraph
+
+---
+
+## References
+
+1. [NetworkChuck n8n + Claude Code Guide](https://github.com/theNetworkChuck/n8n-claude-code-guide)
+2. [How I Built claude_max](https://idsc2025.substack.com/p/how-i-built-claude_max-to-unlock)
+3. [Claude Agent SDK Python](https://github.com/anthropics/claude-agent-sdk-python)
+4. [Claude Code Headless Mode](https://code.claude.com/docs/en/headless)
+5. [Using Claude Max in Cline](https://cline.bot/blog/how-to-use-your-claude-max-subscription-in-cline)
+6. [Claude Code CLI Commands Reference](https://gist.github.com/dai/51b06d2ed1c1b11a90d16c1a913c96f8)
+7. [Claude Code is Programmable](https://github.com/disler/claude-code-is-programmable)
