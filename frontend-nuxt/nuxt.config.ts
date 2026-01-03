@@ -41,6 +41,15 @@ export default defineNuxtConfig({
     // Externalize native modules that can't be bundled
     externals: {
       external: ['sharp']
+    },
+    // Route rules for headers
+    routeRules: {
+      '/**': {
+        headers: {
+          // Prevent "Look for and connect to any device on your local network" popup
+          'Permissions-Policy': 'local-network=()'
+        }
+      }
     }
   },
 
@@ -103,8 +112,9 @@ export default defineNuxtConfig({
 
     // Public (exposed to client)
     public: {
-      appName: 'Lab Assistant',
-      backendUrl: process.env.BACKEND_URL || 'http://localhost:8000'
+      appName: 'Lab Assistant'
+      // Note: backendUrl is NOT exposed to client to avoid Local Network Access prompts
+      // All backend requests go through server-side API routes
     }
   },
 

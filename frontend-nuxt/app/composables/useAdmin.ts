@@ -27,6 +27,17 @@ export interface OrdersUpdateInfo {
   lastUpdate: string | null
 }
 
+export interface PromptSection {
+  key: string
+  label: string
+  description: string
+}
+
+export interface PromptsConfig {
+  prompts: Record<string, string>
+  sections: PromptSection[]
+}
+
 export function useAdmin() {
   const adminStatus = useState<AdminStatus | null>('adminStatus', () => null)
   const allowedEmails = useState<string[]>('allowedEmails', () => [])
@@ -41,6 +52,11 @@ export function useAdmin() {
   // Orders update state
   const ordersLastUpdate = useState<string | null>('ordersLastUpdate', () => null)
   const isUpdatingOrders = useState('isUpdatingOrders', () => false)
+
+  // Prompts state
+  const promptsConfig = useState<PromptsConfig | null>('promptsConfig', () => null)
+  const isLoadingPrompts = useState('isLoadingPrompts', () => false)
+  const isSavingPrompts = useState('isSavingPrompts', () => false)
 
   const isAdmin = computed(() => adminStatus.value?.isAdmin ?? false)
 
@@ -191,6 +207,56 @@ export function useAdmin() {
     }
   }
 
+  async function fetchPrompts() {
+    if (!isAdmin.value) return null
+
+    isLoadingPrompts.value = true
+    try {
+      const data = await $fetch<PromptsConfig>('/api/admin/prompts')
+      promptsConfig.value = data
+      return data
+    } catch (error) {
+      console.error('Failed to fetch prompts:', error)
+      throw error
+    } finally {
+      isLoadingPrompts.value = false
+    }
+  }
+
+  async function savePrompts(prompts: Record<string, string>) {
+    if (!isAdmin.value) return null
+
+    isSavingPrompts.value = true
+    try {
+      const data = await $fetch<{ success: boolean; message: string }>('/api/admin/prompts', {
+        method: 'POST',
+        body: { prompts }
+      })
+      // Update local cache
+      if (promptsConfig.value) {
+        promptsConfig.value.prompts = prompts
+      }
+      return data
+    } catch (error) {
+      console.error('Failed to save prompts:', error)
+      throw error
+    } finally {
+      isSavingPrompts.value = false
+    }
+  }
+
+  async function fetchDefaultPrompts(): Promise<Record<string, string> | null> {
+    if (!isAdmin.value) return null
+
+    try {
+      const data = await $fetch<{ prompts: Record<string, string> }>('/api/admin/prompts/defaults')
+      return data.prompts
+    } catch (error) {
+      console.error('Failed to fetch default prompts:', error)
+      throw error
+    }
+  }
+
   return {
     adminStatus,
     isAdmin,
@@ -202,6 +268,9 @@ export function useAdmin() {
     isUpdatingExams,
     ordersLastUpdate,
     isUpdatingOrders,
+    promptsConfig,
+    isLoadingPrompts,
+    isSavingPrompts,
     fetchAdminStatus,
     fetchAllowedEmails,
     addAllowedEmail,
@@ -211,6 +280,9 @@ export function useAdmin() {
     fetchExamsLastUpdate,
     triggerExamsUpdate,
     fetchOrdersLastUpdate,
-    triggerOrdersUpdate
+    triggerOrdersUpdate,
+    fetchPrompts,
+    savePrompts,
+    fetchDefaultPrompts
   }
 }

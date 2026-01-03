@@ -72,6 +72,7 @@ const formattedOrdersLastUpdate = computed(() => {
 })
 
 const showEmailsModal = ref(false)
+const showPromptsModal = ref(false)
 
 async function handleUpdate() {
   if (!updatesInfo.value?.hasUpdates || isUpdating.value) return
@@ -268,7 +269,24 @@ async function handleOrdersUpdate() {
       <span>Órdenes: {{ formattedOrdersLastUpdate }}</span>
     </div>
 
+    <!-- Edit AI Instructions Button -->
+    <UButton
+      variant="ghost"
+      color="neutral"
+      block
+      class="justify-start"
+      @click="showPromptsModal = true"
+    >
+      <span class="flex items-center gap-2">
+        <UIcon name="i-lucide-bot" class="w-4 h-4" />
+        Editar instrucciones para la IA
+      </span>
+    </UButton>
+
     <!-- Allowed Emails Modal -->
     <SidebarAllowedEmailsModal v-model:open="showEmailsModal" />
+
+    <!-- Prompts Editor Modal -->
+    <SidebarPromptsEditorModal v-model:open="showPromptsModal" />
   </div>
 </template>

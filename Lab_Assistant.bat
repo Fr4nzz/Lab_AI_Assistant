@@ -430,10 +430,10 @@ echo    --debug    Show console windows
 echo    --stop     Stop all services
 echo    --status   Check if services are running
 echo ----------------------------------------
-echo  Press any key to close this window
-echo  Services will keep running in background
+echo  Services are running in background.
+echo  This window will close in 3 seconds...
 echo ----------------------------------------
-pause >nul
+timeout /t 3 /nobreak >nul
 goto :eof
 
 :: ============================================

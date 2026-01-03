@@ -7,6 +7,10 @@ const props = defineProps<{
   state: 'pending' | 'partial-call' | 'call' | 'result' | 'error'
 }>()
 
+const emit = defineEmits<{
+  optionClick: [option: string]
+}>()
+
 // Check if this is a grouped tool display
 const isGrouped = computed(() => props.groupedArgs && props.groupedArgs.length > 1)
 const groupCount = computed(() => props.groupedArgs?.length || 1)
@@ -72,6 +76,26 @@ const isRunning = computed(() =>
 
 const isCompleted = computed(() => props.state === 'result')
 const isError = computed(() => props.state === 'error')
+
+// Extract ask_user options from result
+const askUserOptions = computed(() => {
+  if (props.name !== 'ask_user' || !props.result) return []
+  const result = props.result as Record<string, unknown>
+  if (Array.isArray(result.options)) {
+    return result.options as string[]
+  }
+  return []
+})
+
+const askUserMessage = computed(() => {
+  if (props.name !== 'ask_user' || !props.result) return ''
+  const result = props.result as Record<string, unknown>
+  return result.message as string || ''
+})
+
+function handleOptionClick(option: string) {
+  emit('optionClick', option)
+}
 
 // Format argument value for display
 function formatValue(value: unknown): string {
@@ -245,10 +269,28 @@ function formatResult(toolName: string, result: unknown): string {
         </div>
       </div>
 
-      <!-- Show result summary if completed -->
-      <div v-if="isCompleted && result" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+      <!-- Show result summary if completed (but not for ask_user with options) -->
+      <div v-if="isCompleted && result && !(name === 'ask_user' && askUserOptions.length > 0)" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
         <span class="font-medium">Resultado:</span>
         <span class="ml-1">{{ formatResult(name, result) }}</span>
+      </div>
+
+      <!-- Ask user options as clickable buttons -->
+      <div v-if="name === 'ask_user' && askUserOptions.length > 0 && isCompleted" class="mt-3 space-y-3">
+        <p v-if="askUserMessage" class="text-base text-gray-700 dark:text-gray-300 font-medium">{{ askUserMessage }}</p>
+        <div class="flex flex-wrap gap-3">
+          <UButton
+            v-for="(option, idx) in askUserOptions"
+            :key="idx"
+            color="primary"
+            variant="soft"
+            size="lg"
+            class="text-base px-4 py-2"
+            @click="handleOptionClick(option)"
+          >
+            {{ option }}
+          </UButton>
+        </div>
       </div>
 
       <!-- Show rotated image thumbnails for image-rotation tool -->

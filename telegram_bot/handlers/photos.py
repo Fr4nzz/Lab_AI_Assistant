@@ -1,7 +1,9 @@
 """Photo and media group handling for Telegram bot."""
 
+import asyncio
 import logging
-from typing import Dict
+import time
+from typing import Dict, List
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -12,6 +14,28 @@ logger = logging.getLogger(__name__)
 
 # Temporary storage for media groups (keyed by media_group_id)
 media_groups: Dict[str, Dict] = {}
+
+
+async def prefetch_in_background(photos: List[bytes], user_data: dict) -> None:
+    """
+    Prefetch orders in background while user decides what to do.
+    Results are stored in user_data for later use.
+
+    Note: Image rotation is NOT done here - it's handled by the backend's
+    image-rotation tool when the agent processes the message.
+    """
+    backend = BackendService()
+    try:
+        # Prefetch orders
+        result = await backend.prefetch_orders()
+        user_data["prefetch_orders_result"] = result
+        user_data["prefetch_orders_timestamp"] = time.time()
+        logger.info(f"[Prefetch] Orders ready: {result.get('freshness', {})}")
+
+    except Exception as e:
+        logger.error(f"[Prefetch] Background prefetch error: {e}")
+    finally:
+        await backend.close()
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -89,15 +113,23 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
     app_user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-    # Get recent chats for keyboard (now async)
+    # Start prefetch in background (orders)
+    # This runs concurrently while user decides what to do
+    asyncio.create_task(prefetch_in_background(photos, app_user_data))
+
+    # Get the most recent chat to offer "Continuar en chat" option
     backend = BackendService()
     try:
-        recent_chats = await backend.get_recent_chats(limit=3)
+        recent_chats = await backend.get_recent_chats(limit=1)
+        last_chat = recent_chats[0] if recent_chats else None
+    except Exception as e:
+        logger.warning(f"Could not fetch recent chat: {e}")
+        last_chat = None
     finally:
         await backend.close()
 
-    # Build and send keyboard (pass caption if present)
-    keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+    # Build keyboard (pass caption and last chat if present)
+    keyboard = build_photo_options_keyboard(caption=caption, last_chat=last_chat)
 
     # Customize message based on whether caption was provided
     if caption:
@@ -124,19 +156,28 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         photo_bytes = await file.download_as_bytearray()
 
         # Store in user context (including caption)
-        context.user_data["pending_images"] = [bytes(photo_bytes)]
+        photos = [bytes(photo_bytes)]
+        context.user_data["pending_images"] = photos
         context.user_data["pending_chat_id"] = None
         context.user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-        # Get recent chats (now async)
+        # Start prefetch in background (orders)
+        # This runs concurrently while user decides what to do
+        asyncio.create_task(prefetch_in_background(photos, context.user_data))
+
+        # Get the most recent chat to offer "Continuar en chat" option
         backend = BackendService()
         try:
-            recent_chats = await backend.get_recent_chats(limit=3)
+            recent_chats = await backend.get_recent_chats(limit=1)
+            last_chat = recent_chats[0] if recent_chats else None
+        except Exception as e:
+            logger.warning(f"Could not fetch recent chat: {e}")
+            last_chat = None
         finally:
             await backend.close()
 
-        # Build and send keyboard (pass caption if present)
-        keyboard = build_photo_options_keyboard(recent_chats, caption=caption)
+        # Build keyboard (pass caption and last chat if present)
+        keyboard = build_photo_options_keyboard(caption=caption, last_chat=last_chat)
 
         # Customize message based on whether caption was provided
         if caption:

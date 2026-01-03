@@ -1,11 +1,18 @@
 @echo off
 setlocal enabledelayedexpansion
-title Cloudflare Tunnel - Lab Assistant
+title Cloudflare Named Tunnel - Lab Assistant
 echo.
 echo ========================================
-echo    Cloudflare Tunnel
+echo    Cloudflare Named Tunnel
+echo    (with Auto-Restart on Failure)
 echo ========================================
 echo.
+
+:: Get script directory
+set "SCRIPT_DIR=%~dp0"
+set "DATA_DIR=%SCRIPT_DIR%data"
+set "CONFIG_FILE=%USERPROFILE%\.cloudflared\config.yml"
+set "METRICS_PORT=20241"
 
 :: Check if cloudflared is installed
 set "CLOUDFLARED_CMD="
@@ -32,36 +39,52 @@ exit /b 1
 
 :check_config
 :: Check if named tunnel is configured
-if not exist "%USERPROFILE%\.cloudflared\config.yml" (
+if not exist "%CONFIG_FILE%" (
     echo No named tunnel configured.
     echo.
-    echo For a quick free tunnel (URL changes each restart^), run:
+    echo For a quick free tunnel (URL changes each restart), run:
     echo   cloudflare-quick-tunnel.bat
     echo.
-    echo For a persistent URL, you need a domain. Run:
+    echo For a persistent URL, run:
     echo   cloudflare-tunnel-setup.bat
     echo.
     pause
     exit /b 1
 )
 
-:: Named tunnel exists - run it
+:: Get tunnel info from config
+set "TUNNEL_NAME="
+set "HOSTNAME="
+
+:: Read tunnel name from config
+for /f "usebackq tokens=2" %%i in (`type "%CONFIG_FILE%" ^| findstr /i "^tunnel:"`) do set TUNNEL_NAME=%%i
+
+:: Try to get hostname from tunnel_config.txt
+if exist "%DATA_DIR%\tunnel_config.txt" (
+    for /f "usebackq tokens=2 delims==" %%i in (`type "%DATA_DIR%\tunnel_config.txt" ^| findstr /i "^HOSTNAME="`) do set HOSTNAME=%%i
+)
+
+:: Show info
 echo Named tunnel configuration found.
 echo.
+if not "!TUNNEL_NAME!"=="" echo   Tunnel:   !TUNNEL_NAME!
+if not "!HOSTNAME!"=="" echo   URL:      https://!HOSTNAME!
+echo   Config:   %CONFIG_FILE%
+echo.
+echo Features:
+echo   - Health check every 10 seconds via /ready endpoint
+echo   - Auto-restart when tunnel becomes unhealthy
+echo   - Exponential backoff on repeated failures
+echo.
+echo NOTE: Keep this window open while using the tunnel.
+echo       Close it or press Ctrl+C to stop.
+echo.
+echo ========================================
+echo.
 
-:: Try to get tunnel info (may fail if config has issues)
-set "TUNNEL_NAME="
-for /f "usebackq tokens=2" %%i in (`type "%USERPROFILE%\.cloudflared\config.yml" ^| findstr /i "^tunnel:"`) do set TUNNEL_NAME=%%i
+:: Run the named tunnel with health monitoring
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\start-named-tunnel.ps1" -CloudflaredPath "%CLOUDFLARED_CMD%" -TunnelName "!TUNNEL_NAME!" -MetricsPort %METRICS_PORT%
 
-if "!TUNNEL_NAME!"=="" (
-    echo Warning: Could not read tunnel name from config.
-    echo Running tunnel with config file...
-    echo.
-    %CLOUDFLARED_CMD% tunnel run
-) else (
-    echo Tunnel: !TUNNEL_NAME!
-    echo.
-    echo Starting tunnel... Press Ctrl+C to stop.
-    echo.
-    %CLOUDFLARED_CMD% tunnel run !TUNNEL_NAME!
-)
+echo.
+echo Tunnel stopped.
+pause

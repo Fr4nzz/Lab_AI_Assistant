@@ -67,7 +67,7 @@ from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_brows
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts, get_default_prompts
 from stream_adapter import StreamAdapter
 
 
@@ -145,6 +145,8 @@ graphs: dict = {}  # Dictionary of graphs, keyed by model name
 checkpointer = None
 initial_orders_context: str = ""  # Store initial orders for context
 orders_context_sent: bool = False  # Track if we've sent valid orders context
+orders_context_timestamp: float = 0  # When orders were last fetched
+ORDERS_FRESHNESS_SECONDS = 120  # Orders are fresh for 2 minutes
 
 # Available models (must match frontend MODEL_CONFIGS)
 AVAILABLE_MODELS = [
@@ -165,22 +167,35 @@ def is_logged_in() -> bool:
     return False
 
 
-async def get_orders_context() -> str:
+async def get_orders_context(force_refresh: bool = False) -> str:
     """
     Get orders context, checking login state first.
     Returns empty string with login message if not logged in.
     Returns orders table if logged in and orders found.
+
+    Args:
+        force_refresh: If True, re-fetch orders even if already cached.
+                       Use this for new chats to get fresh data.
     """
-    global browser, initial_orders_context, orders_context_sent
+    global browser, initial_orders_context, orders_context_sent, orders_context_timestamp
 
     if not is_logged_in():
         logger.info("[Context] User not logged in - browser is on login page")
         return "⚠️ SESIÓN NO INICIADA: El navegador está en la página de login. Por favor, inicia sesión en el navegador para que pueda acceder a las órdenes del laboratorio."
 
-    # If we haven't sent valid orders yet, try to extract them
-    if not orders_context_sent or not initial_orders_context:
-        logger.info("[Context] Extracting orders context...")
+    # Check if orders are stale (older than ORDERS_FRESHNESS_SECONDS)
+    import time
+    current_time = time.time()
+    is_stale = (current_time - orders_context_timestamp) > ORDERS_FRESHNESS_SECONDS
+
+    # Force refresh for new chats, stale data, or if we haven't sent valid orders yet
+    if force_refresh or is_stale or not orders_context_sent or not initial_orders_context:
+        if is_stale and orders_context_sent:
+            logger.info(f"[Context] Orders are stale ({int(current_time - orders_context_timestamp)}s old), refreshing...")
+        else:
+            logger.info("[Context] Extracting orders context...")
         initial_orders_context = await extract_initial_context()
+        orders_context_timestamp = current_time
         if initial_orders_context and "Órdenes Recientes" in initial_orders_context:
             orders_context_sent = True
             # Count orders: 7 pipes per row, subtract 2 for header/separator
@@ -188,6 +203,21 @@ async def get_orders_context() -> str:
             logger.info(f"[Context] Extracted {order_count} orders")
 
     return initial_orders_context
+
+
+def get_orders_freshness() -> dict:
+    """Get current orders context freshness status."""
+    import time
+    current_time = time.time()
+    age_seconds = current_time - orders_context_timestamp if orders_context_timestamp else 0
+    is_fresh = age_seconds < ORDERS_FRESHNESS_SECONDS
+
+    return {
+        "has_orders": bool(initial_orders_context and "Órdenes Recientes" in initial_orders_context),
+        "age_seconds": int(age_seconds),
+        "is_fresh": is_fresh,
+        "freshness_threshold": ORDERS_FRESHNESS_SECONDS
+    }
 
 
 async def get_browser_tabs_context() -> str:
@@ -1017,6 +1047,36 @@ async def get_orders_last_update():
     return {"lastUpdate": None}
 
 
+@app.post("/api/orders/prefetch")
+async def prefetch_orders_context():
+    """
+    Prefetch orders context in background.
+    Call this when receiving an image to have orders ready when user sends prompt.
+
+    Returns freshness info and triggers background fetch if needed.
+    """
+    # Get current freshness status
+    freshness = get_orders_freshness()
+
+    # If orders are stale or missing, fetch them
+    if not freshness["is_fresh"] or not freshness["has_orders"]:
+        logger.info("[Prefetch] Orders are stale/missing, prefetching...")
+        await get_orders_context(force_refresh=True)
+        freshness = get_orders_freshness()
+        logger.info(f"[Prefetch] Orders prefetched, now {freshness['age_seconds']}s old")
+
+    return {
+        "success": True,
+        "freshness": freshness
+    }
+
+
+@app.get("/api/orders/freshness")
+async def get_orders_freshness_status():
+    """Get current orders context freshness status without fetching."""
+    return get_orders_freshness()
+
+
 @app.post("/api/orders/update")
 async def update_orders_list():
     """
@@ -1141,6 +1201,63 @@ async def get_usage():
         "numApiKeys": num_keys,
         "freePerKey": 20  # Google AI Studio free tier limit per key
     }
+
+
+# ============================================================
+# PROMPTS CONFIGURATION ENDPOINTS
+# ============================================================
+
+@app.get("/api/prompts")
+async def get_prompts():
+    """Get current prompts configuration."""
+    prompts = load_prompts()
+    return {
+        "prompts": prompts,
+        "sections": [
+            {
+                "key": "system_prompt",
+                "label": "Instrucciones del Sistema",
+                "description": "Instrucciones principales para la IA sobre cómo comportarse"
+            },
+            {
+                "key": "abbreviations",
+                "label": "Abreviaturas",
+                "description": "Abreviaturas comunes usadas en el laboratorio"
+            },
+            {
+                "key": "image_interpretation",
+                "label": "Interpretación de Imágenes",
+                "description": "Instrucciones para interpretar imágenes de resultados"
+            },
+            {
+                "key": "welcome_message",
+                "label": "Mensaje de Bienvenida",
+                "description": "Mensaje que se muestra al iniciar una nueva conversación"
+            }
+        ]
+    }
+
+
+class PromptsUpdateRequest(BaseModel):
+    prompts: dict
+
+
+@app.post("/api/prompts")
+async def update_prompts(request: PromptsUpdateRequest):
+    """Update prompts configuration."""
+    success = save_prompts(request.prompts)
+    if success:
+        # Reload to update cache
+        reload_prompts()
+        return {"success": True, "message": "Prompts actualizados correctamente"}
+    else:
+        raise HTTPException(status_code=500, detail="Error al guardar los prompts")
+
+
+@app.get("/api/prompts/defaults")
+async def get_default_prompts_endpoint():
+    """Get default prompts configuration (for restore functionality)."""
+    return {"prompts": get_default_prompts()}
 
 
 # ============================================================
@@ -1359,8 +1476,8 @@ async def chat_aisdk(request: AISdkChatRequest):
             if is_first_message:
                 reset_tab_state()
 
-            # Get context
-            current_context = await get_orders_context()
+            # Get context (force refresh for new chats to get latest orders)
+            current_context = await get_orders_context(force_refresh=is_first_message)
             tabs_context = await get_browser_tabs_context()
 
             # Build initial state
@@ -1414,9 +1531,25 @@ async def chat_aisdk(request: AISdkChatRequest):
                     run_id = event.get("run_id", "")
                     tool_call_id = f"call_{run_id[:12]}" if run_id else None
                     tool_output = event.get("data", {}).get("output", "")
-                    result_str = str(tool_output)[:500] if tool_output else "completed"
+
+                    # Extract content from ToolMessage if it's a LangChain message object
+                    if hasattr(tool_output, 'content'):
+                        tool_output = tool_output.content
+
+                    # Parse JSON string to object if possible (for ask_user, etc.)
+                    result_data = tool_output
+                    if isinstance(tool_output, str) and tool_output.startswith('{'):
+                        try:
+                            result_data = json.loads(tool_output)
+                        except json.JSONDecodeError:
+                            result_data = tool_output[:500] if tool_output else "completed"
+                    elif tool_output:
+                        result_data = str(tool_output)[:500]
+                    else:
+                        result_data = "completed"
+
                     # Don't log here - tools.py already logs details
-                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_str)
+                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_data)
 
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
@@ -1732,8 +1865,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                 if is_first_message:
                     reset_tab_state()
 
-                # Get current context (checks login state, fetches orders if needed)
-                current_context = await get_orders_context()
+                # Get current context (force refresh for new chats to get latest orders)
+                current_context = await get_orders_context(force_refresh=is_first_message)
 
                 # Get browser tabs context (always at each user message)
                 tabs_context = await get_browser_tabs_context()
@@ -1992,8 +2125,8 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
             if is_first_message:
                 reset_tab_state()
 
-            # Get current context (checks login state, fetches orders if needed)
-            current_context = await get_orders_context()
+            # Get current context (force refresh for new chats to get latest orders)
+            current_context = await get_orders_context(force_refresh=is_first_message)
 
             # Get browser tabs context (always at each user message)
             tabs_context = await get_browser_tabs_context()

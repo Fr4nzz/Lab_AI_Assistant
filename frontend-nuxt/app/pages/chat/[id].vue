@@ -293,6 +293,11 @@ function regenerateMessage(messageId: string) {
   chat.regenerate()
 }
 
+// Handle quick reply option click from ask_user tool
+function handleOptionClick(option: string) {
+  chat.sendMessage({ text: option })
+}
+
 // Microphone recording handlers
 async function toggleRecording() {
   if (isRecording.value) {
@@ -457,6 +462,7 @@ onUnmounted(() => {
                     :grouped-args="(part as any).groupedArgs"
                     :result="(part as any).groupedResults?.[0]"
                     :state="(part as any).state"
+                    @option-click="handleOptionClick"
                   />
                   <!-- Single tool -->
                   <ToolLabTool
@@ -465,6 +471,7 @@ onUnmounted(() => {
                     :args="(part as any).args || (part as any).input || {}"
                     :result="(part as any).result || (part as any).output"
                     :state="getToolState(part)"
+                    @option-click="handleOptionClick"
                   />
                   <FileAvatar
                     v-else-if="part.type === 'file'"

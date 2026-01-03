@@ -179,7 +179,8 @@ export async function addMessage(data: {
     chatId: data.chatId,
     role: data.role,
     content: data.content || null,
-    parts: data.parts ? JSON.stringify(data.parts) : null,
+    // Note: Don't JSON.stringify here - schema has mode: 'json' which handles serialization
+    parts: data.parts || null,
     createdAt: now
   })
 
