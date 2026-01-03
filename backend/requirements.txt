@@ -1,11 +1,11 @@
-# LangGraph and LangChain
-langgraph>=0.2.31
-langgraph-checkpoint-sqlite
-langgraph-checkpoint-postgres
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-google-genai>=2.0.0
-langchain-openai>=0.2.0
+# LangGraph and LangChain (pinned versions to avoid dependency resolution issues)
+langgraph==1.0.5
+langgraph-checkpoint-sqlite==3.0.1
+langgraph-checkpoint-postgres==3.0.2
+langchain==0.3.18
+langchain-core==0.3.32
+langchain-google-genai==2.0.8
+langchain-openai==0.3.8
 
 # Existing dependencies
 fastapi>=0.109.0
@@ -31,5 +31,7 @@ openpyxl>=3.1.0
 claude-agent-sdk>=0.1.0
 
 # MCP (Model Context Protocol) for Claude custom tools
-# Note: langchain-tool-to-mcp-adapter removed due to dependency conflicts
-# Using manual MCP tool wrappers in claude_mcp_tools.py instead
+# Converts LangGraph tools to MCP format for Claude Agent SDK
+mcp==1.22.0
+fastmcp==2.14.2
+langchain-tool-to-mcp-adapter==0.1.4
