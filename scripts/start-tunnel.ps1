@@ -21,6 +21,9 @@ $urlDir = Split-Path $UrlFile -Parent
 if ($logDir -and -not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 if ($urlDir -and -not (Test-Path $urlDir)) { New-Item -ItemType Directory -Path $urlDir -Force | Out-Null }
 
+# Clear log file on startup (fresh log each restart, like other services)
+if (Test-Path $LogFile) { Clear-Content -Path $LogFile -ErrorAction SilentlyContinue }
+
 $restartCount = 0
 
 function Write-Log {
