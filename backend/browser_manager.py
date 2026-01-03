@@ -258,42 +258,70 @@ class BrowserManager:
         """
         Dismiss any notification modals that might be blocking the page.
 
-        These popups (id="notificacion-modal") appear randomly and block all
-        interactions until dismissed. This method clicks "Entendido" or the
-        close button to dismiss them.
+        Handles multiple popup types:
+        1. #notificacion-modal - Custom notification modal
+        2. Bootstrap modals with "Informativo" title - System announcements
 
         Returns True if a popup was dismissed, False otherwise.
         """
         if not self.page:
             return False
 
+        dismissed = False
+
         try:
-            # Check if the notification modal is visible
+            # Type 1: Check if the custom notification modal is visible
             modal = self.page.locator("#notificacion-modal.show")
+            if await modal.count() > 0:
+                print("[BrowserManager] Notification popup detected, dismissing...")
+                dismissed = await self._dismiss_modal(modal)
 
-            # Quick check - don't wait long
-            if await modal.count() == 0:
-                return False
+            # Type 2: Check for Bootstrap "Informativo" modal (system announcements)
+            # These have modal-dialog class and "Informativo" in the title
+            if not dismissed:
+                info_modal = self.page.locator(".modal.show .modal-dialog")
+                if await info_modal.count() > 0:
+                    # Verify it's an informativo modal by checking title
+                    title = info_modal.locator(".modal-title")
+                    if await title.count() > 0:
+                        title_text = await title.inner_text()
+                        if "Informativo" in title_text or "informativo" in title_text.lower():
+                            print("[BrowserManager] Informativo popup detected, dismissing...")
+                            dismissed = await self._dismiss_modal(info_modal)
 
-            print("[BrowserManager] Notification popup detected, dismissing...")
+            # Type 3: Any other visible Bootstrap modal blocking the page
+            if not dismissed:
+                any_modal = self.page.locator(".modal.show")
+                if await any_modal.count() > 0:
+                    print("[BrowserManager] Generic modal detected, dismissing...")
+                    dismissed = await self._dismiss_modal(any_modal)
 
+        except Exception as e:
+            # Don't fail if popup dismissal fails - just log and continue
+            print(f"[BrowserManager] Popup dismissal error (non-fatal): {e}")
+
+        return dismissed
+
+    async def _dismiss_modal(self, modal) -> bool:
+        """Helper to dismiss a modal by clicking its buttons."""
+        try:
             # Try to click "Entendido" button first (preferred)
             entendido_btn = modal.locator("button.btn-primary", has_text="Entendido")
             if await entendido_btn.count() > 0:
                 await entendido_btn.click(timeout=2000)
                 print("[BrowserManager] Clicked 'Entendido' button")
-                await asyncio.sleep(0.3)  # Wait for modal animation
+                await asyncio.sleep(0.3)
                 return True
 
-            # Fallback: try the close button
+            # Try the close button (X)
             close_btn = modal.locator("button.btn-close")
             if await close_btn.count() > 0:
                 await close_btn.click(timeout=2000)
                 print("[BrowserManager] Clicked close button")
-                await asyncio.sleep(0.3)  # Wait for modal animation
+                await asyncio.sleep(0.3)
                 return True
 
-            # Last resort: try any dismiss button
+            # Try any button with data-bs-dismiss="modal"
             dismiss_btn = modal.locator("[data-bs-dismiss='modal']")
             if await dismiss_btn.count() > 0:
                 await dismiss_btn.first.click(timeout=2000)
@@ -305,8 +333,7 @@ class BrowserManager:
             return False
 
         except Exception as e:
-            # Don't fail if popup dismissal fails - just log and continue
-            print(f"[BrowserManager] Popup dismissal error (non-fatal): {e}")
+            print(f"[BrowserManager] Error clicking modal button: {e}")
             return False
 
     async def navigate(self, url: str, wait_for: str = "domcontentloaded"):
