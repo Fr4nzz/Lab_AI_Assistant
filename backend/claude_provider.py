@@ -15,13 +15,87 @@ USAGE:
         print(event)
 """
 import os
+import sys
 import asyncio
 import logging
 import json
+import shutil
 from typing import List, Optional, AsyncIterator, Dict, Any, Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def find_claude_cli() -> Optional[str]:
+    """
+    Find the Claude CLI executable on the system.
+
+    On Windows, npm global installs go to %APPDATA%\\npm or similar locations
+    that may not be in PATH when running as a service.
+
+    Returns the full path to claude executable, or None if not found.
+    """
+    # First try PATH
+    claude_path = shutil.which("claude")
+    if claude_path:
+        return claude_path
+
+    # Windows-specific locations
+    if sys.platform == "win32":
+        possible_paths = []
+
+        # npm global install locations
+        appdata = os.environ.get("APPDATA", "")
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        userprofile = os.environ.get("USERPROFILE", "")
+
+        if appdata:
+            possible_paths.append(Path(appdata) / "npm" / "claude.cmd")
+            possible_paths.append(Path(appdata) / "npm" / "claude")
+
+        if localappdata:
+            possible_paths.append(Path(localappdata) / "npm" / "claude.cmd")
+            possible_paths.append(Path(localappdata) / "npm" / "claude")
+            # WinGet links
+            possible_paths.append(Path(localappdata) / "Microsoft" / "WinGet" / "Links" / "claude.cmd")
+
+        if userprofile:
+            # nvm or other node version managers
+            possible_paths.append(Path(userprofile) / "AppData" / "Roaming" / "npm" / "claude.cmd")
+
+        # Program Files
+        possible_paths.append(Path("C:/Program Files/nodejs/claude.cmd"))
+        possible_paths.append(Path("C:/Program Files (x86)/nodejs/claude.cmd"))
+
+        for path in possible_paths:
+            if path.exists():
+                logger.info(f"[Claude] Found CLI at: {path}")
+                return str(path)
+
+    # macOS/Linux locations
+    else:
+        home = os.environ.get("HOME", "")
+        if home:
+            possible_paths = [
+                Path(home) / ".npm-global" / "bin" / "claude",
+                Path(home) / ".nvm" / "versions" / "node",  # Would need to find current version
+                Path("/usr/local/bin/claude"),
+                Path("/usr/bin/claude"),
+            ]
+            for path in possible_paths:
+                if path.exists():
+                    return str(path)
+
+    return None
+
+
+# Find Claude CLI at module load time
+CLAUDE_CLI_PATH = find_claude_cli()
+if CLAUDE_CLI_PATH:
+    logger.info(f"[Claude] CLI found at: {CLAUDE_CLI_PATH}")
+else:
+    logger.warning("[Claude] CLI not found in PATH or common locations")
 
 # Check if claude-agent-sdk is available
 CLAUDE_SDK_AVAILABLE = False
@@ -77,6 +151,7 @@ class ClaudeCodeProvider:
         self.max_turns = max_turns
         self.gemini_fallback = gemini_fallback
         self._is_available = None  # Cached availability check
+        self._cli_path = CLAUDE_CLI_PATH
 
     @property
     def is_available(self) -> bool:
@@ -88,14 +163,20 @@ class ClaudeCodeProvider:
             self._is_available = False
             return False
 
-        # Check if Claude Code CLI is available
+        if not self._cli_path:
+            logger.warning("[Claude] CLI path not found")
+            self._is_available = False
+            return False
+
+        # Check if Claude Code CLI works
         try:
             import subprocess
             result = subprocess.run(
-                ["claude", "--version"],
+                [self._cli_path, "--version"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                shell=(sys.platform == "win32")  # Use shell on Windows for .cmd files
             )
             self._is_available = result.returncode == 0
             if self._is_available:
