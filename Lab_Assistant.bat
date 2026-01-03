@@ -140,23 +140,29 @@ set "CLAUDE_OK="
 set "CLAUDE_AUTH="
 set "CLAUDE_CREDS=%USERPROFILE%\.claude\.credentials.json"
 where claude >nul 2>&1
-if %errorlevel% equ 0 (
-    for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code %%v found
-    set "CLAUDE_OK=1"
-    :: Check if credentials file exists (faster than running a query)
-    if exist "!CLAUDE_CREDS!" (
-        echo   [OK] Claude Code authenticated (Max subscription)
-        set "CLAUDE_AUTH=1"
-    ) else (
-        echo   [WARN] Claude Code not authenticated - run: claude then /login
-        echo       Will use Gemini as fallback until authenticated
-    )
+if %errorlevel% neq 0 goto :claude_not_installed
+
+:: Claude CLI found
+for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code %%v found
+set "CLAUDE_OK=1"
+
+:: Check if credentials file exists (faster than running a query)
+if exist "!CLAUDE_CREDS!" (
+    echo   [OK] Claude Code authenticated - Max subscription
+    set "CLAUDE_AUTH=1"
 ) else (
-    echo   [WARN] Claude Code not installed - Claude models unavailable
-    echo       Install with: npm install -g @anthropic-ai/claude-code
-    echo       Or run: scripts\setup-claude.bat
-    echo       Will use Gemini as fallback
+    echo   [WARN] Claude Code not authenticated - run: claude then /login
+    echo       Will use Gemini as fallback until authenticated
 )
+goto :claude_check_done
+
+:claude_not_installed
+echo   [WARN] Claude Code not installed - Claude models unavailable
+echo       Install with: npm install -g @anthropic-ai/claude-code
+echo       Or run: scripts\setup-claude.bat
+echo       Will use Gemini as fallback
+
+:claude_check_done
 
 echo:
 
@@ -443,13 +449,15 @@ if defined TUNNEL_STARTED (
 echo:
 echo  AI Models:
 if defined CLAUDE_AUTH (
-    echo    [*] Claude Opus/Sonnet 4.5 (Max subscription)
-) else if defined CLAUDE_OK (
-    echo    [!] Claude - not authenticated (run: claude login)
+    echo    [*] Claude Opus/Sonnet 4.5 - Max subscription
 ) else (
-    echo    [ ] Claude - not installed (run: scripts\setup-claude.bat)
+    if defined CLAUDE_OK (
+        echo    [WARN] Claude - not authenticated, run: claude then /login
+    ) else (
+        echo    [ ] Claude - not installed, run: scripts\setup-claude.bat
+    )
 )
-echo    [*] Gemini 3/2.5 Flash (fallback)
+echo    [*] Gemini 3/2.5 Flash - fallback
 echo:
 if defined DEBUG_MODE (
     echo  Mode: DEBUG - windows visible
