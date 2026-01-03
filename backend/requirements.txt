@@ -31,6 +31,5 @@ openpyxl>=3.1.0
 claude-agent-sdk>=0.1.0
 
 # MCP (Model Context Protocol) for Claude custom tools
-# Converts LangGraph tools to MCP format for Claude Agent SDK
-mcp>=1.0.0
-langchain-tool-to-mcp-adapter>=0.1.0
+# Note: langchain-tool-to-mcp-adapter removed due to dependency conflicts
+# Using manual MCP tool wrappers in claude_mcp_tools.py instead

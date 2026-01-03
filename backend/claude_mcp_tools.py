@@ -1,11 +1,12 @@
 """
 MCP Tools Wrapper for Claude Agent SDK.
 
-Converts LangGraph/LangChain tools to MCP format for use with Claude Code.
-Uses the langchain-tool-to-mcp-adapter library for seamless conversion.
-
+Creates MCP tools that wrap the existing LangGraph tool implementations.
 This allows Claude to use the same tools as Gemini (search_orders, edit_results, etc.)
-without duplicating tool definitions.
+without duplicating business logic.
+
+Note: We use manual MCP tool wrappers instead of langchain-tool-to-mcp-adapter
+because the adapter has dependency conflicts with our LangChain version.
 """
 import logging
 from typing import List, Optional
@@ -37,10 +38,9 @@ def get_mcp_tool_names() -> List[str]:
 
 def create_lab_mcp_server():
     """
-    Create an MCP server with all lab tools converted from LangGraph format.
+    Create an MCP server with all lab tools.
 
-    Uses langchain-tool-to-mcp-adapter to convert existing tools.
-    Falls back to manual tool creation if adapter is not available.
+    Uses manual MCP tool wrappers that call the existing LangGraph implementations.
 
     Returns:
         MCP server instance or None if creation fails
@@ -50,43 +50,14 @@ def create_lab_mcp_server():
     if _mcp_server is not None:
         return _mcp_server
 
-    try:
-        # Try using the adapter library first
-        from mcp.server.fastmcp import FastMCP
-        from langchain_tool_to_mcp_adapter import add_langchain_tool_to_server
-        from graph.tools import ALL_TOOLS
-
-        logger.info("[MCP] Creating lab MCP server with langchain-tool-to-mcp-adapter...")
-
-        server = FastMCP("lab")
-
-        for tool in ALL_TOOLS:
-            try:
-                add_langchain_tool_to_server(server, tool)
-                logger.info(f"[MCP] Added tool: {tool.name}")
-            except Exception as e:
-                logger.error(f"[MCP] Failed to add tool {tool.name}: {e}")
-
-        _mcp_server = server
-        _mcp_tools_available = True
-        logger.info(f"[MCP] Lab MCP server created with {len(ALL_TOOLS)} tools")
-        return server
-
-    except ImportError as e:
-        logger.warning(f"[MCP] Adapter library not available: {e}")
-        logger.info("[MCP] Attempting to create MCP tools manually...")
-        return _create_manual_mcp_server()
-    except Exception as e:
-        logger.error(f"[MCP] Failed to create MCP server: {e}")
-        return None
+    return _create_manual_mcp_server()
 
 
 def _create_manual_mcp_server():
     """
-    Manually create MCP tools using claude-agent-sdk's @tool decorator.
+    Create MCP tools using claude-agent-sdk's @tool decorator.
 
-    This is a fallback if langchain-tool-to-mcp-adapter is not installed.
-    It wraps the existing tool implementations directly.
+    Wraps the existing LangGraph tool implementations directly.
     """
     global _mcp_server, _mcp_tools_available
 
