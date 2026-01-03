@@ -82,10 +82,8 @@ async function fetchTabs() {
     loading.value = true
     error.value = null
 
-    const config = useRuntimeConfig()
-    const backendUrl = config.public?.backendUrl || 'http://localhost:8000'
-
-    const response = await fetch(`${backendUrl}/api/browser/tabs/detailed`)
+    // Use server-side proxy to avoid Local Network Access prompts
+    const response = await fetch('/api/browser/tabs/detailed')
     if (!response.ok) throw new Error('Failed to fetch tabs')
 
     const data = await response.json()
@@ -154,10 +152,8 @@ async function executeToolCall(tool: string, args: Record<string, unknown>) {
     executing.value = true
     error.value = null
 
-    const config = useRuntimeConfig()
-    const backendUrl = config.public?.backendUrl || 'http://localhost:8000'
-
-    const response = await fetch(`${backendUrl}/api/tools/execute`, {
+    // Use server-side proxy to avoid Local Network Access prompts
+    const response = await fetch('/api/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tool, args }),

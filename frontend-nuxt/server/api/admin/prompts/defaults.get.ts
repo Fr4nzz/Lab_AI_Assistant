@@ -4,7 +4,7 @@ export default defineEventHandler(async (event) => {
   await requireAdmin(event)
 
   const config = useRuntimeConfig()
-  const backendUrl = config.public.backendUrl || 'http://localhost:8000'
+  const backendUrl = config.backendUrl || 'http://localhost:8000'
 
   try {
     const response = await $fetch<{

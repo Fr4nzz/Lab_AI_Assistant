@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const config = useRuntimeConfig()
-  const backendUrl = config.public.backendUrl || 'http://localhost:8000'
+  const backendUrl = config.backendUrl || 'http://localhost:8000'
 
   try {
     const response = await $fetch<{ success: boolean; message: string }>(`${backendUrl}/api/prompts`, {
