@@ -1,26 +1,45 @@
 // Lab Assistant models configuration
-// These models use the backend's Gemini integration with tools
+// Claude models use Claude Code CLI with Max subscription (no API key needed)
+// Gemini models use the backend's API key rotation (fallback)
 export interface ModelConfig {
   id: string           // ID sent to backend (also the API model name)
   displayName: string  // Display name in UI
   icon: string         // Icon for the model
   isLabAssistant: boolean // If true, shows Lab Assistant branding
+  provider?: 'claude' | 'gemini' // Model provider
 }
 
 // Available models configuration
-// Lab Assistant models use Gemini via the backend with API key rotation
+// Claude models are default - use your Max subscription
+// Gemini models are fallback when Claude is unavailable
 export const MODEL_CONFIGS: ModelConfig[] = [
+  {
+    id: 'claude-opus-4-5',
+    displayName: 'Lab Assistant (Claude Opus 4.5)',
+    icon: 'i-lucide-brain',
+    isLabAssistant: true,
+    provider: 'claude'
+  },
+  {
+    id: 'claude-sonnet-4-5',
+    displayName: 'Lab Assistant (Claude Sonnet 4.5)',
+    icon: 'i-lucide-zap',
+    isLabAssistant: true,
+    provider: 'claude'
+  },
   {
     id: 'gemini-3-flash-preview',
     displayName: 'Lab Assistant (Gemini 3 Flash)',
     icon: 'i-lucide-flask-conical',
-    isLabAssistant: true
+    isLabAssistant: true,
+    provider: 'gemini'
   },
   {
     id: 'gemini-flash-latest',
     displayName: 'Lab Assistant (Gemini 2.5 Flash)',
     icon: 'i-lucide-flask-conical',
-    isLabAssistant: true
+    isLabAssistant: true,
+    provider: 'gemini'
   }
 ]
 

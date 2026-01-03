@@ -96,11 +96,15 @@ def build_confirm_keyboard() -> InlineKeyboardMarkup:
 
 
 # Available models (must match backend AVAILABLE_MODELS)
+# Claude models use Max subscription via Claude Code (no API fees)
+# Gemini models are fallback when Claude is unavailable
 AVAILABLE_MODELS = {
-    "gemini-3-flash-preview": "🧠 Gemini 3 Flash (razonamiento)",
-    "gemini-flash-latest": "⚡ Gemini 2.5 Flash (rápido)",
+    "claude-opus-4-5": "🧠 Claude Opus 4.5 (más inteligente)",
+    "claude-sonnet-4-5": "⚡ Claude Sonnet 4.5 (rápido)",
+    "gemini-3-flash-preview": "🔬 Gemini 3 Flash (respaldo)",
+    "gemini-flash-latest": "🔬 Gemini 2.5 Flash (respaldo)",
 }
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "claude-opus-4-5"
 
 
 def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
