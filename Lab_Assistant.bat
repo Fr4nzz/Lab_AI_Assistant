@@ -142,10 +142,8 @@ where claude >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code %%v found
     set "CLAUDE_OK=1"
-    :: Quick auth check (just test if it runs without error)
-    set "ANTHROPIC_API_KEY="
-    claude -p "OK" --max-turns 1 >nul 2>&1
-    if !errorlevel! equ 0 (
+    :: Check if token file exists (faster than running a query)
+    if exist "%USERPROFILE%\.claude\oauth_token.json" (
         echo   [OK] Claude Code authenticated (Max subscription)
         set "CLAUDE_AUTH=1"
     ) else (
@@ -597,9 +595,7 @@ echo:
 echo  AI Models:
 where claude >nul 2>&1
 if %errorlevel% equ 0 (
-    set "ANTHROPIC_API_KEY="
-    claude -p "OK" --max-turns 1 >nul 2>&1
-    if !errorlevel! equ 0 (
+    if exist "%USERPROFILE%\.claude\oauth_token.json" (
         echo  [READY]   Claude Opus/Sonnet 4.5 (Max subscription)
     ) else (
         echo  [!]       Claude installed but not authenticated
