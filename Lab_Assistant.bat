@@ -138,20 +138,21 @@ if not defined NPM_OK (
 :: Check Claude Code status (optional - will use Gemini fallback if not available)
 set "CLAUDE_OK="
 set "CLAUDE_AUTH="
+set "CLAUDE_CREDS=%USERPROFILE%\.claude\.credentials.json"
 where claude >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=*" %%v in ('claude --version 2^>^&1') do echo   [OK] Claude Code %%v found
     set "CLAUDE_OK=1"
-    :: Check if token file exists (faster than running a query)
-    if exist "%USERPROFILE%\.claude\oauth_token.json" (
+    :: Check if credentials file exists (faster than running a query)
+    if exist "!CLAUDE_CREDS!" (
         echo   [OK] Claude Code authenticated (Max subscription)
         set "CLAUDE_AUTH=1"
     ) else (
-        echo   [!] Claude Code not authenticated - run: claude login
+        echo   [WARN] Claude Code not authenticated - run: claude then /login
         echo       Will use Gemini as fallback until authenticated
     )
 ) else (
-    echo   [!] Claude Code not installed - Claude models unavailable
+    echo   [WARN] Claude Code not installed - Claude models unavailable
     echo       Install with: npm install -g @anthropic-ai/claude-code
     echo       Or run: scripts\setup-claude.bat
     echo       Will use Gemini as fallback
@@ -595,13 +596,13 @@ echo:
 echo  AI Models:
 where claude >nul 2>&1
 if %errorlevel% equ 0 (
-    if exist "%USERPROFILE%\.claude\oauth_token.json" (
+    if exist "%USERPROFILE%\.claude\.credentials.json" (
         echo  [READY]   Claude Opus/Sonnet 4.5 (Max subscription)
     ) else (
-        echo  [!]       Claude installed but not authenticated
+        echo  [WARN]    Claude installed but not authenticated
     )
 ) else (
-    echo  [!]       Claude not installed
+    echo  [WARN]    Claude not installed
 )
 echo  [READY]   Gemini 3/2.5 Flash (fallback)
 
