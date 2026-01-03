@@ -20,6 +20,10 @@ set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%SCRIPT_DIR%.."
 cd /d "%ROOT_DIR%"
 
+:: Token file path (Claude Code stores credentials here)
+set "CLAUDE_DIR=%USERPROFILE%\.claude"
+set "TOKEN_FILE=%CLAUDE_DIR%\.credentials.json"
+
 :: ============================================
 :: STEP 1: Check Node.js
 :: ============================================
@@ -28,7 +32,7 @@ echo [1/4] Checking Node.js...
 
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo   [X] Node.js not found!
+    echo   [X] Node.js not found
     echo:
     echo   Node.js is required to install Claude Code.
     echo   Please install Node.js first: https://nodejs.org/
@@ -69,7 +73,7 @@ if %errorlevel% neq 0 (
 where claude >nul 2>&1
 if %errorlevel% neq 0 (
     echo:
-    echo   [!] Claude Code installed but not in PATH.
+    echo   [WARN] Claude Code installed but not in PATH.
     echo   Please close this window, open a NEW terminal, and run this script again.
     echo:
     pause
@@ -88,10 +92,9 @@ echo [3/4] Checking authentication...
 :: Remove API key to force subscription auth
 set "ANTHROPIC_API_KEY="
 
-:: Check if already authenticated by looking for token file
-set "TOKEN_FILE=%USERPROFILE%\.claude\oauth_token.json"
+:: Check if already authenticated by looking for credentials file
 if exist "%TOKEN_FILE%" (
-    echo   [OK] Already authenticated (token file found)
+    echo   [OK] Already authenticated (credentials file found)
     echo:
     choice /c YN /m "Do you want to re-authenticate? (Y=Yes, N=No)"
     if errorlevel 2 goto :install_sdk
@@ -110,15 +113,13 @@ echo:
 pause
 
 :: Use 'claude auth login' for non-interactive login flow
-:: If that doesn't work, fall back to opening browser manually
 echo   Opening authentication...
 
-:: Try the auth login command (opens browser, returns when done)
 claude auth login 2>nul
 if %errorlevel% neq 0 (
     :: Fallback: just tell user to run claude and use /login
     echo:
-    echo   [!] Direct login not available in this version.
+    echo   [WARN] Direct login command not available.
     echo:
     echo   Please run 'claude' in a terminal and type /login
     echo   Or the login browser should have opened automatically.
@@ -129,10 +130,10 @@ if %errorlevel% neq 0 (
 :: Verify token was created
 if exist "%TOKEN_FILE%" (
     echo:
-    echo   [OK] Authentication successful!
+    echo   [OK] Authentication successful
 ) else (
     echo:
-    echo   [!] Authentication may not have completed.
+    echo   [WARN] Authentication may not have completed.
     echo   If you didn't see a browser, run: claude
     echo   Then type /login inside Claude Code.
     echo:
@@ -159,7 +160,7 @@ if %errorlevel% equ 0 (
     if !errorlevel! equ 0 (
         echo   [OK] claude-agent-sdk installed
     ) else (
-        echo   [!] Failed to install claude-agent-sdk
+        echo   [WARN] Failed to install claude-agent-sdk
         echo   Try manually: pip install claude-agent-sdk
     )
 )
@@ -189,22 +190,42 @@ if %errorlevel% equ 0 (
     echo   [X] Python SDK not installed
 )
 
-:: Check token file exists
-if exist "%USERPROFILE%\.claude\oauth_token.json" (
-    echo   [OK] Authentication token found
+:: Check credentials file exists
+if exist "%TOKEN_FILE%" (
+    echo   [OK] Authentication credentials found
 ) else (
-    echo   [!] No authentication token - run 'claude' then '/login'
+    echo   [X] No credentials - run 'claude' then type '/login'
+)
+
+:: Test Claude Code with a simple query
+echo:
+echo   Testing Claude Code (please wait)...
+set "ANTHROPIC_API_KEY="
+
+:: Run a simple test - capture output
+for /f "tokens=*" %%i in ('claude -p "Reply with exactly: TEST_OK" --max-turns 1 2^>^&1') do (
+    set "TEST_OUTPUT=%%i"
+)
+
+:: Check if test passed
+echo !TEST_OUTPUT! | findstr /i "TEST_OK" >nul
+if %errorlevel% equ 0 (
+    echo   [OK] Claude Code is working with Max subscription
+) else (
+    echo   [X] Test failed - Claude may not be authenticated
+    echo       Run 'claude' and type '/login' to authenticate
+    echo       Test output: !TEST_OUTPUT!
 )
 
 echo:
 echo ========================================
-echo           Setup Complete!
+echo           Setup Complete
 echo ========================================
 echo:
 echo Next steps:
 echo   1. Run Lab_Assistant.bat to start the app
 echo   2. Select "Claude Opus 4.5" in the model selector
-echo   3. Enjoy using Claude with your Max subscription!
+echo   3. Enjoy using Claude with your Max subscription
 echo:
 echo If Claude doesn't work:
 echo   - Run: claude
