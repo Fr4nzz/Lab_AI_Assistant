@@ -30,7 +30,5 @@ openpyxl>=3.1.0
 # Requires: npm install -g @anthropic-ai/claude-code && claude login
 claude-agent-sdk>=0.1.0
 
-# MCP (Model Context Protocol) for Claude custom tools
-# Official LangChain adapter - supports bidirectional conversion
-# https://github.com/langchain-ai/langchain-mcp-adapters
-langchain-mcp-adapters>=0.1.0
+# MCP tools for Claude are created using claude-agent-sdk's create_sdk_mcp_server()
+# No additional MCP packages needed - SDK handles everything in-process

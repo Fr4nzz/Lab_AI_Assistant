@@ -287,6 +287,11 @@ class ClaudeCodeProvider:
         mcp_tool_names = get_mcp_tool_names()
 
         logger.info(f"[Claude] Using ClaudeSDKClient with MCP tools: {mcp_tool_names}")
+        logger.info(f"[Claude] MCP server type: {type(mcp_server).__name__}")
+
+        # Log prompt for debugging (truncated)
+        prompt_preview = prompt[:500] + "..." if len(prompt) > 500 else prompt
+        logger.debug(f"[Claude] Prompt preview:\n{prompt_preview}")
 
         # Configure options with MCP server and only allow our tools
         options = ClaudeAgentOptions(
@@ -296,11 +301,26 @@ class ClaudeCodeProvider:
             allowed_tools=mcp_tool_names,
         )
 
-        async with ClaudeSDKClient(options=options) as client:
-            await client.query(prompt)
-            async for message in client.receive_response():
-                async for event in self._process_message(message):
-                    yield event
+        logger.info(f"[Claude] ClaudeAgentOptions configured with {len(mcp_tool_names)} allowed tools")
+
+        try:
+            async with ClaudeSDKClient(options=options) as client:
+                logger.info("[Claude] ClaudeSDKClient connected, sending query...")
+                await client.query(prompt)
+                logger.info("[Claude] Query sent, receiving response...")
+
+                message_count = 0
+                async for message in client.receive_response():
+                    message_count += 1
+                    logger.debug(f"[Claude] Received message {message_count}: {type(message).__name__}")
+                    async for event in self._process_message(message):
+                        yield event
+
+                logger.info(f"[Claude] Stream complete, received {message_count} messages")
+
+        except Exception as e:
+            logger.error(f"[Claude] ClaudeSDKClient error: {e}", exc_info=True)
+            raise
 
     async def _stream_with_query(self, prompt: str) -> AsyncIterator[ClaudeEvent]:
         """

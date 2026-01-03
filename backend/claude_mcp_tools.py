@@ -1,16 +1,17 @@
 """
 MCP Tools Wrapper for Claude Agent SDK.
 
-Converts LangGraph/LangChain tools to MCP format for use with Claude Code.
-Uses the official langchain-mcp-adapters library for seamless conversion.
+Creates MCP tools using claude-agent-sdk's create_sdk_mcp_server() for use with Claude Code.
+This wraps the existing LangGraph tool implementations so Claude can use the same tools as Gemini.
 
-This allows Claude to use the same tools as Gemini (search_orders, edit_results, etc.)
-without duplicating tool definitions.
+IMPORTANT: Claude Agent SDK requires servers created with create_sdk_mcp_server(),
+NOT FastMCP objects. FastMCP is for external servers, not in-process SDK use.
 
-Reference: https://github.com/langchain-ai/langchain-mcp-adapters
+Reference: https://platform.claude.com/docs/en/agent-sdk/custom-tools
 """
 import logging
-from typing import List, Optional
+import json
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -39,64 +40,18 @@ def get_mcp_tool_names() -> List[str]:
 
 def create_lab_mcp_server():
     """
-    Create an MCP server with all lab tools converted from LangGraph format.
+    Create an MCP server with all lab tools for Claude Agent SDK.
 
-    Uses the official langchain-mcp-adapters to convert existing tools.
-    Falls back to manual tool creation if adapter is not available.
+    Uses claude-agent-sdk's create_sdk_mcp_server() which creates an in-process
+    MCP server that can be passed directly to ClaudeAgentOptions.
 
     Returns:
-        MCP server instance or None if creation fails
+        SDK MCP server instance or None if creation fails
     """
     global _mcp_server, _mcp_tools_available
 
     if _mcp_server is not None:
         return _mcp_server
-
-    try:
-        # Use the official langchain-mcp-adapters library
-        from langchain_mcp_adapters.tools import to_fastmcp
-        from mcp.server.fastmcp import FastMCP
-        from graph.tools import ALL_TOOLS
-
-        logger.info("[MCP] Creating lab MCP server with langchain-mcp-adapters...")
-
-        # Convert each LangChain tool to FastMCP format
-        fastmcp_tools = []
-        for tool in ALL_TOOLS:
-            try:
-                fastmcp_tool = to_fastmcp(tool)
-                fastmcp_tools.append(fastmcp_tool)
-                logger.info(f"[MCP] Converted tool: {tool.name}")
-            except NotImplementedError as e:
-                logger.warning(f"[MCP] Tool {tool.name} uses InjectedToolArg (not supported): {e}")
-            except Exception as e:
-                logger.error(f"[MCP] Failed to convert tool {tool.name}: {e}")
-
-        # Create FastMCP server with converted tools
-        server = FastMCP("lab", tools=fastmcp_tools)
-
-        _mcp_server = server
-        _mcp_tools_available = True
-        logger.info(f"[MCP] Lab MCP server created with {len(fastmcp_tools)} tools")
-        return server
-
-    except ImportError as e:
-        logger.warning(f"[MCP] langchain-mcp-adapters not available: {e}")
-        logger.info("[MCP] Attempting to create MCP tools manually...")
-        return _create_manual_mcp_server()
-    except Exception as e:
-        logger.error(f"[MCP] Failed to create MCP server: {e}")
-        return None
-
-
-def _create_manual_mcp_server():
-    """
-    Manually create MCP tools using claude-agent-sdk's @tool decorator.
-
-    This is a fallback if langchain-tool-to-mcp-adapter is not installed.
-    It wraps the existing tool implementations directly.
-    """
-    global _mcp_server, _mcp_tools_available
 
     try:
         from claude_agent_sdk import tool as mcp_tool, create_sdk_mcp_server
@@ -109,13 +64,15 @@ def _create_manual_mcp_server():
             _create_order_impl,
             _get_available_exams_impl,
         )
-        import json
 
-        # Define MCP tools wrapping the existing implementations
+        logger.info("[MCP] Creating lab MCP server with claude-agent-sdk...")
+
+        # Define MCP tools wrapping the existing LangGraph implementations
+        # Each tool returns {"content": [{"type": "text", "text": "..."}]} format
 
         @mcp_tool(
             "search_orders",
-            "Search orders by patient name. Returns 'num' and 'id' for each order.",
+            "Search orders by patient name. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches.",
             {
                 "search": str,
                 "limit": int,
@@ -124,7 +81,8 @@ def _create_manual_mcp_server():
                 "fecha_hasta": str,
             }
         )
-        async def search_orders(args):
+        async def search_orders(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] search_orders called with: {args}")
             result = await _search_orders_impl(
                 search=args.get("search", ""),
                 limit=args.get("limit", 20),
@@ -136,10 +94,11 @@ def _create_manual_mcp_server():
 
         @mcp_tool(
             "get_order_results",
-            "Get result fields for orders. BATCH: pass ALL order_nums at once.",
+            "Get result fields for orders. BATCH: pass ALL order_nums at once. Opens reportes2 tabs.",
             {"order_nums": list}
         )
-        async def get_order_results(args):
+        async def get_order_results(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] get_order_results called with: {args}")
             result = await _get_order_results_impl(args.get("order_nums", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
@@ -148,22 +107,24 @@ def _create_manual_mcp_server():
             "Get order details and exams list. BATCH: pass ALL order_ids at once.",
             {"order_ids": list}
         )
-        async def get_order_info(args):
+        async def get_order_info(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] get_order_info called with: {args}")
             result = await _get_order_info_impl(args.get("order_ids", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "edit_results",
-            "Edit result fields. BATCH all: data=[{orden, e (exam), f (field), v (value)}]",
+            "Edit result fields. BATCH all edits: data=[{orden, e (exam name), f (field name), v (value)}]",
             {"data": list}
         )
-        async def edit_results(args):
+        async def edit_results(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] edit_results called with: {args}")
             result = await _edit_results_impl(args.get("data", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "edit_order_exams",
-            "Edit order: add/remove exams, set cedula. Use order_id for saved orders, tab_index for new orders.",
+            "Edit order: add/remove exams, set cedula. Use order_id for saved orders, tab_index for new orders from CONTEXT.",
             {
                 "order_id": int,
                 "tab_index": int,
@@ -172,7 +133,8 @@ def _create_manual_mcp_server():
                 "cedula": str,
             }
         )
-        async def edit_order_exams(args):
+        async def edit_order_exams(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] edit_order_exams called with: {args}")
             result = await _edit_order_exams_impl(
                 order_id=args.get("order_id"),
                 tab_index=args.get("tab_index"),
@@ -184,10 +146,11 @@ def _create_manual_mcp_server():
 
         @mcp_tool(
             "create_new_order",
-            'Create order. cedula="" for cotización. exams=["BH","EMO"]',
+            'Create new order. cedula="" for cotización (quote without patient). exams=["BH","EMO",...]',
             {"cedula": str, "exams": list}
         )
-        async def create_new_order(args):
+        async def create_new_order(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] create_new_order called with: {args}")
             result = await _create_order_impl(
                 cedula=args.get("cedula", ""),
                 exams=args.get("exams", []),
@@ -196,10 +159,11 @@ def _create_manual_mcp_server():
 
         @mcp_tool(
             "ask_user",
-            "Display message with clickable options to the user. After calling, stop and wait for user input.",
+            "Display message with clickable options to the user. After calling this, STOP and wait for user input.",
             {"message": str, "options": list}
         )
-        async def ask_user(args):
+        async def ask_user(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] ask_user called with: {args}")
             result = {
                 "message": args.get("message", ""),
                 "status": "waiting_for_user"
@@ -210,36 +174,47 @@ def _create_manual_mcp_server():
 
         @mcp_tool(
             "get_available_exams",
-            "Get available exam codes. If order_id given, also returns added exams.",
+            "Get list of available exam codes with prices. If order_id given, also returns exams already added to that order.",
             {"order_id": int}
         )
-        async def get_available_exams(args):
+        async def get_available_exams(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"[MCP Tool] get_available_exams called with: {args}")
             result = await _get_available_exams_impl(order_id=args.get("order_id"))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
-        # Create the MCP server
+        # Create the SDK MCP server (this is what ClaudeAgentOptions expects)
+        tools_list = [
+            search_orders,
+            get_order_results,
+            get_order_info,
+            edit_results,
+            edit_order_exams,
+            create_new_order,
+            ask_user,
+            get_available_exams,
+        ]
+
         server = create_sdk_mcp_server(
             name="lab",
             version="1.0.0",
-            tools=[
-                search_orders,
-                get_order_results,
-                get_order_info,
-                edit_results,
-                edit_order_exams,
-                create_new_order,
-                ask_user,
-                get_available_exams,
-            ]
+            tools=tools_list
         )
 
         _mcp_server = server
         _mcp_tools_available = True
-        logger.info("[MCP] Lab MCP server created manually with 8 tools")
+
+        # Log tool definitions for debugging
+        tool_names = [t.__name__ for t in tools_list]
+        logger.info(f"[MCP] Lab MCP server created with {len(tools_list)} tools: {tool_names}")
+
         return server
 
+    except ImportError as e:
+        logger.error(f"[MCP] claude-agent-sdk not available: {e}")
+        _mcp_tools_available = False
+        return None
     except Exception as e:
-        logger.error(f"[MCP] Failed to create manual MCP server: {e}")
+        logger.error(f"[MCP] Failed to create MCP server: {e}", exc_info=True)
         _mcp_tools_available = False
         return None
 
