@@ -70,7 +70,6 @@ def find_claude_cli() -> Optional[str]:
 
         for path in possible_paths:
             if path.exists():
-                logger.info(f"[Claude] Found CLI at: {path}")
                 return str(path)
 
     # macOS/Linux locations
@@ -92,10 +91,6 @@ def find_claude_cli() -> Optional[str]:
 
 # Find Claude CLI at module load time
 CLAUDE_CLI_PATH = find_claude_cli()
-if CLAUDE_CLI_PATH:
-    logger.info(f"[Claude] CLI found at: {CLAUDE_CLI_PATH}")
-else:
-    logger.warning("[Claude] CLI not found in PATH or common locations")
 
 # Check if claude-agent-sdk is available
 CLAUDE_SDK_AVAILABLE = False
@@ -112,7 +107,6 @@ try:
     )
     CLAUDE_SDK_AVAILABLE = True
     CLAUDE_SDK_CLIENT_AVAILABLE = True
-    logger.info("[Claude] claude-agent-sdk is available (with ClaudeSDKClient)")
 except ImportError:
     try:
         # Fallback: try older SDK without ClaudeSDKClient
@@ -126,18 +120,29 @@ except ImportError:
             ThinkingBlock,
         )
         CLAUDE_SDK_AVAILABLE = True
-        logger.info("[Claude] claude-agent-sdk is available (query only, no ClaudeSDKClient)")
     except ImportError:
-        logger.warning("[Claude] claude-agent-sdk not installed - Claude models will use Gemini fallback")
+        pass
 
 # Check if MCP tools are available
 MCP_TOOLS_AVAILABLE = False
 try:
     from claude_mcp_tools import get_mcp_server, get_mcp_tool_names, is_mcp_available
     MCP_TOOLS_AVAILABLE = True
-    logger.info("[Claude] MCP tools module loaded")
 except ImportError:
-    logger.warning("[Claude] MCP tools module not available - Claude will use built-in tools only")
+    pass
+
+# Log initialization status once
+if CLAUDE_CLI_PATH and CLAUDE_SDK_AVAILABLE:
+    features = []
+    if CLAUDE_SDK_CLIENT_AVAILABLE:
+        features.append("ClaudeSDKClient")
+    if MCP_TOOLS_AVAILABLE:
+        features.append("MCP tools")
+    logger.info(f"[Claude] Ready - CLI found, SDK loaded ({', '.join(features) if features else 'query only'})")
+elif not CLAUDE_CLI_PATH:
+    logger.warning("[Claude] CLI not found - will use Gemini fallback")
+elif not CLAUDE_SDK_AVAILABLE:
+    logger.warning("[Claude] SDK not installed - will use Gemini fallback")
 
 
 @dataclass
@@ -189,7 +194,6 @@ class ClaudeCodeProvider:
             return False
 
         if not self._cli_path:
-            logger.warning("[Claude] CLI path not found")
             self._is_available = False
             return False
 
@@ -204,12 +208,10 @@ class ClaudeCodeProvider:
                 shell=(sys.platform == "win32")  # Use shell on Windows for .cmd files
             )
             self._is_available = result.returncode == 0
-            if self._is_available:
-                logger.info(f"[Claude] CLI available: {result.stdout.strip()}")
-            else:
-                logger.warning(f"[Claude] CLI check failed: {result.stderr}")
+            if not self._is_available:
+                logger.warning(f"[Claude] CLI check failed: {result.stderr.strip()}")
         except Exception as e:
-            logger.warning(f"[Claude] CLI not available: {e}")
+            logger.warning(f"[Claude] CLI error: {e}")
             self._is_available = False
 
         return self._is_available
@@ -286,12 +288,9 @@ class ClaudeCodeProvider:
         mcp_server = get_mcp_server()
         mcp_tool_names = get_mcp_tool_names()
 
-        logger.info(f"[Claude] Using ClaudeSDKClient with MCP tools: {mcp_tool_names}")
-        logger.info(f"[Claude] MCP server type: {type(mcp_server).__name__}")
-
-        # Log prompt for debugging (truncated)
-        prompt_preview = prompt[:500] + "..." if len(prompt) > 500 else prompt
-        logger.debug(f"[Claude] Prompt preview:\n{prompt_preview}")
+        logger.info(f"[Claude] Starting with {len(mcp_tool_names)} MCP tools")
+        logger.debug(f"[Claude] Tools: {mcp_tool_names}")
+        logger.debug(f"[Claude] Prompt ({len(prompt)} chars): {prompt[:300]}...")
 
         # Configure options with MCP server and only allow our tools
         options = ClaudeAgentOptions(
@@ -301,22 +300,18 @@ class ClaudeCodeProvider:
             allowed_tools=mcp_tool_names,
         )
 
-        logger.info(f"[Claude] ClaudeAgentOptions configured with {len(mcp_tool_names)} allowed tools")
-
         try:
             async with ClaudeSDKClient(options=options) as client:
-                logger.info("[Claude] ClaudeSDKClient connected, sending query...")
                 await client.query(prompt)
-                logger.info("[Claude] Query sent, receiving response...")
 
                 message_count = 0
                 async for message in client.receive_response():
                     message_count += 1
-                    logger.debug(f"[Claude] Received message {message_count}: {type(message).__name__}")
+                    logger.debug(f"[Claude] Message {message_count}: {type(message).__name__}")
                     async for event in self._process_message(message):
                         yield event
 
-                logger.info(f"[Claude] Stream complete, received {message_count} messages")
+                logger.info(f"[Claude] Complete ({message_count} messages)")
 
         except Exception as e:
             logger.error(f"[Claude] ClaudeSDKClient error: {e}", exc_info=True)

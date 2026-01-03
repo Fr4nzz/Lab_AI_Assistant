@@ -203,8 +203,8 @@ def create_lab_mcp_server():
         _mcp_server = server
         _mcp_tools_available = True
 
-        # Log tool definitions for debugging
-        tool_names = [t.__name__ for t in tools_list]
+        # Log tool definitions - SdkMcpTool objects have .name attribute (not __name__)
+        tool_names = [t.name for t in tools_list]
         logger.info(f"[MCP] Lab MCP server created with {len(tools_list)} tools: {tool_names}")
 
         return server
