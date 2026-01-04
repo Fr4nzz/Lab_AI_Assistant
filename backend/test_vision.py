@@ -31,7 +31,7 @@ async def test_vision(model_name: str):
 
     options = ClaudeAgentOptions(
         model=model_name,
-        max_turns=1,
+        max_turns=3,  # Need multiple turns: 1) Read image 2) Respond
         # Allow Read tool so Claude can read the image
         allowed_tools=["Read"],
     )
@@ -52,8 +52,12 @@ Use the Read tool to view the image first, then provide your analysis."""
 
             full_response = ""
             model_used = None
+            tool_uses = []
 
             async for message in client.receive_response():
+                msg_type = type(message).__name__
+                print(f"[{msg_type}]", end=" ")
+
                 # Capture model from response
                 if hasattr(message, 'model') and message.model:
                     model_used = message.model
@@ -61,11 +65,21 @@ Use the Read tool to view the image first, then provide your analysis."""
                 # Capture text content
                 if hasattr(message, 'content'):
                     for block in message.content:
+                        block_type = type(block).__name__
                         if hasattr(block, 'text'):
                             full_response += block.text
+                            print(f"Text: {block.text[:100]}..." if len(block.text) > 100 else f"Text: {block.text}")
+                        elif hasattr(block, 'name'):
+                            # Tool use block
+                            tool_uses.append(block.name)
+                            print(f"Tool: {block.name}")
+                        else:
+                            print(f"Block: {block_type}")
 
-            print(f"Model used: {model_used}")
-            print(f"\nResponse:\n{full_response}")
+            print(f"\n\nModel used: {model_used}")
+            if tool_uses:
+                print(f"Tools used: {tool_uses}")
+            print(f"\nFull Response:\n{'-'*40}\n{full_response}\n{'-'*40}")
 
     except Exception as e:
         print(f"ERROR: {e}")
