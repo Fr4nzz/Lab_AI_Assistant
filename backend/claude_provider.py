@@ -404,10 +404,18 @@ class ClaudeCodeProvider:
                         tool_output=block.content
                     )
         elif isinstance(message, ResultMessage):
-            logger.info(f"[Claude] DONE: turns={getattr(message, 'num_turns', '?')}, duration={getattr(message, 'duration_ms', '?')}ms")
+            # Log completion with model info for verification
+            model_used = getattr(message, 'model', None)
+            logger.info(f"[Claude] DONE: model={model_used}, turns={getattr(message, 'num_turns', '?')}, duration={getattr(message, 'duration_ms', '?')}ms")
+
+            # Log all attributes for debugging model info
+            all_attrs = {attr: getattr(message, attr, None) for attr in dir(message) if not attr.startswith('_')}
+            logger.debug(f"[Claude] ResultMessage attributes: {all_attrs}")
+
             yield ClaudeEvent(
                 type="done",
                 metadata={
+                    "model": model_used,
                     "duration_ms": getattr(message, "duration_ms", None),
                     "num_turns": getattr(message, "num_turns", None),
                     "session_id": getattr(message, "session_id", None),
