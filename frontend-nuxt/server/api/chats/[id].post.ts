@@ -42,6 +42,14 @@ interface TextPart {
 
 type MessagePart = TextPart | ToolPart | FilePart
 
+// Strip stats from text content - they are for display only, not to be saved to DB
+// Pattern: \n\n---\n📊 **Stats**: ... (ends at end of text)
+// This appears at the end of responses from both Claude and Gemini backends
+function stripStatsFromText(text: string): string {
+  const statsPattern = /\n*---\n📊 \*\*Stats\*\*:.*$/s
+  return text.replace(statsPattern, '').trim()
+}
+
 // Collector for parsing stream events into message parts
 class MessagePartsCollector {
   private textContent = ''
@@ -90,7 +98,8 @@ class MessagePartsCollector {
   }
 
   getTextContent(): string {
-    return this.textContent
+    // Strip stats from the text content - they are for display only, not to be saved
+    return stripStatsFromText(this.textContent)
   }
 
   // Build the parts array in correct order
@@ -107,9 +116,10 @@ class MessagePartsCollector {
       parts.push(file)
     }
 
-    // Add text part last (main response)
-    if (this.textContent) {
-      parts.push({ type: 'text', text: this.textContent })
+    // Add text part last (main response) - stripped of stats
+    const strippedText = stripStatsFromText(this.textContent)
+    if (strippedText) {
+      parts.push({ type: 'text', text: strippedText })
     }
 
     return parts
@@ -203,10 +213,15 @@ function extractTextContent(message: any): string {
 }
 
 // Convert messages for backend (handle multimodal)
+// IMPORTANT: Strip stats from assistant messages to prevent sending them to Claude
 function convertMessagesForBackend(messages: any[]) {
   return messages.map(msg => {
+    const isAssistant = msg.role === 'assistant'
+
     if (typeof msg.content === 'string') {
-      return { role: msg.role, content: msg.content }
+      // Strip stats from assistant text responses
+      const content = isAssistant ? stripStatsFromText(msg.content) : msg.content
+      return { role: msg.role, content }
     }
 
     if (msg.parts) {
@@ -216,7 +231,11 @@ function convertMessagesForBackend(messages: any[]) {
 
       if (hasMedia) {
         const content = msg.parts.map((part: any) => {
-          if (part.type === 'text') return { type: 'text', text: part.text }
+          if (part.type === 'text') {
+            // Strip stats from assistant text parts
+            const text = isAssistant ? stripStatsFromText(part.text) : part.text
+            return { type: 'text', text }
+          }
           if (part.mediaType?.startsWith('audio/') || part.mediaType?.startsWith('video/')) {
             return { type: 'media', data: part.data, mime_type: part.mediaType }
           }
@@ -232,10 +251,14 @@ function convertMessagesForBackend(messages: any[]) {
         return { role: msg.role, content }
       }
 
-      const textContent = msg.parts
+      let textContent = msg.parts
         .filter((p: any) => p.type === 'text')
         .map((p: any) => p.text)
         .join('')
+      // Strip stats from assistant text content
+      if (isAssistant) {
+        textContent = stripStatsFromText(textContent)
+      }
       return { role: msg.role, content: textContent }
     }
 
@@ -287,6 +310,7 @@ function parseSSELine(line: string, collector: MessagePartsCollector): boolean {
 async function createRotationAwareStream(
   config: ReturnType<typeof useRuntimeConfig>,
   chatId: string,
+  chat: any,  // Chat object for checking existing messages
   messages: any[],
   imageParts: ImagePart[],
   model: string | undefined,
@@ -355,10 +379,40 @@ async function createRotationAwareStream(
         // Note: File parts cannot be emitted as stream events (not valid in AI SDK protocol)
         // The rotated image thumbnails are included in the tool output above
 
-        // 5. Replace images in the last message with processed versions
+        // 5. Replace images in the last message with processed (rotated) versions
         const lastMessage = messages[messages.length - 1]
         if (lastMessage?.parts) {
           lastMessage.parts = replaceImageParts(lastMessage.parts, processedImages)
+        }
+
+        // 5.5 Save user message AFTER rotation so rotated images are stored
+        if (lastMessage?.role === 'user') {
+          const textContent = lastMessage.parts
+            ?.filter((p: any) => p.type === 'text')
+            .map((p: any) => p.text)
+            .join('') || ''
+
+          // Check if message already exists
+          const existingMessages = chat.messages || []
+          const lastDbMessage = existingMessages[existingMessages.length - 1]
+          const isAlreadySaved = lastMessage.id && existingMessages.some((m: any) => m.id === lastMessage.id)
+          const isRegenerateCase = lastDbMessage?.role === 'user' &&
+            (lastDbMessage.parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || '') === textContent
+
+          if (!isAlreadySaved && !isRegenerateCase) {
+            await addMessage({
+              chatId,
+              role: 'user',
+              content: textContent,
+              parts: lastMessage.parts  // Now contains ROTATED images
+            })
+            console.log('[API/chat] Saved user message with rotated images')
+
+            // Generate title for new chats
+            if (!chat.title || chat.title === 'Nuevo Chat') {
+              generateTitle(chatId, textContent).catch(console.error)
+            }
+          }
         }
 
         // 6. Convert and forward to backend
@@ -487,8 +541,33 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, message: 'Chat not found' })
   }
 
-  // Save user message to database BEFORE streaming (only if not already saved)
+  // Check for images in the last user message FIRST (before saving)
   const lastMessage = messages[messages.length - 1]
+  const imageParts = lastMessage?.parts ? extractImageParts(lastMessage.parts) : []
+
+  // If we have images, use rotation-aware streaming
+  // NOTE: User message saving happens INSIDE createRotationAwareStream AFTER rotation
+  // so that the rotated images are saved to the database
+  if (imageParts.length > 0) {
+    console.log(`[API/chat] Found ${imageParts.length} images, processing rotation`)
+
+    const stream = await createRotationAwareStream(
+      config,
+      chatId,
+      chat,  // Pass chat for checking existing messages
+      messages,
+      imageParts,
+      model,
+      enabledTools,
+      showStats
+    )
+
+    return new Response(stream, {
+      headers: createStreamHeaders(chatId)
+    })
+  }
+
+  // No images - save user message BEFORE streaming (standard flow)
   if (lastMessage?.role === 'user') {
     const textContent = extractTextContent(lastMessage)
 
@@ -519,28 +598,6 @@ export default defineEventHandler(async (event) => {
     } else {
       console.log('[API/chat] Skipped saving duplicate user message (regenerate case)')
     }
-  }
-
-  // Check for images in the last user message
-  const imageParts = lastMessage?.parts ? extractImageParts(lastMessage.parts) : []
-
-  // If we have images, use rotation-aware streaming
-  if (imageParts.length > 0) {
-    console.log(`[API/chat] Found ${imageParts.length} images, processing rotation`)
-
-    const stream = await createRotationAwareStream(
-      config,
-      chatId,
-      messages,
-      imageParts,
-      model,
-      enabledTools,
-      showStats
-    )
-
-    return new Response(stream, {
-      headers: createStreamHeaders(chatId)
-    })
   }
 
   // No images - proceed with standard backend proxy
