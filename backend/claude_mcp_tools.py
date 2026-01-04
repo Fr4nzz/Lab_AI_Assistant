@@ -208,9 +208,18 @@ def create_lab_mcp_server():
         logger.info(f"[MCP] Lab MCP server created with {len(tools_list)} tools: {tool_names}")
 
         # Log detailed tool schemas for debugging
+        # Note: input_schema contains Python types (str, int, list) not JSON-serializable
         logger.info("[MCP] Tool definitions (schemas):")
         for t in tools_list:
-            schema_str = json.dumps(t.input_schema, indent=2) if isinstance(t.input_schema, dict) else str(t.input_schema)
+            # Convert schema with Python types to readable string
+            if isinstance(t.input_schema, dict):
+                schema_parts = []
+                for k, v in t.input_schema.items():
+                    type_name = v.__name__ if hasattr(v, '__name__') else str(v)
+                    schema_parts.append(f"{k}: {type_name}")
+                schema_str = "{" + ", ".join(schema_parts) + "}"
+            else:
+                schema_str = str(t.input_schema)
             logger.info(f"[MCP]   {t.name}: {t.description}")
             logger.info(f"[MCP]     schema: {schema_str}")
 
