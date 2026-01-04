@@ -134,10 +134,13 @@ export function useFileUploadWithStatus(_chatId: string) {
         const isImage = f.file.type.startsWith('image/')
         // Use rotated data if available, otherwise original
         const base64 = f.rotatedBase64 || f.base64Data!
+        // When rotated, the image is converted to PNG (lossless)
+        // Use PNG media type if we have rotated data, otherwise original
+        const mediaType = f.rotatedBase64 ? 'image/png' : f.file.type
         return {
           type: 'file' as const,
-          mediaType: f.file.type,
-          url: `data:${f.file.type};base64,${base64}`,
+          mediaType,
+          url: `data:${mediaType};base64,${base64}`,
           data: base64,
           name: f.file.name,
           // Include rotation metadata for server-side processing

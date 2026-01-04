@@ -186,8 +186,9 @@ export function createStreamHeaders(chatId?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'text/event-stream',
     'x-vercel-ai-ui-message-stream': 'v1',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no' // Disable nginx/proxy buffering for real-time streaming
   }
   if (chatId) {
     headers['X-Chat-Id'] = chatId

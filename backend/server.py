@@ -1496,8 +1496,9 @@ async def chat_aisdk_claude(request, thread_id: str, model_name: str):
         media_type="text/event-stream",
         headers={
             "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering for streaming
             "X-Chat-Id": thread_id,
         }
     )
@@ -1823,8 +1824,9 @@ async def chat_aisdk(request: AISdkChatRequest):
         media_type="text/event-stream",
         headers={
             "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering for streaming
             "X-Chat-Id": thread_id,
         }
     )
