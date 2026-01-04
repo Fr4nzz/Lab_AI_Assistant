@@ -17,6 +17,11 @@ const groupCount = computed(() => props.groupedArgs?.length || 1)
 
 // Map tool names to display names and icons
 const toolInfo: Record<string, { label: string; icon: string; activeLabel: string }> = {
+  Read: {
+    label: 'Leer archivo',
+    activeLabel: 'Leyendo archivo...',
+    icon: 'i-lucide-file-image'
+  },
   search_orders: {
     label: 'Buscar órdenes',
     activeLabel: 'Buscando órdenes...',

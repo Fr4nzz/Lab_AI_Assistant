@@ -339,13 +339,32 @@ class ClaudeCodeProvider:
                 await client.query(prompt)
 
                 message_count = 0
+                model_used = None  # Track model from AssistantMessage
+                pending_tool_calls = {}  # Track tool calls awaiting results: id -> name
+
                 async for message in client.receive_response():
                     message_count += 1
                     logger.debug(f"[Claude] Message {message_count}: {type(message).__name__}")
-                    async for event in self._process_message(message):
+
+                    # Capture model from first AssistantMessage
+                    if isinstance(message, AssistantMessage) and model_used is None:
+                        model_used = getattr(message, 'model', None)
+                        if model_used:
+                            logger.info(f"[Claude] Model confirmed: {model_used}")
+
+                    async for event in self._process_message(message, model_used, pending_tool_calls):
                         yield event
 
-                logger.info(f"[Claude] Complete ({message_count} messages)")
+                # Emit synthetic results for any pending tool calls that didn't get results
+                for tool_id, tool_name in list(pending_tool_calls.items()):
+                    logger.info(f"[Claude] Emitting synthetic result for {tool_name} ({tool_id})")
+                    yield ClaudeEvent(
+                        type="tool_result",
+                        tool_id=tool_id,
+                        tool_output={"status": "completed"}
+                    )
+
+                logger.info(f"[Claude] Complete ({message_count} messages, model={model_used})")
 
         except Exception as e:
             logger.error(f"[Claude] ClaudeSDKClient error: {e}", exc_info=True)
@@ -371,11 +390,25 @@ class ClaudeCodeProvider:
             async for event in self._process_message(message):
                 yield event
 
-    async def _process_message(self, message) -> AsyncIterator[ClaudeEvent]:
+    async def _process_message(self, message, model_used: str = None, pending_tool_calls: dict = None) -> AsyncIterator[ClaudeEvent]:
         """Convert SDK message to our event format."""
+        if pending_tool_calls is None:
+            pending_tool_calls = {}
+
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
+                    # Before emitting text, emit synthetic results for pending tools
+                    # (since text after a tool call means the tool completed)
+                    for tool_id, tool_name in list(pending_tool_calls.items()):
+                        logger.info(f"[Claude] Auto-completing tool {tool_name} ({tool_id}) before text")
+                        yield ClaudeEvent(
+                            type="tool_result",
+                            tool_id=tool_id,
+                            tool_output={"status": "completed"}
+                        )
+                        del pending_tool_calls[tool_id]
+
                     # Log text responses
                     text_preview = block.text[:200] + "..." if len(block.text) > 200 else block.text
                     logger.info(f"[Claude] TEXT: {text_preview}")
@@ -384,9 +417,12 @@ class ClaudeCodeProvider:
                     logger.info(f"[Claude] THINKING: {block.thinking[:100]}...")
                     yield ClaudeEvent(type="thinking", content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
+                    # Track this tool call as pending
+                    pending_tool_calls[block.id] = block.name
+
                     # Log tool calls with full input for debugging
                     input_str = json.dumps(block.input, ensure_ascii=False, indent=2)
-                    logger.info(f"[Claude] TOOL CALL: {block.name}")
+                    logger.info(f"[Claude] TOOL CALL: {block.name} ({block.id})")
                     logger.info(f"[Claude] TOOL INPUT:\n{input_str}")
                     yield ClaudeEvent(
                         type="tool_call",
@@ -395,6 +431,9 @@ class ClaudeCodeProvider:
                         tool_input=block.input
                     )
                 elif isinstance(block, ToolResultBlock):
+                    # Remove from pending since we got the actual result
+                    pending_tool_calls.pop(block.tool_use_id, None)
+
                     # Log tool results
                     result_str = str(block.content)[:500] if block.content else "None"
                     logger.info(f"[Claude] TOOL RESULT ({block.tool_use_id}): {result_str}")
@@ -404,13 +443,8 @@ class ClaudeCodeProvider:
                         tool_output=block.content
                     )
         elif isinstance(message, ResultMessage):
-            # Log completion with model info for verification
-            model_used = getattr(message, 'model', None)
+            # Log completion - model_used is passed from AssistantMessage
             logger.info(f"[Claude] DONE: model={model_used}, turns={getattr(message, 'num_turns', '?')}, duration={getattr(message, 'duration_ms', '?')}ms")
-
-            # Log all attributes for debugging model info
-            all_attrs = {attr: getattr(message, attr, None) for attr in dir(message) if not attr.startswith('_')}
-            logger.debug(f"[Claude] ResultMessage attributes: {all_attrs}")
 
             yield ClaudeEvent(
                 type="done",
