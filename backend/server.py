@@ -160,10 +160,12 @@ AVAILABLE_MODELS = [
 ]
 DEFAULT_MODEL = "claude-opus-4-5"  # Default to Claude Opus 4.5
 
-# Claude model mapping (short name -> full model ID)
+# Claude model mapping (short name -> model alias for Claude Code)
+# Using aliases ("opus", "sonnet") which Claude Code recognizes
+# Reference: https://support.claude.com/en/articles/11940350-claude-code-model-configuration
 CLAUDE_MODELS = {
-    "claude-opus-4-5": "claude-opus-4-5-20250514",
-    "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+    "claude-opus-4-5": "opus",      # Claude Opus 4.5 (best vision, most capable)
+    "claude-sonnet-4-5": "sonnet",  # Claude Sonnet 4.5 (faster)
 }
 
 # Gemini models (for fallback)
@@ -1382,17 +1384,19 @@ async def chat_aisdk_claude(request, thread_id: str, model_name: str):
     """
     global orders_context_sent
 
-    logger.info(f"[Claude] Using model: {model_name}")
+    # Map UI model name to Claude model alias
+    claude_model = CLAUDE_MODELS.get(model_name, "opus")
+    logger.info(f"[Claude] Using model: {model_name} -> {claude_model}")
     logger.info(f"[Claude] Thread: {thread_id}, Messages: {len(request.messages)}")
 
-    # Get Claude provider with Gemini fallback
+    # Get Claude provider with Gemini fallback and the requested model
     gemini_fallback = None
     if GEMINI_FALLBACK_MODEL in graphs:
         # Get the underlying model from the graph for fallback
         from models import get_chat_model
         gemini_fallback = get_chat_model(model_name=GEMINI_FALLBACK_MODEL)
 
-    claude_provider = get_claude_provider(gemini_fallback=gemini_fallback)
+    claude_provider = get_claude_provider(gemini_fallback=gemini_fallback, model=claude_model)
 
     async def generate():
         adapter = StreamAdapter()

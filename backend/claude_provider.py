@@ -165,7 +165,7 @@ class ClaudeCodeProvider:
 
     def __init__(
         self,
-        model: str = "claude-opus-4-5-20250514",
+        model: str = "opus",  # Use alias: "opus", "sonnet", or full ID like "claude-opus-4-5-20251101"
         max_turns: int = 20,
         gemini_fallback: Optional[Any] = None,
     ):
@@ -173,7 +173,8 @@ class ClaudeCodeProvider:
         Initialize the Claude Code provider.
 
         Args:
-            model: Claude model to use (passed to Claude Code)
+            model: Claude model to use. Aliases: "opus", "sonnet", "haiku"
+                   Or full IDs: "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
             max_turns: Maximum agent iterations per request
             gemini_fallback: Optional Gemini model for fallback
         """
@@ -288,22 +289,20 @@ class ClaudeCodeProvider:
         mcp_server = get_mcp_server()
         mcp_tool_names = get_mcp_tool_names()
 
-        logger.info(f"[Claude] Starting with {len(mcp_tool_names)} MCP tools: {mcp_tool_names}")
+        logger.info(f"[Claude] Starting with model={self.model}, {len(mcp_tool_names)} MCP tools")
+        logger.debug(f"[Claude] Prompt ({len(prompt)} chars)")
 
-        # Log full prompt for debugging (split into sections for readability)
-        logger.info(f"[Claude] === FULL PROMPT ({len(prompt)} chars) ===")
-        # Split and log each section
-        for line in prompt.split('\n'):
-            if line.strip():
-                logger.info(f"[Claude] PROMPT: {line}")
-        logger.info(f"[Claude] === END PROMPT ===")
-
-        # Configure options with MCP server and only allow our tools
+        # Configure options with MCP server, model, and streaming
+        # Reference: https://github.com/anthropics/claude-agent-sdk-python
         options = ClaudeAgentOptions(
+            model=self.model,  # Specify model (opus, sonnet, etc.)
             max_turns=self.max_turns,
             mcp_servers={"lab": mcp_server},
             # Only allow our MCP tools - this disables built-in tools like Bash, Read, etc.
             allowed_tools=mcp_tool_names,
+            # Enable streaming of partial messages for real-time updates
+            # Reference: https://github.com/anthropics/claude-agent-sdk-python/issues/164
+            include_partial_messages=True,
         )
 
         try:
@@ -330,12 +329,14 @@ class ClaudeCodeProvider:
         This is used when ClaudeSDKClient or MCP tools are not available.
         """
         options = ClaudeAgentOptions(
+            model=self.model,
             max_turns=self.max_turns,
             # Don't allow any tools in fallback mode
             allowed_tools=[],
+            include_partial_messages=True,
         )
 
-        logger.info(f"[Claude] Using query() without tools (fallback mode)")
+        logger.info(f"[Claude] Using query() with model={self.model} (no MCP tools)")
 
         async for message in query(prompt=prompt, options=options):
             async for event in self._process_message(message):
@@ -487,13 +488,27 @@ class ClaudeCodeProvider:
 _claude_provider: Optional[ClaudeCodeProvider] = None
 
 
-def get_claude_provider(gemini_fallback=None) -> ClaudeCodeProvider:
-    """Get or create the Claude Code provider singleton."""
+def get_claude_provider(gemini_fallback=None, model: str = None) -> ClaudeCodeProvider:
+    """
+    Get or create the Claude Code provider singleton.
+
+    Args:
+        gemini_fallback: Optional Gemini model for fallback
+        model: Model to use ("opus", "sonnet", or full model ID)
+               This can be changed per-request.
+    """
     global _claude_provider
     if _claude_provider is None:
-        _claude_provider = ClaudeCodeProvider(gemini_fallback=gemini_fallback)
-    elif gemini_fallback and _claude_provider.gemini_fallback is None:
-        _claude_provider.gemini_fallback = gemini_fallback
+        _claude_provider = ClaudeCodeProvider(
+            model=model or "opus",
+            gemini_fallback=gemini_fallback
+        )
+    else:
+        # Update model if specified (allows changing model per request)
+        if model:
+            _claude_provider.model = model
+        if gemini_fallback and _claude_provider.gemini_fallback is None:
+            _claude_provider.gemini_fallback = gemini_fallback
     return _claude_provider
 
 
