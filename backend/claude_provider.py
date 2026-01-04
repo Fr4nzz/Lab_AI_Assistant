@@ -167,7 +167,7 @@ class ClaudeCodeProvider:
 
     def __init__(
         self,
-        model: str = "claude-opus-4-5-20251101",  # Full model ID required
+        model: str = "opus",  # Use alias - SDK maps to latest opus model
         max_turns: int = 20,
         gemini_fallback: Optional[Any] = None,
     ):
@@ -175,9 +175,10 @@ class ClaudeCodeProvider:
         Initialize the Claude Code provider.
 
         Args:
-            model: Claude model to use. Must be full model ID:
-                   - claude-opus-4-5-20251101 (best vision, most capable)
-                   - claude-sonnet-4-5-20250929 (faster, default in CLI)
+            model: Claude model to use. Can be alias or full model ID:
+                   - "opus" (recommended - maps to latest Opus, e.g., claude-opus-4-5-20251101)
+                   - "sonnet" (maps to latest Sonnet)
+                   - Or full model ID like "claude-opus-4-5-20251101"
                    Reference: https://support.claude.com/en/articles/11940350
             max_turns: Maximum agent iterations per request
             gemini_fallback: Optional Gemini model for fallback
@@ -323,6 +324,10 @@ class ClaudeCodeProvider:
 
         # Configure options with MCP server, model, and streaming
         # Reference: https://github.com/anthropics/claude-agent-sdk-python
+        # Note: We set both model parameter AND env ANTHROPIC_MODEL to ensure
+        # the correct model is used. Some Max subscription users have reported
+        # issues where the model parameter alone doesn't work.
+        # See: https://github.com/anthropics/claude-code/issues/6247
         options = ClaudeAgentOptions(
             model=self.model,  # Specify model (opus, sonnet, etc.)
             max_turns=self.max_turns,
@@ -332,6 +337,9 @@ class ClaudeCodeProvider:
             # Enable streaming of partial messages for real-time updates
             # Reference: https://github.com/anthropics/claude-agent-sdk-python/issues/164
             include_partial_messages=True,
+            # Set ANTHROPIC_MODEL env var to ensure correct model is used
+            # This helps bypass subscription tier detection issues
+            env={"ANTHROPIC_MODEL": self.model},
         )
 
         try:
@@ -382,6 +390,8 @@ class ClaudeCodeProvider:
             # Don't allow any tools in fallback mode
             allowed_tools=[],
             include_partial_messages=True,
+            # Set ANTHROPIC_MODEL env var to ensure correct model is used
+            env={"ANTHROPIC_MODEL": self.model},
         )
 
         logger.info(f"[Claude] Using query() with model={self.model} (no MCP tools)")
@@ -682,13 +692,13 @@ def get_claude_provider(gemini_fallback=None, model: str = None) -> ClaudeCodePr
 
     Args:
         gemini_fallback: Optional Gemini model for fallback
-        model: Full model ID (e.g., "claude-opus-4-5-20251101")
+        model: Model alias or full ID (e.g., "opus", "sonnet", or "claude-opus-4-5-20251101")
                This can be changed per-request.
     """
     global _claude_provider
     if _claude_provider is None:
         _claude_provider = ClaudeCodeProvider(
-            model=model or "claude-opus-4-5-20251101",
+            model=model or "opus",  # Use alias - maps to latest Opus model
             gemini_fallback=gemini_fallback
         )
     else:

@@ -160,11 +160,12 @@ AVAILABLE_MODELS = [
 ]
 DEFAULT_MODEL = "claude-opus-4-5"  # Default to Claude Opus 4.5
 
-# Claude model mapping (short name -> full model ID for Claude Code)
+# Claude model mapping (UI name -> model alias for Claude Code)
 # Reference: https://support.claude.com/en/articles/11940350-claude-code-model-configuration
+# Using aliases (opus, sonnet) instead of full IDs as the SDK maps them to latest versions
 CLAUDE_MODELS = {
-    "claude-opus-4-5": "claude-opus-4-5-20251101",      # Claude Opus 4.5 (best vision, most capable)
-    "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",  # Claude Sonnet 4.5 (faster, default)
+    "claude-opus-4-5": "opus",     # Claude Opus 4.5 (best vision, most capable)
+    "claude-sonnet-4-5": "sonnet", # Claude Sonnet 4.5 (faster, default)
 }
 
 # Gemini models (for fallback)
