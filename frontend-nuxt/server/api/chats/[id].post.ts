@@ -213,10 +213,16 @@ function extractTextContent(message: any): string {
 }
 
 // Convert messages for backend (handle multimodal)
-// IMPORTANT: Strip stats from assistant messages to prevent sending them to Claude
-function convertMessagesForBackend(messages: any[]) {
-  return messages.map(msg => {
+// IMPORTANT:
+// - Strip stats from assistant messages
+// - Only include images from the LAST user message (to avoid resending unrotated images from history)
+function convertMessagesForBackend(messages: any[], includeImagesForIndex?: number) {
+  // Default: only include images for the last message
+  const imageAllowedIndex = includeImagesForIndex ?? (messages.length - 1)
+
+  return messages.map((msg, index) => {
     const isAssistant = msg.role === 'assistant'
+    const includeImages = index === imageAllowedIndex
 
     if (typeof msg.content === 'string') {
       // Strip stats from assistant text responses
@@ -235,6 +241,11 @@ function convertMessagesForBackend(messages: any[]) {
             // Strip stats from assistant text parts
             const text = isAssistant ? stripStatsFromText(part.text) : part.text
             return { type: 'text', text }
+          }
+          // Only include images for the allowed message index
+          // Historical images are skipped to prevent resending unrotated images from old DB entries
+          if (!includeImages && part.mediaType?.startsWith('image/')) {
+            return { type: 'text', text: '[Image was shared previously]' }
           }
           if (part.mediaType?.startsWith('audio/') || part.mediaType?.startsWith('video/')) {
             return { type: 'media', data: part.data, mime_type: part.mediaType }
