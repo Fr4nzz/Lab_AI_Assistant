@@ -251,6 +251,13 @@ class ClaudeCodeProvider:
             if "ANTHROPIC_API_KEY" in os.environ:
                 del os.environ["ANTHROPIC_API_KEY"]
 
+            # Set ANTHROPIC_MODEL at process level to force model selection
+            # Reference: https://code.claude.com/docs/en/model-config
+            # Priority: 1. /model command, 2. --model flag, 3. ANTHROPIC_MODEL env, 4. settings.json
+            model_backup = os.environ.get("ANTHROPIC_MODEL")
+            os.environ["ANTHROPIC_MODEL"] = self.model
+            logger.info(f"[Claude] Set ANTHROPIC_MODEL={self.model} (was: {model_backup})")
+
             # Build the prompt from messages (saves images to temp files)
             prompt, temp_image_paths = self._build_prompt(messages, system_prompt, context)
             has_images = len(temp_image_paths) > 0
@@ -284,6 +291,12 @@ class ClaudeCodeProvider:
             # Restore API key if it was set
             if env_backup:
                 os.environ["ANTHROPIC_API_KEY"] = env_backup
+
+            # Restore ANTHROPIC_MODEL
+            if model_backup:
+                os.environ["ANTHROPIC_MODEL"] = model_backup
+            elif "ANTHROPIC_MODEL" in os.environ:
+                del os.environ["ANTHROPIC_MODEL"]
 
         except Exception as e:
             error_str = str(e).lower()
