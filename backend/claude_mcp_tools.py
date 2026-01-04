@@ -20,6 +20,53 @@ _mcp_server = None
 _mcp_tools_available = False
 
 
+def _parse_array_arg(value: Any, item_type: str = "string") -> List:
+    """
+    Parse an argument that should be an array.
+
+    Claude sometimes passes arrays as JSON strings instead of actual arrays.
+    This helper handles both cases.
+
+    Args:
+        value: The value to parse (could be list, string, or None)
+        item_type: Expected type of items ("string", "integer", "object")
+
+    Returns:
+        A proper Python list
+    """
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, str):
+        # Try to parse as JSON array
+        value = value.strip()
+        if value.startswith('[') and value.endswith(']'):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    logger.debug(f"[MCP] Parsed JSON string to array: {parsed}")
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+
+        # Try comma-separated values
+        if ',' in value:
+            items = [item.strip().strip('"\'') for item in value.split(',')]
+            logger.debug(f"[MCP] Parsed comma-separated string to array: {items}")
+            return items
+
+        # Single value - return as single-item list
+        if value:
+            logger.debug(f"[MCP] Treating single string as array: [{value}]")
+            return [value]
+
+    logger.warning(f"[MCP] Could not parse as array, returning empty: {type(value)} = {value}")
+    return []
+
+
 def get_mcp_tool_names() -> List[str]:
     """
     Get the list of MCP tool names in the format Claude expects.
@@ -36,6 +83,12 @@ def get_mcp_tool_names() -> List[str]:
         "mcp__lab__ask_user",
         "mcp__lab__get_available_exams",
     ]
+
+
+# JSON Schema definitions for array types (MCP requires proper JSON Schema, not Python types)
+ARRAY_OF_STRINGS = {"type": "array", "items": {"type": "string"}}
+ARRAY_OF_INTEGERS = {"type": "array", "items": {"type": "integer"}}
+ARRAY_OF_OBJECTS = {"type": "array", "items": {"type": "object"}}
 
 
 def create_lab_mcp_server():
@@ -74,11 +127,11 @@ def create_lab_mcp_server():
             "search_orders",
             "Search orders by patient name. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches.",
             {
-                "search": str,
-                "limit": int,
-                "page_num": int,
-                "fecha_desde": str,
-                "fecha_hasta": str,
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "page_num": {"type": "integer"},
+                "fecha_desde": {"type": "string"},
+                "fecha_hasta": {"type": "string"},
             }
         )
         async def search_orders(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -95,51 +148,56 @@ def create_lab_mcp_server():
         @mcp_tool(
             "get_order_results",
             "Get result fields for orders. BATCH: pass ALL order_nums at once. Opens reportes2 tabs.",
-            {"order_nums": list}
+            {"order_nums": ARRAY_OF_INTEGERS}
         )
         async def get_order_results(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] get_order_results called with: {json.dumps(args, ensure_ascii=False)}")
-            result = await _get_order_results_impl(args.get("order_nums", []))
+            order_nums = _parse_array_arg(args.get("order_nums"), "integer")
+            result = await _get_order_results_impl(order_nums)
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "get_order_info",
             "Get order details and exams list. BATCH: pass ALL order_ids at once.",
-            {"order_ids": list}
+            {"order_ids": ARRAY_OF_INTEGERS}
         )
         async def get_order_info(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] get_order_info called with: {json.dumps(args, ensure_ascii=False)}")
-            result = await _get_order_info_impl(args.get("order_ids", []))
+            order_ids = _parse_array_arg(args.get("order_ids"), "integer")
+            result = await _get_order_info_impl(order_ids)
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "edit_results",
             "Edit result fields. BATCH all edits: data=[{orden, e (exam name), f (field name), v (value)}]",
-            {"data": list}
+            {"data": ARRAY_OF_OBJECTS}
         )
         async def edit_results(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] edit_results called with: {json.dumps(args, ensure_ascii=False)}")
-            result = await _edit_results_impl(args.get("data", []))
+            data = _parse_array_arg(args.get("data"), "object")
+            result = await _edit_results_impl(data)
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "edit_order_exams",
             "Edit order: add/remove exams, set cedula. Use order_id for saved orders, tab_index for new orders from CONTEXT.",
             {
-                "order_id": int,
-                "tab_index": int,
-                "add": list,
-                "remove": list,
-                "cedula": str,
+                "order_id": {"type": "integer"},
+                "tab_index": {"type": "integer"},
+                "add": ARRAY_OF_STRINGS,
+                "remove": ARRAY_OF_STRINGS,
+                "cedula": {"type": "string"},
             }
         )
         async def edit_order_exams(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] edit_order_exams called with: {json.dumps(args, ensure_ascii=False)}")
+            add_exams = _parse_array_arg(args.get("add"), "string")
+            remove_exams = _parse_array_arg(args.get("remove"), "string")
             result = await _edit_order_exams_impl(
                 order_id=args.get("order_id"),
                 tab_index=args.get("tab_index"),
-                add=args.get("add"),
-                remove=args.get("remove"),
+                add=add_exams,
+                remove=remove_exams,
                 cedula=args.get("cedula"),
             )
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
@@ -147,35 +205,38 @@ def create_lab_mcp_server():
         @mcp_tool(
             "create_new_order",
             'Create new order. cedula="" for cotización (quote without patient). exams=["BH","EMO",...]',
-            {"cedula": str, "exams": list}
+            {"cedula": {"type": "string"}, "exams": ARRAY_OF_STRINGS}
         )
         async def create_new_order(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] create_new_order called with: {json.dumps(args, ensure_ascii=False)}")
+            exams = _parse_array_arg(args.get("exams"), "string")
+            logger.info(f"[MCP Tool] create_new_order parsed exams: {exams}")
             result = await _create_order_impl(
                 cedula=args.get("cedula", ""),
-                exams=args.get("exams", []),
+                exams=exams,
             )
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "ask_user",
             "Display message with clickable options to the user. After calling this, STOP and wait for user input.",
-            {"message": str, "options": list}
+            {"message": {"type": "string"}, "options": ARRAY_OF_STRINGS}
         )
         async def ask_user(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] ask_user called with: {json.dumps(args, ensure_ascii=False)}")
+            options = _parse_array_arg(args.get("options"), "string")
             result = {
                 "message": args.get("message", ""),
                 "status": "waiting_for_user"
             }
-            if args.get("options"):
-                result["options"] = args["options"]
+            if options:
+                result["options"] = options
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
         @mcp_tool(
             "get_available_exams",
             "Get list of available exam codes with prices. If order_id given, also returns exams already added to that order.",
-            {"order_id": int}
+            {"order_id": {"type": "integer"}}
         )
         async def get_available_exams(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[MCP Tool] get_available_exams called with: {json.dumps(args, ensure_ascii=False)}")
@@ -208,17 +269,12 @@ def create_lab_mcp_server():
         logger.info(f"[MCP] Lab MCP server created with {len(tools_list)} tools: {tool_names}")
 
         # Log detailed tool schemas for debugging
-        # Note: input_schema contains Python types (str, int, list) not JSON-serializable
+        # Now using proper JSON Schema dicts which are JSON-serializable
         logger.info("[MCP] Tool definitions (schemas):")
         for t in tools_list:
-            # Convert schema with Python types to readable string
-            if isinstance(t.input_schema, dict):
-                schema_parts = []
-                for k, v in t.input_schema.items():
-                    type_name = v.__name__ if hasattr(v, '__name__') else str(v)
-                    schema_parts.append(f"{k}: {type_name}")
-                schema_str = "{" + ", ".join(schema_parts) + "}"
-            else:
+            try:
+                schema_str = json.dumps(t.input_schema, ensure_ascii=False)
+            except (TypeError, ValueError):
                 schema_str = str(t.input_schema)
             logger.info(f"[MCP]   {t.name}: {t.description}")
             logger.info(f"[MCP]     schema: {schema_str}")
