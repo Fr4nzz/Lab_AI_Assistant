@@ -201,6 +201,158 @@ def test_options_attrs():
     options2 = ClaudeAgentOptions(model="opus")
     print(f"After setting model='opus': {getattr(options2, 'model', 'N/A')}")
 
+# Test 9: SDK with extra_args to pass --model flag directly
+async def test_sdk_extra_args():
+    print("\n[TEST 9] SDK with extra_args=['--model', 'opus']")
+    print("-" * 40)
+
+    options = ClaudeAgentOptions(
+        max_turns=1,
+        allowed_tools=[],
+        extra_args=["--model", "opus"],
+    )
+    print(f"Options: extra_args=['--model', 'opus']")
+
+    try:
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query("What model are you? Reply with ONLY your model name, nothing else.")
+            async for message in client.receive_response():
+                msg_type = type(message).__name__
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            print(f"Response ({msg_type}): {block.text[:200]}")
+                if hasattr(message, 'model'):
+                    print(f"Message.model attribute: {message.model}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+# Test 10: SDK with settings dict
+async def test_sdk_settings():
+    print("\n[TEST 10] SDK with settings={'model': 'opus'}")
+    print("-" * 40)
+
+    options = ClaudeAgentOptions(
+        max_turns=1,
+        allowed_tools=[],
+        settings={"model": "opus"},
+    )
+    print(f"Options: settings={{'model': 'opus'}}")
+
+    try:
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query("What model are you? Reply with ONLY your model name, nothing else.")
+            async for message in client.receive_response():
+                msg_type = type(message).__name__
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            print(f"Response ({msg_type}): {block.text[:200]}")
+                if hasattr(message, 'model'):
+                    print(f"Message.model attribute: {message.model}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+# Test 11: SDK with both model and extra_args
+async def test_sdk_model_and_extra_args():
+    print("\n[TEST 11] SDK with model='opus' AND extra_args=['--model', 'opus']")
+    print("-" * 40)
+
+    options = ClaudeAgentOptions(
+        model="opus",
+        max_turns=1,
+        allowed_tools=[],
+        extra_args=["--model", "opus"],
+    )
+    print(f"Options: model='opus', extra_args=['--model', 'opus']")
+
+    try:
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query("What model are you? Reply with ONLY your model name, nothing else.")
+            async for message in client.receive_response():
+                msg_type = type(message).__name__
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            print(f"Response ({msg_type}): {block.text[:200]}")
+                if hasattr(message, 'model'):
+                    print(f"Message.model attribute: {message.model}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+# Test 12: Direct subprocess with cli_path (Windows compatible)
+async def test_subprocess_direct():
+    print("\n[TEST 12] Direct subprocess with explicit cli_path")
+    print("-" * 40)
+
+    import shutil
+    claude_path = shutil.which("claude")
+
+    if not claude_path:
+        # Try common Windows paths
+        possible_paths = [
+            os.path.expandvars(r"%APPDATA%\npm\claude.cmd"),
+            os.path.expandvars(r"%LOCALAPPDATA%\npm\claude.cmd"),
+            r"C:\Program Files\nodejs\claude.cmd",
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                claude_path = path
+                break
+
+    if not claude_path:
+        print("Claude CLI not found in PATH or common locations")
+        return
+
+    print(f"Found claude at: {claude_path}")
+
+    try:
+        result = subprocess.run(
+            [claude_path, "--model", "opus", "-p", "What model are you? Reply with ONLY your model name."],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            shell=True if sys.platform == "win32" else False
+        )
+        print(f"STDOUT: {result.stdout.strip()}")
+        if result.stderr:
+            print(f"STDERR: {result.stderr.strip()[:200]}")
+        print(f"Return code: {result.returncode}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+# Test 13: Ask about capabilities instead of model name
+async def test_capabilities():
+    print("\n[TEST 13] Ask about Opus-specific capabilities with model='opus'")
+    print("-" * 40)
+
+    options = ClaudeAgentOptions(
+        model="opus",
+        max_turns=1,
+        allowed_tools=[],
+    )
+
+    # Ask something that might reveal model behavior differences
+    prompt = """I need to verify which model variant you are. Please answer these questions:
+1. Are you Claude Opus 4.5 or Claude Sonnet 4?
+2. What is your exact model identifier (the technical string like claude-xxx)?
+3. What is your knowledge cutoff date?
+Reply concisely."""
+
+    try:
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(prompt)
+            async for message in client.receive_response():
+                msg_type = type(message).__name__
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            print(f"Response: {block.text[:500]}")
+                if hasattr(message, 'model'):
+                    print(f"\nMessage.model attribute: {message.model}")
+    except Exception as e:
+        print(f"ERROR: {e}")
+
 # Run all tests
 async def main():
     test_options_attrs()
@@ -209,6 +361,11 @@ async def main():
     await test_sdk_process_env()
     await test_sdk_both()
     await test_sdk_full_id()
+    await test_sdk_extra_args()
+    await test_sdk_settings()
+    await test_sdk_model_and_extra_args()
+    await test_subprocess_direct()
+    await test_capabilities()
 
     print("\n" + "=" * 60)
     print("Tests complete!")
