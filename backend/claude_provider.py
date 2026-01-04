@@ -20,6 +20,8 @@ import asyncio
 import logging
 import json
 import shutil
+import tempfile
+import base64
 from typing import List, Optional, AsyncIterator, Dict, Any, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -248,21 +250,35 @@ class ClaudeCodeProvider:
             if "ANTHROPIC_API_KEY" in os.environ:
                 del os.environ["ANTHROPIC_API_KEY"]
 
-            # Build the prompt from messages
-            prompt = self._build_prompt(messages, system_prompt, context)
+            # Build the prompt from messages (saves images to temp files)
+            prompt, temp_image_paths = self._build_prompt(messages, system_prompt, context)
+            has_images = len(temp_image_paths) > 0
 
-            # Check if we can use ClaudeSDKClient with MCP tools
-            use_mcp_tools = CLAUDE_SDK_CLIENT_AVAILABLE and MCP_TOOLS_AVAILABLE and is_mcp_available()
+            if has_images:
+                logger.info(f"[Claude] Prompt includes {len(temp_image_paths)} image(s)")
 
-            if use_mcp_tools:
-                # Use ClaudeSDKClient with MCP tools (lab tools)
-                async for event in self._stream_with_mcp_tools(prompt):
-                    yield event
-            else:
-                # Fallback to query() without custom tools
-                logger.warning("[Claude] MCP tools not available, using query() without tools")
-                async for event in self._stream_with_query(prompt):
-                    yield event
+            try:
+                # Check if we can use ClaudeSDKClient with MCP tools
+                use_mcp_tools = CLAUDE_SDK_CLIENT_AVAILABLE and MCP_TOOLS_AVAILABLE and is_mcp_available()
+
+                if use_mcp_tools:
+                    # Use ClaudeSDKClient with MCP tools (lab tools)
+                    async for event in self._stream_with_mcp_tools(prompt, has_images):
+                        yield event
+                else:
+                    # Fallback to query() without custom tools
+                    logger.warning("[Claude] MCP tools not available, using query() without tools")
+                    async for event in self._stream_with_query(prompt):
+                        yield event
+            finally:
+                # Clean up temp image files
+                for temp_path in temp_image_paths:
+                    try:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                            logger.debug(f"[Claude] Cleaned up temp image: {temp_path}")
+                    except Exception as e:
+                        logger.warning(f"[Claude] Failed to clean up temp image {temp_path}: {e}")
 
             # Restore API key if it was set
             if env_backup:
@@ -281,17 +297,28 @@ class ClaudeCodeProvider:
             else:
                 yield ClaudeEvent(type="error", content=str(e))
 
-    async def _stream_with_mcp_tools(self, prompt: str) -> AsyncIterator[ClaudeEvent]:
+    async def _stream_with_mcp_tools(self, prompt: str, has_images: bool = False) -> AsyncIterator[ClaudeEvent]:
         """
         Stream using ClaudeSDKClient with MCP tools.
 
         This enables Claude to use the lab tools (search_orders, edit_results, etc.)
         instead of built-in tools like Bash.
+
+        Args:
+            prompt: The formatted prompt string
+            has_images: If True, adds "Read" tool to allowed_tools so Claude can view image files
         """
         mcp_server = get_mcp_server()
         mcp_tool_names = get_mcp_tool_names()
 
-        logger.info(f"[Claude] Starting with model={self.model}, {len(mcp_tool_names)} MCP tools")
+        # Build allowed tools list
+        allowed_tools = list(mcp_tool_names)  # Copy the list
+        if has_images:
+            # Add built-in Read tool so Claude can view image files
+            allowed_tools.append("Read")
+            logger.info(f"[Claude] Added Read tool for image viewing")
+
+        logger.info(f"[Claude] Starting with model={self.model}, {len(allowed_tools)} tools (images={has_images})")
         logger.debug(f"[Claude] Prompt ({len(prompt)} chars)")
 
         # Configure options with MCP server, model, and streaming
@@ -300,8 +327,8 @@ class ClaudeCodeProvider:
             model=self.model,  # Specify model (opus, sonnet, etc.)
             max_turns=self.max_turns,
             mcp_servers={"lab": mcp_server},
-            # Only allow our MCP tools - this disables built-in tools like Bash, Read, etc.
-            allowed_tools=mcp_tool_names,
+            # Allow our MCP tools + Read for images when needed
+            allowed_tools=allowed_tools,
             # Enable streaming of partial messages for real-time updates
             # Reference: https://github.com/anthropics/claude-agent-sdk-python/issues/164
             include_partial_messages=True,
@@ -393,14 +420,18 @@ class ClaudeCodeProvider:
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         context: Optional[str] = None
-    ) -> str:
+    ) -> tuple[str, List[str]]:
         """
         Build a prompt string from chat messages.
 
         Claude Code expects a single prompt, so we format the conversation
-        history in a clear way.
+        history in a clear way. Images are saved to temp files and referenced by path.
+
+        Returns:
+            tuple: (prompt_string, list_of_temp_image_paths)
         """
         parts = []
+        temp_image_paths = []
 
         # Add system prompt if provided
         if system_prompt:
@@ -424,14 +455,117 @@ class ClaudeCodeProvider:
                         if part.get("type") == "text":
                             text_parts.append(part.get("text", ""))
                         elif part.get("type") == "image_url":
-                            text_parts.append("[IMAGE]")
+                            # Save image to temp file for Claude to read
+                            image_path = self._save_image_to_temp(part.get("image_url", {}))
+                            if image_path:
+                                temp_image_paths.append(image_path)
+                                text_parts.append(f"[Image saved to: {image_path}]\nPlease use the Read tool to view this image.")
+                            else:
+                                text_parts.append("[IMAGE - failed to save]")
                         elif part.get("type") == "media":
-                            text_parts.append("[MEDIA]")
+                            # Handle media content (usually base64 images)
+                            media_type = part.get("mimeType", "")
+                            if media_type.startswith("image/"):
+                                image_path = self._save_base64_image(part.get("data", ""), media_type)
+                                if image_path:
+                                    temp_image_paths.append(image_path)
+                                    text_parts.append(f"[Image saved to: {image_path}]\nPlease use the Read tool to view this image.")
+                                else:
+                                    text_parts.append("[IMAGE - failed to save]")
+                            else:
+                                text_parts.append("[MEDIA]")
                 content = "\n".join(text_parts)
 
             parts.append(f"\n{role}: {content}")
 
-        return "\n".join(parts)
+        return "\n".join(parts), temp_image_paths
+
+    def _save_image_to_temp(self, image_url_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Save an image from URL or base64 data to a temp file.
+
+        Args:
+            image_url_data: Dict with 'url' key (can be data URL or http URL)
+
+        Returns:
+            Path to saved temp file, or None if failed
+        """
+        try:
+            url = image_url_data.get("url", "")
+            if not url:
+                return None
+
+            # Handle data URLs (base64 encoded)
+            if url.startswith("data:"):
+                # Format: data:image/png;base64,<data>
+                parts = url.split(",", 1)
+                if len(parts) != 2:
+                    return None
+
+                header = parts[0]  # e.g., "data:image/png;base64"
+                data = parts[1]
+
+                # Extract mime type
+                if "image/png" in header:
+                    ext = ".png"
+                elif "image/jpeg" in header or "image/jpg" in header:
+                    ext = ".jpg"
+                elif "image/gif" in header:
+                    ext = ".gif"
+                elif "image/webp" in header:
+                    ext = ".webp"
+                else:
+                    ext = ".png"  # Default
+
+                return self._save_base64_image(data, f"image/{ext[1:]}")
+
+            # Handle HTTP URLs - would need to download
+            # For now, just return None (not supported)
+            logger.warning(f"[Claude] HTTP image URLs not yet supported: {url[:50]}...")
+            return None
+
+        except Exception as e:
+            logger.error(f"[Claude] Failed to save image: {e}")
+            return None
+
+    def _save_base64_image(self, data: str, mime_type: str) -> Optional[str]:
+        """
+        Save base64 image data to a temp file.
+
+        Args:
+            data: Base64 encoded image data
+            mime_type: MIME type (e.g., "image/png")
+
+        Returns:
+            Path to saved temp file, or None if failed
+        """
+        try:
+            # Determine extension
+            if "png" in mime_type:
+                ext = ".png"
+            elif "jpeg" in mime_type or "jpg" in mime_type:
+                ext = ".jpg"
+            elif "gif" in mime_type:
+                ext = ".gif"
+            elif "webp" in mime_type:
+                ext = ".webp"
+            else:
+                ext = ".png"
+
+            # Decode and save
+            image_data = base64.b64decode(data)
+
+            # Create temp file
+            fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="claude_image_")
+            with os.fdopen(fd, 'wb') as f:
+                f.write(image_data)
+
+            logger.info(f"[Claude] Saved image to temp file: {temp_path} ({len(image_data)} bytes)")
+            return temp_path
+
+        except Exception as e:
+            logger.error(f"[Claude] Failed to save base64 image: {e}")
+            return None
 
     async def _gemini_fallback_stream(
         self,
