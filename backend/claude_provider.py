@@ -165,7 +165,7 @@ class ClaudeCodeProvider:
 
     def __init__(
         self,
-        model: str = "opus",  # Use alias: "opus", "sonnet", or full ID like "claude-opus-4-5-20251101"
+        model: str = "claude-opus-4-5-20251101",  # Full model ID required
         max_turns: int = 20,
         gemini_fallback: Optional[Any] = None,
     ):
@@ -173,8 +173,10 @@ class ClaudeCodeProvider:
         Initialize the Claude Code provider.
 
         Args:
-            model: Claude model to use. Aliases: "opus", "sonnet", "haiku"
-                   Or full IDs: "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
+            model: Claude model to use. Must be full model ID:
+                   - claude-opus-4-5-20251101 (best vision, most capable)
+                   - claude-sonnet-4-5-20250929 (faster, default in CLI)
+                   Reference: https://support.claude.com/en/articles/11940350
             max_turns: Maximum agent iterations per request
             gemini_fallback: Optional Gemini model for fallback
         """
@@ -494,13 +496,13 @@ def get_claude_provider(gemini_fallback=None, model: str = None) -> ClaudeCodePr
 
     Args:
         gemini_fallback: Optional Gemini model for fallback
-        model: Model to use ("opus", "sonnet", or full model ID)
+        model: Full model ID (e.g., "claude-opus-4-5-20251101")
                This can be changed per-request.
     """
     global _claude_provider
     if _claude_provider is None:
         _claude_provider = ClaudeCodeProvider(
-            model=model or "opus",
+            model=model or "claude-opus-4-5-20251101",
             gemini_fallback=gemini_fallback
         )
     else:
