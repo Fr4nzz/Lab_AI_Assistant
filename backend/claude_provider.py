@@ -568,7 +568,17 @@ class ClaudeCodeProvider:
             with os.fdopen(fd, 'wb') as f:
                 f.write(image_data)
 
-            logger.info(f"[Claude] Saved image to temp file: {temp_path} ({len(image_data)} bytes)")
+            # Try to get image dimensions for debugging
+            try:
+                from PIL import Image
+                import io
+                with Image.open(io.BytesIO(image_data)) as img:
+                    width, height = img.size
+                    logger.info(f"[Claude] Saved image to temp file: {temp_path} ({len(image_data)} bytes, {width}x{height}px)")
+            except ImportError:
+                logger.info(f"[Claude] Saved image to temp file: {temp_path} ({len(image_data)} bytes)")
+            except Exception as e:
+                logger.info(f"[Claude] Saved image to temp file: {temp_path} ({len(image_data)} bytes, dimensions unknown: {e})")
             return temp_path
 
         except Exception as e:
