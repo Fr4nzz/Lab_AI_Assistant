@@ -288,9 +288,15 @@ class ClaudeCodeProvider:
         mcp_server = get_mcp_server()
         mcp_tool_names = get_mcp_tool_names()
 
-        logger.info(f"[Claude] Starting with {len(mcp_tool_names)} MCP tools")
-        logger.debug(f"[Claude] Tools: {mcp_tool_names}")
-        logger.debug(f"[Claude] Prompt ({len(prompt)} chars): {prompt[:300]}...")
+        logger.info(f"[Claude] Starting with {len(mcp_tool_names)} MCP tools: {mcp_tool_names}")
+
+        # Log full prompt for debugging (split into sections for readability)
+        logger.info(f"[Claude] === FULL PROMPT ({len(prompt)} chars) ===")
+        # Split and log each section
+        for line in prompt.split('\n'):
+            if line.strip():
+                logger.info(f"[Claude] PROMPT: {line}")
+        logger.info(f"[Claude] === END PROMPT ===")
 
         # Configure options with MCP server and only allow our tools
         options = ClaudeAgentOptions(
@@ -340,10 +346,18 @@ class ClaudeCodeProvider:
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
+                    # Log text responses
+                    text_preview = block.text[:200] + "..." if len(block.text) > 200 else block.text
+                    logger.info(f"[Claude] TEXT: {text_preview}")
                     yield ClaudeEvent(type="text", content=block.text)
                 elif isinstance(block, ThinkingBlock):
+                    logger.info(f"[Claude] THINKING: {block.thinking[:100]}...")
                     yield ClaudeEvent(type="thinking", content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
+                    # Log tool calls with full input for debugging
+                    input_str = json.dumps(block.input, ensure_ascii=False, indent=2)
+                    logger.info(f"[Claude] TOOL CALL: {block.name}")
+                    logger.info(f"[Claude] TOOL INPUT:\n{input_str}")
                     yield ClaudeEvent(
                         type="tool_call",
                         tool_id=block.id,
@@ -351,12 +365,16 @@ class ClaudeCodeProvider:
                         tool_input=block.input
                     )
                 elif isinstance(block, ToolResultBlock):
+                    # Log tool results
+                    result_str = str(block.content)[:500] if block.content else "None"
+                    logger.info(f"[Claude] TOOL RESULT ({block.tool_use_id}): {result_str}")
                     yield ClaudeEvent(
                         type="tool_result",
                         tool_id=block.tool_use_id,
                         tool_output=block.content
                     )
         elif isinstance(message, ResultMessage):
+            logger.info(f"[Claude] DONE: turns={getattr(message, 'num_turns', '?')}, duration={getattr(message, 'duration_ms', '?')}ms")
             yield ClaudeEvent(
                 type="done",
                 metadata={

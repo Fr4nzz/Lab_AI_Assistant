@@ -82,7 +82,7 @@ def create_lab_mcp_server():
             }
         )
         async def search_orders(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] search_orders called with: {args}")
+            logger.info(f"[MCP Tool] search_orders called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _search_orders_impl(
                 search=args.get("search", ""),
                 limit=args.get("limit", 20),
@@ -98,7 +98,7 @@ def create_lab_mcp_server():
             {"order_nums": list}
         )
         async def get_order_results(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] get_order_results called with: {args}")
+            logger.info(f"[MCP Tool] get_order_results called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _get_order_results_impl(args.get("order_nums", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
@@ -108,7 +108,7 @@ def create_lab_mcp_server():
             {"order_ids": list}
         )
         async def get_order_info(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] get_order_info called with: {args}")
+            logger.info(f"[MCP Tool] get_order_info called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _get_order_info_impl(args.get("order_ids", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
@@ -118,7 +118,7 @@ def create_lab_mcp_server():
             {"data": list}
         )
         async def edit_results(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] edit_results called with: {args}")
+            logger.info(f"[MCP Tool] edit_results called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _edit_results_impl(args.get("data", []))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
@@ -134,7 +134,7 @@ def create_lab_mcp_server():
             }
         )
         async def edit_order_exams(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] edit_order_exams called with: {args}")
+            logger.info(f"[MCP Tool] edit_order_exams called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _edit_order_exams_impl(
                 order_id=args.get("order_id"),
                 tab_index=args.get("tab_index"),
@@ -150,7 +150,7 @@ def create_lab_mcp_server():
             {"cedula": str, "exams": list}
         )
         async def create_new_order(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] create_new_order called with: {args}")
+            logger.info(f"[MCP Tool] create_new_order called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _create_order_impl(
                 cedula=args.get("cedula", ""),
                 exams=args.get("exams", []),
@@ -163,7 +163,7 @@ def create_lab_mcp_server():
             {"message": str, "options": list}
         )
         async def ask_user(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] ask_user called with: {args}")
+            logger.info(f"[MCP Tool] ask_user called with: {json.dumps(args, ensure_ascii=False)}")
             result = {
                 "message": args.get("message", ""),
                 "status": "waiting_for_user"
@@ -178,7 +178,7 @@ def create_lab_mcp_server():
             {"order_id": int}
         )
         async def get_available_exams(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger.debug(f"[MCP Tool] get_available_exams called with: {args}")
+            logger.info(f"[MCP Tool] get_available_exams called with: {json.dumps(args, ensure_ascii=False)}")
             result = await _get_available_exams_impl(order_id=args.get("order_id"))
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
@@ -206,6 +206,13 @@ def create_lab_mcp_server():
         # Log tool definitions - SdkMcpTool objects have .name attribute (not __name__)
         tool_names = [t.name for t in tools_list]
         logger.info(f"[MCP] Lab MCP server created with {len(tools_list)} tools: {tool_names}")
+
+        # Log detailed tool schemas for debugging
+        logger.info("[MCP] Tool definitions (schemas):")
+        for t in tools_list:
+            schema_str = json.dumps(t.input_schema, indent=2) if isinstance(t.input_schema, dict) else str(t.input_schema)
+            logger.info(f"[MCP]   {t.name}: {t.description}")
+            logger.info(f"[MCP]     schema: {schema_str}")
 
         return server
 
