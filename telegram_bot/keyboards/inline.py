@@ -139,3 +139,70 @@ def build_ask_user_keyboard(options: List[str]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(display, callback_data=f"askopt:{idx}")
         ])
     return InlineKeyboardMarkup(keyboard)
+
+
+def build_audio_options_keyboard(
+    has_images: bool = False,
+    image_count: int = 0,
+    last_chat: Tuple[str, str] = None
+) -> InlineKeyboardMarkup:
+    """Build keyboard for audio options.
+
+    Args:
+        has_images: Whether there are pending images to combine with audio
+        image_count: Number of pending images
+        last_chat: Optional tuple of (chat_id, title) for the most recent chat
+    """
+    keyboard = []
+
+    if has_images:
+        # Options for audio + images
+        keyboard.extend([
+            [InlineKeyboardButton(
+                f"🎤📸 Nuevo chat: Audio + {image_count} imagen(es)",
+                callback_data="audio:new_with_images"
+            )],
+            [InlineKeyboardButton(
+                "🎤 Nuevo chat: Solo audio",
+                callback_data="audio:new_audio_only"
+            )],
+            [InlineKeyboardButton(
+                "✏️ Nuevo chat: Escribe el prompt",
+                callback_data="audio:custom"
+            )],
+        ])
+
+        # Add option to continue in the last used chat
+        if last_chat:
+            chat_id, title = last_chat
+            short_id = chat_id[:10]
+            display_title = (title[:20] + "...") if len(title) > 23 else title
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"💬 Continuar: {display_title}",
+                    callback_data=f"audio:cont:{short_id}"
+                )
+            ])
+    else:
+        # Options for audio only (no images)
+        keyboard.extend([
+            [InlineKeyboardButton("🎤 Nuevo chat con audio", callback_data="audio:new")],
+            [InlineKeyboardButton("✏️ Nuevo chat: Escribe el prompt", callback_data="audio:custom")],
+        ])
+
+        # Add option to continue in the last used chat
+        if last_chat:
+            chat_id, title = last_chat
+            short_id = chat_id[:10]
+            display_title = (title[:20] + "...") if len(title) > 23 else title
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"💬 Continuar: {display_title}",
+                    callback_data=f"audio:cont:{short_id}"
+                )
+            ])
+
+    # Add cancel option
+    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancel")])
+
+    return InlineKeyboardMarkup(keyboard)

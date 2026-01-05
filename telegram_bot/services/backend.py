@@ -163,9 +163,11 @@ class BackendService:
     def _build_message_content(
         self,
         message: str,
-        images: List[bytes] = None
+        images: List[bytes] = None,
+        audio: bytes = None,
+        audio_mime: str = None
     ) -> list:
-        """Build message content array with text and images."""
+        """Build message content array with text, images, and audio."""
         parts = []
 
         # Add images first
@@ -191,6 +193,18 @@ class BackendService:
                     "rotationPending": True  # Let server detect and apply rotation
                 })
 
+        # Add audio (Gemini has native audio support)
+        if audio:
+            base64_audio = base64.b64encode(audio).decode("utf-8")
+            mime = audio_mime or "audio/ogg"  # Default for Telegram voice notes
+            parts.append({
+                "type": "file",
+                "data": base64_audio,
+                "mediaType": mime,
+                "url": f"data:{mime};base64,{base64_audio}",
+                "name": "telegram_audio"
+            })
+
         # Add text message
         if message:
             parts.append({"type": "text", "text": message})
@@ -204,6 +218,8 @@ class BackendService:
         images: List[bytes] = None,
         on_tool_call: Callable[[str], Union[None, Awaitable[None]]] = None,
         model: str = None,
+        audio: bytes = None,
+        audio_mime: str = None,
     ) -> Tuple[str, List[str], Optional[AskUserOptions]]:
         """Send message via Frontend API and get response.
 
@@ -213,11 +229,13 @@ class BackendService:
             images: List of image bytes (JPEG/PNG)
             on_tool_call: Callback for tool call notifications (can be sync or async)
             model: Optional model ID to use (e.g., "gemini-3-flash-preview")
+            audio: Optional audio bytes (OGG, MP3, WebM, etc.)
+            audio_mime: MIME type of the audio (e.g., "audio/ogg", "audio/mpeg")
 
         Returns:
             Tuple of (response_text, tools_used, ask_user_options)
         """
-        parts = self._build_message_content(message, images)
+        parts = self._build_message_content(message, images, audio, audio_mime)
 
         if not parts:
             return "", [], None

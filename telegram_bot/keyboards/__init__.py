@@ -6,6 +6,7 @@ from .inline import (
     build_chat_selection_keyboard,
     build_model_selection_keyboard,
     build_ask_user_keyboard,
+    build_audio_options_keyboard,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
 )

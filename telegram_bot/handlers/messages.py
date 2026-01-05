@@ -90,9 +90,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     message = update.message
     text = message.text
 
-    # Check if we're waiting for a custom prompt
+    # Check if we're waiting for a custom prompt (for images)
     if context.user_data.get("awaiting_prompt"):
         await handle_custom_prompt(update, context, text)
+        return
+
+    # Check if we're waiting for a custom prompt (for audio)
+    if context.user_data.get("awaiting_audio_prompt"):
+        await handle_custom_audio_prompt(update, context, text)
         return
 
     # Check if we're in follow-up mode
@@ -153,6 +158,85 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         # Clear pending images
         context.user_data["pending_images"] = []
         context.user_data["pending_images_rotated"] = []
+
+        # Store ask_user options for callback handling
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        # Update chat title if it was generic
+        if prompt:
+            await backend.update_chat_title(chat_id, prompt[:50])
+
+        # Send response as new message
+        await send_ai_response(message, response_text, chat_id, tools, ask_user_options)
+    finally:
+        await backend.close()
+
+
+async def handle_custom_audio_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str) -> None:
+    """Handle custom prompt input for audio messages."""
+    message = update.message
+
+    # Get pending audio data
+    audio = context.user_data.get("pending_audio")
+    audio_mime = context.user_data.get("pending_audio_mime", "audio/ogg")
+    images = context.user_data.get("pending_images", [])
+    chat_id = context.user_data.get("pending_chat_id")
+
+    # Clear the awaiting flag
+    context.user_data["awaiting_audio_prompt"] = False
+
+    if not audio:
+        await message.reply_text("❌ No hay audio guardado. Envía un audio primero.")
+        return
+
+    # Create new chat if needed
+    backend = BackendService()
+    try:
+        if not chat_id:
+            chat_id = await backend.create_chat(title=prompt[:50])
+            if not chat_id:
+                await message.reply_text("❌ Error al crear el chat.")
+                return
+
+        context.user_data["current_chat_id"] = chat_id
+
+        # Send processing message
+        await message.reply_text("⏳ Procesando...")
+
+        # Send to backend with tool notifications
+        tools_used = []
+
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await message.reply_text(tool_display)
+            except Exception:
+                pass
+
+        # Get selected model
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
+        # Include images if present
+        include_images = len(images) > 0
+
+        response_text, tools, ask_user_options = await backend.send_message(
+            chat_id=chat_id,
+            message=prompt,
+            images=images if include_images else None,
+            audio=audio,
+            audio_mime=audio_mime,
+            on_tool_call=on_tool,
+            model=model
+        )
+
+        # Clear pending data
+        context.user_data["pending_audio"] = None
+        context.user_data["pending_audio_mime"] = None
+        if include_images:
+            context.user_data["pending_images"] = []
 
         # Store ask_user options for callback handling
         if ask_user_options:

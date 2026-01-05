@@ -49,6 +49,7 @@ from telegram_bot.handlers import (
     model_command,
     update_command,
     handle_photo,
+    handle_audio,
     handle_text,
     handle_callback,
 )
@@ -144,6 +145,12 @@ def main() -> None:
     app.add_handler(MessageHandler(
         filters.PHOTO & user_filter,
         handle_photo
+    ))
+
+    # Register audio handler (for voice notes and audio files)
+    app.add_handler(MessageHandler(
+        (filters.VOICE | filters.AUDIO) & user_filter,
+        handle_audio
     ))
 
     # Register text message handler

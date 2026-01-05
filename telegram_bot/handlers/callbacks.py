@@ -62,6 +62,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith("askopt:"):
         await handle_ask_user_option(query, context, data[7:])
 
+    elif data.startswith("audio:"):
+        await handle_audio_action(query, context, data[6:])
+
 
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle cancel button."""
@@ -377,6 +380,162 @@ async def handle_ask_user_option(query, context: ContextTypes.DEFAULT_TYPE, opti
 
         # Send response as new message
         await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+    finally:
+        await backend.close()
+
+
+async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
+    """Handle audio action buttons.
+
+    Actions:
+        new - New chat with audio only
+        new_with_images - New chat with audio + pending images
+        new_audio_only - New chat with just audio (ignoring pending images)
+        custom - Wait for user to type custom prompt
+        cont:<short_id> - Continue in existing chat
+    """
+    audio = context.user_data.get("pending_audio")
+    audio_mime = context.user_data.get("pending_audio_mime", "audio/ogg")
+    images = context.user_data.get("pending_images", [])
+
+    if not audio:
+        await query.message.reply_text("❌ No hay audio guardado. Envía un audio primero.")
+        return
+
+    backend = BackendService()
+
+    try:
+        if action == "custom":
+            # Wait for user to type custom prompt
+            context.user_data["awaiting_audio_prompt"] = True
+            context.user_data["pending_chat_id"] = None
+            await query.message.reply_text(
+                "✏️ Escribe el prompt para acompañar el audio:"
+            )
+            return
+
+        elif action.startswith("cont:"):
+            # Continue in existing chat
+            short_id = action[5:]
+            chat_info = await backend.get_chat_by_short_id(short_id)
+
+            if not chat_info:
+                await query.edit_message_text("❌ Chat no encontrado.")
+                return
+
+            full_chat_id, title = chat_info
+            context.user_data["current_chat_id"] = full_chat_id
+
+            # Determine what to include
+            include_images = len(images) > 0
+            prompt = "Analiza este audio" if not include_images else "Analiza este audio y las imágenes"
+
+            # Clear pending data
+            context.user_data["pending_audio"] = None
+            context.user_data["pending_audio_mime"] = None
+            if include_images:
+                context.user_data["pending_images"] = []
+
+            # Show processing message
+            await query.message.reply_text("⏳ Procesando...")
+
+            # Send to backend
+            tools_used = []
+
+            async def on_tool(tool_display: str):
+                tools_used.append(tool_display)
+                try:
+                    await query.message.reply_text(tool_display)
+                except Exception:
+                    pass
+
+            model = context.user_data.get("model", DEFAULT_MODEL)
+
+            response_text, tools, ask_user_options = await backend.send_message(
+                chat_id=full_chat_id,
+                message=prompt,
+                images=images if include_images else None,
+                audio=audio,
+                audio_mime=audio_mime,
+                on_tool_call=on_tool,
+                model=model
+            )
+
+            if ask_user_options:
+                context.user_data["ask_user_options"] = ask_user_options.options
+            else:
+                context.user_data.pop("ask_user_options", None)
+
+            await send_response(query, context, response_text, full_chat_id, tools, ask_user_options)
+            return
+
+        # Handle new chat actions
+        if action == "new_with_images":
+            # New chat with audio + images
+            title = "Audio + Imágenes"
+            include_images = True
+            prompt = "Analiza este audio junto con las imágenes"
+        elif action == "new_audio_only":
+            # New chat with just audio (ignore pending images)
+            title = "Audio"
+            include_images = False
+            prompt = "Analiza este audio"
+        elif action == "new":
+            # New chat with audio (no images pending)
+            title = "Audio"
+            include_images = False
+            prompt = "Analiza este audio"
+        else:
+            await query.message.reply_text(f"❌ Acción no reconocida: {action}")
+            return
+
+        # Create new chat
+        chat_id = await backend.create_chat(title=title)
+
+        if not chat_id:
+            await query.message.reply_text("❌ Error al crear el chat.")
+            return
+
+        context.user_data["current_chat_id"] = chat_id
+
+        # Clear pending data
+        context.user_data["pending_audio"] = None
+        context.user_data["pending_audio_mime"] = None
+        if include_images:
+            context.user_data["pending_images"] = []
+
+        # Show processing message
+        await query.message.reply_text("⏳ Procesando...")
+
+        # Send to backend
+        tools_used = []
+
+        async def on_tool(tool_display: str):
+            tools_used.append(tool_display)
+            try:
+                await query.message.reply_text(tool_display)
+            except Exception:
+                pass
+
+        model = context.user_data.get("model", DEFAULT_MODEL)
+
+        response_text, tools, ask_user_options = await backend.send_message(
+            chat_id=chat_id,
+            message=prompt,
+            images=images if include_images else None,
+            audio=audio,
+            audio_mime=audio_mime,
+            on_tool_call=on_tool,
+            model=model
+        )
+
+        if ask_user_options:
+            context.user_data["ask_user_options"] = ask_user_options.options
+        else:
+            context.user_data.pop("ask_user_options", None)
+
+        await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+
     finally:
         await backend.close()
 
