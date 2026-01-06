@@ -1,11 +1,14 @@
-# Image Preprocessing Pipeline Redesign Plan
+# Image Preprocessing Pipeline Redesign Plan (v2)
 
 ## Overview
 Redesign the image preprocessing pipeline to:
 1. Use YOLOE for document detection/cropping (instead of SAM3)
-2. Generate labeled rotation variants (0°, 90°, 180°, 270°)
-3. Use a simpler AI model (Gemini 2.5 Flash Lite) with visual labels
-4. Let AI choose correct rotation AND whether cropped image should replace original
+2. Generate 4 rotation variants (0°, 90°, 180°, 270°) + cropped version (if detected)
+3. Send all variants as **separate images** (not composite) - Gemini supports multi-image
+4. Add text labels on each image so AI can reference them
+5. Use configurable model (default: `gemini-flash-lite-latest`)
+6. Add thinking level dropdown (default: low)
+7. Synchronize settings between Frontend and Telegram
 
 ## Current Flow (to be replaced)
 ```
@@ -14,7 +17,7 @@ Image → Gemini 3 Flash (detect rotation) → Apply rotation → SAM3/Gemini (s
 
 ## New Flow
 ```
-Image → YOLOE (crop document) → Generate 5 labeled images → Gemini 2.5 Flash Lite (choose) → Apply choices
+Image → YOLOE (crop) → Generate labeled variants → Send as separate images → AI chooses → Apply
 ```
 
 ---
@@ -33,88 +36,182 @@ Image → YOLOE (crop document) → Generate 5 labeled images → Gemini 2.5 Fla
 
 ---
 
-## Phase 2: Backend Changes
+## Phase 2: Settings Storage & Synchronization
 
-### 2.1 New Endpoint: `/api/preprocess-images`
+### 2.1 Database Schema Update
 
-**File:** `backend/server.py`
+**File:** `frontend-nuxt/server/db/schema.ts`
 
-**Request:**
-```python
-class ImagePreprocessRequest(BaseModel):
-    images: List[ImageData]  # List of {data: base64, mimeType: str, name: str}
-    prompts: List[str] = ["document", "paper", "notebook", "book"]
-    confidence_threshold: float = 0.3
+Add user settings table:
+```typescript
+export const userSettings = sqliteTable('user_settings', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  visitorId: text('visitor_id').unique(),  // For anonymous users
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+
+  // Preprocessing settings
+  preprocessingModel: text('preprocessing_model').default('gemini-flash-lite-latest'),
+  thinkingLevel: text('thinking_level').default('low'),
+
+  // Main chat model (existing setting, now persisted)
+  chatModel: text('chat_model').default('gemini-3-flash-preview'),
+
+  ...timestamps
+})
 ```
 
-**Response:**
-```python
-{
-    "compositeImage": str,  # Base64 of composite image with all labeled variants
-    "imageCount": int,      # Number of input images
-    "variantsPerImage": int,  # 5 (4 rotations + 1 cropped) or 4 if no crop
-    "labels": [             # Labels for AI reference
-        {"imageIndex": 1, "label": "1: 0°", "type": "rotation", "rotation": 0},
-        {"imageIndex": 1, "label": "1: 90°", "type": "rotation", "rotation": 90},
-        {"imageIndex": 1, "label": "1: 180°", "type": "rotation", "rotation": 180},
-        {"imageIndex": 1, "label": "1: 270°", "type": "rotation", "rotation": 270},
-        {"imageIndex": 1, "label": "1: cropped", "type": "crop", "confidence": 0.43},
-        {"imageIndex": 2, "label": "2: 0°", ...},
-        ...
-    ],
-    "crops": [              # Crop info for each image
-        {"imageIndex": 1, "hasCrop": true, "confidence": 0.43, "boundingBox": {...}},
-        {"imageIndex": 2, "hasCrop": false, "reason": "no document detected"},
-        ...
-    ],
-    "timing": {
-        "yoloe_ms": 150,
-        "rotation_ms": 50,
-        "labeling_ms": 30,
-        "total_ms": 230
-    }
+### 2.2 Settings API Endpoints
+
+**New file:** `frontend-nuxt/server/api/settings.get.ts`
+```typescript
+// GET /api/settings - Get current user settings
+// Returns: { preprocessingModel, thinkingLevel, chatModel }
+```
+
+**New file:** `frontend-nuxt/server/api/settings.post.ts`
+```typescript
+// POST /api/settings - Update user settings
+// Body: { preprocessingModel?, thinkingLevel?, chatModel? }
+// Saves to database, returns updated settings
+```
+
+### 2.3 Frontend Settings UI
+
+**Modified file:** `frontend-nuxt/app/components/ModelSelect.vue`
+
+Add dropdowns for:
+1. **Main Model** (existing, but now synced to DB)
+2. **Preprocessing Model**: `gemini-flash-lite-latest`, `gemini-flash-latest`, `gemini-3-flash-preview`
+3. **Thinking Level**: `none`, `low` (default), `medium`, `high`
+
+```typescript
+const PREPROCESSING_MODELS = [
+  { id: 'gemini-flash-lite-latest', name: 'Gemini 2.5 Flash Lite (fastest)' },
+  { id: 'gemini-flash-latest', name: 'Gemini 2.5 Flash' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (best)' },
+]
+
+const THINKING_LEVELS = [
+  { id: 'none', name: 'None (fastest)' },
+  { id: 'low', name: 'Low (default)' },
+  { id: 'medium', name: 'Medium' },
+  { id: 'high', name: 'High (most thorough)' },
+]
+```
+
+### 2.4 Frontend Settings Composable
+
+**New file:** `frontend-nuxt/app/composables/useSettings.ts`
+
+```typescript
+export function useSettings() {
+  const settings = useState('userSettings', () => ({
+    preprocessingModel: 'gemini-flash-lite-latest',
+    thinkingLevel: 'low',
+    chatModel: 'gemini-3-flash-preview'
+  }))
+
+  // Load settings from API on init
+  async function loadSettings() {
+    const data = await $fetch('/api/settings')
+    settings.value = data
+  }
+
+  // Save settings to API
+  async function saveSettings(updates: Partial<Settings>) {
+    const data = await $fetch('/api/settings', {
+      method: 'POST',
+      body: updates
+    })
+    settings.value = data
+  }
+
+  return { settings, loadSettings, saveSettings }
 }
 ```
 
-### 2.2 New Endpoint: `/api/apply-preprocessing`
+### 2.5 Telegram Settings Integration
 
-**Purpose:** Apply the AI's rotation/crop choices to original images
+**Modified file:** `telegram_bot/keyboards/inline.py`
 
-**Request:**
+Add new keyboard builders:
 ```python
-class ApplyPreprocessingRequest(BaseModel):
-    images: List[ImageData]  # Original images
-    choices: List[ImageChoice]  # AI's choices
-
-class ImageChoice(BaseModel):
-    imageIndex: int
-    rotation: int  # 0, 90, 180, 270
-    useCrop: bool  # Whether to use cropped version
-```
-
-**Response:**
-```python
-{
-    "processedImages": [
-        {"data": base64, "mimeType": str, "name": str, "rotation": int, "cropped": bool},
-        ...
-    ],
-    "timing_ms": int
+PREPROCESSING_MODELS = {
+    "gemini-flash-lite-latest": "Gemini 2.5 Flash Lite ⚡",
+    "gemini-flash-latest": "Gemini 2.5 Flash",
+    "gemini-3-flash-preview": "Gemini 3 Flash 🧠",
 }
+
+THINKING_LEVELS = {
+    "none": "None ⚡",
+    "low": "Low (default)",
+    "medium": "Medium",
+    "high": "High 🧠",
+}
+
+def build_preprocessing_model_keyboard(current: str) -> InlineKeyboardMarkup:
+    # Similar to build_model_selection_keyboard()
+
+def build_thinking_level_keyboard(current: str) -> InlineKeyboardMarkup:
+    # Similar structure
 ```
 
-### 2.3 YOLOE Integration Module
+**Modified file:** `telegram_bot/handlers/callbacks.py`
+
+Add handlers:
+```python
+elif data.startswith("preprocess:"):
+    await handle_preprocessing_model_selection(query, context, data[10:])
+elif data.startswith("thinking:"):
+    await handle_thinking_level_selection(query, context, data[9:])
+```
+
+**Key change:** Instead of storing in `context.user_data`, call the frontend settings API:
+```python
+async def handle_preprocessing_model_selection(query, context, model_id):
+    visitor_id = get_visitor_id(context)  # Use telegram user_id as visitor_id
+    await save_setting(visitor_id, "preprocessingModel", model_id)
+    # This syncs with frontend!
+```
+
+### 2.6 Telegram Commands
+
+**Modified file:** `telegram_bot/bot.py`
+
+Add commands:
+- `/preprocess` - Show preprocessing model selection
+- `/thinking` - Show thinking level selection
+
+Or combine into `/settings` command that shows all options.
+
+---
+
+## Phase 3: Backend Preprocessing Service
+
+### 3.1 YOLOE Service Module
 
 **New file:** `backend/services/yoloe_service.py`
 
 ```python
+from typing import Optional, List, Tuple
+from PIL import Image
+import io
+
 class YOLOEService:
+    _instance = None
+
     def __init__(self):
         self.model = None
         self.prompts = ["document", "paper", "notebook", "book"]
 
+    @classmethod
+    def get_instance(cls) -> 'YOLOEService':
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def load_model(self):
-        """Lazy load YOLOE model"""
+        """Lazy load YOLOE model (singleton)"""
         if self.model is None:
             from ultralytics import YOLOE
             self.model = YOLOE("yoloe-11l-seg.pt")
@@ -122,224 +219,406 @@ class YOLOEService:
             self.model.set_classes(self.prompts, text_pe)
         return self.model
 
-    def detect_document(self, image_bytes: bytes, confidence_threshold: float = 0.3) -> Optional[CropResult]:
-        """Detect document and return crop coordinates"""
-        # Returns: {boundingBox, confidence, className} or None
+    def detect_document(
+        self,
+        image_bytes: bytes,
+        confidence_threshold: float = 0.3
+    ) -> Optional[dict]:
+        """
+        Detect document and return crop info.
+        Returns: {boundingBox: {x1,y1,x2,y2}, confidence, className} or None
+        """
+        model = self.load_model()
+        # ... implementation
 
-    def crop_image(self, image_bytes: bytes, bbox: dict, padding: int = 10) -> bytes:
+    def crop_image(
+        self,
+        image: Image.Image,
+        bbox: dict,
+        padding: int = 10
+    ) -> Image.Image:
         """Crop image to bounding box with padding"""
+        # ... implementation
 ```
 
-### 2.4 Image Labeling Module
+### 3.2 Image Labeling Service
 
 **New file:** `backend/services/image_labeling.py`
 
 ```python
+from PIL import Image, ImageDraw, ImageFont
+from typing import List, Dict
+import io
+
 class ImageLabelingService:
-    def add_label(self, image_bytes: bytes, label: str, position: str = "top") -> bytes:
-        """Add text label to top of image"""
-        # Uses PIL to draw text on image
-        # White background strip with black text
-        # Font size proportional to image width
+    def __init__(self):
+        self.font_size_ratio = 0.05  # 5% of image height
+        self.label_bg_color = (255, 255, 255)  # White
+        self.label_text_color = (0, 0, 0)  # Black
 
-    def create_rotations(self, image_bytes: bytes) -> Dict[int, bytes]:
+    def add_label(
+        self,
+        image: Image.Image,
+        label: str
+    ) -> Image.Image:
+        """
+        Add text label to TOP of image.
+        Returns new image with label bar added.
+        """
+        width, height = image.size
+        font_size = max(20, int(height * self.font_size_ratio))
+        label_height = font_size + 10
+
+        # Create new image with label space
+        new_image = Image.new('RGB', (width, height + label_height), self.label_bg_color)
+
+        # Draw label text
+        draw = ImageDraw.Draw(new_image)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+
+        text_bbox = draw.textbbox((0, 0), label, font=font)
+        text_x = (width - (text_bbox[2] - text_bbox[0])) // 2
+        draw.text((text_x, 5), label, fill=self.label_text_color, font=font)
+
+        # Paste original image below label
+        new_image.paste(image, (0, label_height))
+
+        return new_image
+
+    def create_rotations(self, image: Image.Image) -> Dict[int, Image.Image]:
         """Create all 4 rotations: 0°, 90°, 180°, 270°"""
-        # Returns: {0: bytes, 90: bytes, 180: bytes, 270: bytes}
+        return {
+            0: image.copy(),
+            90: image.rotate(-90, expand=True),
+            180: image.rotate(180, expand=True),
+            270: image.rotate(-270, expand=True),
+        }
 
-    def create_composite(self, labeled_images: List[bytes], columns: int = 5) -> bytes:
-        """Combine multiple images into a single composite image"""
-        # Grid layout: 5 columns per row (4 rotations + crop)
-        # Each row = one input image
+    def resize_if_needed(self, image: Image.Image, max_size: int = 1080) -> Image.Image:
+        """Resize image to max 1080p if larger, preserving aspect ratio"""
+        width, height = image.size
+        if width <= max_size and height <= max_size:
+            return image
+
+        if width > height:
+            new_width = max_size
+            new_height = int(height * (max_size / width))
+        else:
+            new_height = max_size
+            new_width = int(width * (max_size / height))
+
+        return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+```
+
+### 3.3 Preprocessing Endpoint
+
+**Modified file:** `backend/server.py`
+
+**New endpoint:** `POST /api/preprocess-images`
+
+```python
+class ImagePreprocessRequest(BaseModel):
+    images: List[ImageData]  # [{data: base64, mimeType: str, name: str}]
+    preprocessingModel: str = "gemini-flash-lite-latest"
+    thinkingLevel: str = "low"
+
+class ImagePreprocessResponse(BaseModel):
+    variants: List[ImageVariant]  # All labeled image variants
+    labels: List[LabelInfo]       # Label metadata for AI
+    crops: List[CropInfo]         # Crop info per input image
+    timing: TimingInfo
+
+@app.post("/api/preprocess-images")
+async def preprocess_images(request: ImagePreprocessRequest):
+    """
+    Generate labeled rotation variants + crop for each input image.
+    Returns separate images (not composite) for Gemini multi-image support.
+    """
+    yoloe = YOLOEService.get_instance()
+    labeler = ImageLabelingService()
+
+    variants = []
+    labels = []
+    crops = []
+
+    for idx, img_data in enumerate(request.images):
+        image_num = idx + 1
+        image = decode_image(img_data.data)
+        image = labeler.resize_if_needed(image, max_size=1080)
+
+        # Create 4 rotations
+        rotations = labeler.create_rotations(image)
+        for rotation, rotated_img in rotations.items():
+            label = f"{image_num}: {rotation}°"
+            labeled = labeler.add_label(rotated_img, label)
+            variants.append(encode_image(labeled))
+            labels.append({"imageIndex": image_num, "label": label, "type": "rotation", "rotation": rotation})
+
+        # Try to detect and crop document
+        crop_result = yoloe.detect_document(img_data.data)
+        if crop_result and crop_result["confidence"] >= 0.3:
+            cropped = yoloe.crop_image(image, crop_result["boundingBox"])
+            label = f"{image_num}: cropped"
+            labeled = labeler.add_label(cropped, label)
+            variants.append(encode_image(labeled))
+            labels.append({"imageIndex": image_num, "label": label, "type": "crop"})
+            crops.append({"imageIndex": image_num, "hasCrop": True, **crop_result})
+        else:
+            crops.append({"imageIndex": image_num, "hasCrop": False})
+
+    return ImagePreprocessResponse(variants=variants, labels=labels, crops=crops, timing=...)
+```
+
+### 3.4 AI Selection Endpoint
+
+**New endpoint:** `POST /api/select-preprocessing`
+
+```python
+@app.post("/api/select-preprocessing")
+async def select_preprocessing(request: SelectPreprocessingRequest):
+    """
+    Send all variants to AI, get rotation + crop choices.
+    Uses configurable model and thinking level.
+    """
+    model = get_preprocessing_model(
+        model_name=request.preprocessingModel,
+        thinking_level=request.thinkingLevel
+    )
+
+    # Build multi-image message for Gemini
+    content = []
+    for variant in request.variants:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{variant}"}
+        })
+
+    content.append({
+        "type": "text",
+        "text": PREPROCESSING_SYSTEM_PROMPT + "\n\n" + format_labels(request.labels)
+    })
+
+    response = await model.ainvoke([HumanMessage(content=content)])
+    choices = parse_ai_choices(response.content)
+
+    return {"choices": choices}
+```
+
+### 3.5 Apply Choices Endpoint
+
+**New endpoint:** `POST /api/apply-preprocessing`
+
+```python
+@app.post("/api/apply-preprocessing")
+async def apply_preprocessing(request: ApplyPreprocessingRequest):
+    """Apply AI's rotation/crop choices to original images"""
+    processed = []
+
+    for choice in request.choices:
+        original = request.images[choice.imageIndex - 1]
+        image = decode_image(original.data)
+
+        # Apply rotation
+        if choice.rotation != 0:
+            image = image.rotate(-choice.rotation, expand=True)
+
+        # Apply crop if chosen
+        if choice.useCrop:
+            crop_info = request.crops[choice.imageIndex - 1]
+            if crop_info.hasCrop:
+                image = crop_to_bbox(image, crop_info.boundingBox)
+
+        processed.append(encode_image(image))
+
+    return {"processedImages": processed}
 ```
 
 ---
 
-## Phase 3: Frontend Changes
+## Phase 4: Frontend Integration
 
-### 3.1 Update Image Processing Pipeline
+### 4.1 Update Chat API
 
-**File:** `frontend-nuxt/server/api/chats/[id].post.ts`
+**Modified file:** `frontend-nuxt/server/api/chats/[id].post.ts`
 
-**Replace current flow (lines 313-418) with:**
+Replace current rotation/segmentation flow (lines 313-418) with:
 
 ```typescript
-// Step 1: Call backend to generate labeled composite
-const preprocessResponse = await $fetch('/api/preprocess-images', {
-    method: 'POST',
-    body: { images: imagePartsArray }
-});
+// Step 1: Get user settings
+const settings = await getUserSettings(visitorId)
 
-// Step 2: Send composite to AI for choices
-const aiChoices = await callPreprocessingAI(preprocessResponse.compositeImage, preprocessResponse.labels);
+// Step 2: Preprocess images (YOLOE + rotations + labels)
+const preprocessResult = await $fetch('/api/preprocess-images', {
+  method: 'POST',
+  body: {
+    images: imageParts,
+    preprocessingModel: settings.preprocessingModel,
+    thinkingLevel: settings.thinkingLevel
+  }
+})
 
-// Step 3: Apply AI choices to original images
+// Step 3: Send variants to AI for selection
+const aiSelection = await $fetch('/api/select-preprocessing', {
+  method: 'POST',
+  body: {
+    variants: preprocessResult.variants,
+    labels: preprocessResult.labels,
+    preprocessingModel: settings.preprocessingModel,
+    thinkingLevel: settings.thinkingLevel
+  }
+})
+
+// Step 4: Apply AI choices
 const processedImages = await $fetch('/api/apply-preprocessing', {
-    method: 'POST',
-    body: {
-        images: imagePartsArray,
-        choices: aiChoices
-    }
-});
+  method: 'POST',
+  body: {
+    images: imageParts,
+    choices: aiSelection.choices,
+    crops: preprocessResult.crops
+  }
+})
 
-// Step 4: Replace original images with processed versions
+// Step 5: Replace images in message with processed versions
 // Continue with chat...
 ```
 
-### 3.2 New Preprocessing AI Call
-
-**File:** `frontend-nuxt/server/utils/imagePreprocessing.ts` (new)
+### 4.2 Emit Tool Events for UI Feedback
 
 ```typescript
-interface PreprocessingChoice {
-    imageIndex: number;
-    rotation: number;      // 0, 90, 180, 270
-    useCrop: boolean;      // true if cropped version is better
-    reasoning?: string;    // Optional explanation
-}
+// Emit preprocessing status for user visibility
+emitToolCall(writer, {
+  type: 'tool-call',
+  toolCallId: 'preprocessing-1',
+  toolName: 'image-preprocessing',
+  args: { imageCount: imageParts.length }
+})
 
-async function callPreprocessingAI(
-    compositeImage: string,
-    labels: LabelInfo[]
-): Promise<PreprocessingChoice[]> {
-    // Call Gemini 2.5 Flash Lite
-    // System prompt explains the task
-    // Send composite image
-    // Parse structured response
-}
+// After completion
+emitToolResult(writer, {
+  type: 'tool-result',
+  toolCallId: 'preprocessing-1',
+  result: {
+    rotations: aiSelection.choices.map(c => c.rotation),
+    cropsUsed: aiSelection.choices.filter(c => c.useCrop).length
+  }
+})
 ```
 
-### 3.3 System Prompt for Preprocessing AI
+---
 
-```
-You are an image preprocessing assistant. Your job is to help prepare images for another AI that will interpret them.
+## Phase 5: System Prompt for Preprocessing AI
 
-You are given a composite image containing labeled variants of input images:
-- For each input image, you see 4-5 variants:
-  - "N: 0°" - Original orientation
-  - "N: 90°" - Rotated 90° clockwise
-  - "N: 180°" - Rotated 180°
-  - "N: 270°" - Rotated 270° clockwise
-  - "N: cropped" - Zoomed/cropped version (if available)
+**New constant in:** `backend/server.py`
+
+```python
+PREPROCESSING_SYSTEM_PROMPT = """You are an image preprocessing assistant. Your job is to prepare images for another AI that will interpret them.
+
+You are given multiple labeled images. For each input image, you see:
+- "N: 0°" - Original orientation
+- "N: 90°" - Rotated 90° clockwise
+- "N: 180°" - Rotated 180°
+- "N: 270°" - Rotated 270° clockwise
+- "N: cropped" - Zoomed/cropped version (if available)
 
 Where N is the image number (1, 2, 3...).
 
-Your tasks:
-1. For each image, determine the CORRECT rotation (which variant shows text/content right-side up)
-2. For each image with a cropped variant, decide if the crop IMPROVES readability:
-   - Choose crop if it zooms in on relevant content without cutting off important information
-   - Do NOT choose crop if it cuts off relevant data or text
+YOUR TASKS:
+1. For each image, determine the CORRECT rotation (which shows text/content right-side up and readable)
+2. For images with a cropped variant, decide if the crop IMPROVES readability:
+   - Choose crop=true if it zooms in on relevant content WITHOUT cutting off important information
+   - Choose crop=false if the crop cuts off relevant data, text, or context
 
-Respond in this exact JSON format:
+RESPOND WITH ONLY THIS JSON FORMAT:
 {
-    "choices": [
-        {"imageIndex": 1, "rotation": 0, "useCrop": false},
-        {"imageIndex": 2, "rotation": 90, "useCrop": true},
-        ...
-    ]
+  "choices": [
+    {"imageIndex": 1, "rotation": 0, "useCrop": false},
+    {"imageIndex": 2, "rotation": 90, "useCrop": true}
+  ]
 }
 
-IMPORTANT:
+IMPORTANT NOTES:
 - The cropped variant is shown UNROTATED - your rotation choice will be applied to it
-- Only recommend crop if it clearly helps focus on the document content
-- When in doubt about crop, choose false (keep original)
+- Only recommend useCrop:true if it clearly helps focus on document content
+- When in doubt about crop, choose useCrop:false (keep original framing)
+- Rotation values must be exactly: 0, 90, 180, or 270"""
 ```
 
 ---
 
-## Phase 4: Tool Registration
+## Phase 6: Tool Registration & Translations
 
-### 4.1 New Tool: `use_cropped_images`
+### 6.1 Update Tool Translations
 
-**File:** `backend/graph/tools.py`
+**Modified file:** `telegram_bot/utils/tools.py`
 
 ```python
-# This tool is called internally, not by the main AI
-# It's used by the preprocessing AI to indicate crop choices
-
-# Actually, this might not need to be a "tool" in the LangGraph sense
-# It's more of a structured response from the preprocessing AI
+TOOL_TRANSLATIONS = {
+    # ... existing ...
+    "image-preprocessing": "🖼️ Preprocesando imágenes",
+}
 ```
 
-**Decision:** The crop/rotation choices will be returned as structured JSON from the preprocessing AI, not as tool calls. This is simpler and more direct.
-
-### 4.2 Update Tool Translations
-
-**File:** `telegram_bot/utils/tools.py`
+**Modified file:** `backend/graph/tools.py`
 
 ```python
-"image-preprocessing": "🖼️ Preprocesando imágenes",
-```
-
----
-
-## Phase 5: Model Configuration
-
-### 5.1 Update AI Model for Preprocessing
-
-**Current:** `gemini-3-flash-preview` (overkill for this task)
-**New:** `gemini-2.5-flash-lite` (sufficient with visual labels)
-
-**File:** `backend/server.py` - new endpoint uses lighter model
-
-```python
-PREPROCESSING_MODEL = "gemini-2.5-flash-lite"
+TOOL_NAME_TRANSLATIONS = {
+    # ... existing ...
+    "image-preprocessing": "🖼️ Preprocesando imágenes",
+}
 ```
 
 ---
 
 ## Implementation Order
 
-1. **Phase 1:** Delete test scripts (5 minutes)
-2. **Phase 2.3:** Create YOLOE service module (30 minutes)
-3. **Phase 2.4:** Create image labeling module (30 minutes)
-4. **Phase 2.1-2.2:** Create new backend endpoints (45 minutes)
-5. **Phase 3:** Update frontend pipeline (45 minutes)
-6. **Phase 4-5:** Tool translations & model config (15 minutes)
-7. **Testing & refinement** (30 minutes)
+1. **Phase 1:** Delete test scripts (5 min)
+2. **Phase 2.1-2.2:** Database schema + settings API (30 min)
+3. **Phase 2.3-2.4:** Frontend settings UI + composable (30 min)
+4. **Phase 2.5-2.6:** Telegram settings integration (30 min)
+5. **Phase 3.1-3.2:** YOLOE + labeling services (45 min)
+6. **Phase 3.3-3.5:** Backend preprocessing endpoints (45 min)
+7. **Phase 4:** Frontend chat API integration (30 min)
+8. **Phase 5-6:** System prompt + translations (15 min)
+9. **Testing & refinement** (30 min)
 
 ---
 
-## Visual Example
+## Key Design Decisions
 
-For 2 input images, the composite would look like:
-
-```
-┌─────────┬─────────┬─────────┬─────────┬─────────┐
-│  1: 0°  │ 1: 90°  │ 1: 180° │ 1: 270° │1: cropped│
-│  [img]  │  [img]  │  [img]  │  [img]  │  [img]  │
-├─────────┼─────────┼─────────┼─────────┼─────────┤
-│  2: 0°  │ 2: 90°  │ 2: 180° │ 2: 270° │2: cropped│
-│  [img]  │  [img]  │  [img]  │  [img]  │  [img]  │
-└─────────┴─────────┴─────────┴─────────┴─────────┘
-```
-
-Each cell has:
-- White header bar with black text label
-- The image variant below
+| Question | Answer |
+|----------|--------|
+| Composite vs separate images? | **Separate** - Gemini supports multi-image natively |
+| Image resize limit? | **1080p max**, preserve aspect ratio |
+| No document detected? | **Omit** cropped variant entirely |
+| Multiple documents? | Use **largest** detection only |
+| Telegram sync? | **Shared database** - same settings for both |
+| Default preprocessing model? | `gemini-flash-lite-latest` |
+| Default thinking level? | `low` |
 
 ---
 
-## Questions/Decisions Needed
-
-1. **Composite image size:** Should we resize images to fit a max composite size? (e.g., max 4096x4096)
-2. **Crop confidence threshold:** Default 0.3 - is this good?
-3. **What if no document detected?** Still show "N: cropped" with original, or omit?
-4. **Multiple documents in one image?** Use largest detection only?
-5. **Telegram integration:** Does this flow work the same for Telegram?
-
----
-
-## Files to Create/Modify
+## Files Summary
 
 ### New Files:
 - `backend/services/yoloe_service.py`
 - `backend/services/image_labeling.py`
-- `frontend-nuxt/server/utils/imagePreprocessing.ts`
+- `frontend-nuxt/server/api/settings.get.ts`
+- `frontend-nuxt/server/api/settings.post.ts`
+- `frontend-nuxt/app/composables/useSettings.ts`
 
 ### Modified Files:
-- `backend/server.py` (add 2 new endpoints)
-- `frontend-nuxt/server/api/chats/[id].post.ts` (update pipeline)
+- `frontend-nuxt/server/db/schema.ts` (add userSettings table)
+- `frontend-nuxt/server/api/chats/[id].post.ts` (new preprocessing flow)
+- `frontend-nuxt/app/components/ModelSelect.vue` (add dropdowns)
+- `backend/server.py` (add 3 new endpoints)
+- `telegram_bot/keyboards/inline.py` (add settings keyboards)
+- `telegram_bot/handlers/callbacks.py` (add settings handlers)
+- `telegram_bot/bot.py` (add /settings command)
 - `telegram_bot/utils/tools.py` (add translation)
+- `backend/graph/tools.py` (add translation)
 
 ### Deleted Files:
 - `backend/test_sam2.py`
