@@ -81,6 +81,19 @@ function initializeDatabase(sqlite: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS files_message_id_idx ON files(message_id);
+
+    CREATE TABLE IF NOT EXISTS user_settings (
+      id TEXT PRIMARY KEY,
+      visitor_id TEXT UNIQUE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      chat_model TEXT DEFAULT 'gemini-3-flash-preview',
+      preprocessing_model TEXT DEFAULT 'gemini-flash-lite-latest',
+      thinking_level TEXT DEFAULT 'low',
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS user_settings_visitor_id_idx ON user_settings(visitor_id);
+    CREATE INDEX IF NOT EXISTS user_settings_user_id_idx ON user_settings(user_id);
   `)
 }
 
@@ -272,4 +285,87 @@ export async function getFilesByMessage(messageId: string) {
     .select()
     .from(schema.files)
     .where(eq(schema.files.messageId, messageId))
+}
+
+// ============================================================
+// User Settings Operations
+// ============================================================
+
+export interface UserSettings {
+  chatModel: string
+  preprocessingModel: string
+  thinkingLevel: string
+}
+
+const DEFAULT_SETTINGS: UserSettings = {
+  chatModel: 'gemini-3-flash-preview',
+  preprocessingModel: 'gemini-flash-lite-latest',
+  thinkingLevel: 'low'
+}
+
+export async function getUserSettings(visitorId: string): Promise<UserSettings> {
+  const db = useDB()
+
+  const settings = await db.query.userSettings.findFirst({
+    where: eq(schema.userSettings.visitorId, visitorId)
+  })
+
+  if (settings) {
+    return {
+      chatModel: settings.chatModel || DEFAULT_SETTINGS.chatModel,
+      preprocessingModel: settings.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
+      thinkingLevel: settings.thinkingLevel || DEFAULT_SETTINGS.thinkingLevel
+    }
+  }
+
+  return { ...DEFAULT_SETTINGS }
+}
+
+export async function updateUserSettings(
+  visitorId: string,
+  updates: Partial<UserSettings>
+): Promise<UserSettings> {
+  const db = useDB()
+
+  // Check if settings exist
+  const existing = await db.query.userSettings.findFirst({
+    where: eq(schema.userSettings.visitorId, visitorId)
+  })
+
+  if (existing) {
+    // Update existing settings
+    await db
+      .update(schema.userSettings)
+      .set({
+        chatModel: updates.chatModel ?? existing.chatModel,
+        preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel,
+        thinkingLevel: updates.thinkingLevel ?? existing.thinkingLevel
+      })
+      .where(eq(schema.userSettings.id, existing.id))
+
+    return {
+      chatModel: updates.chatModel ?? existing.chatModel ?? DEFAULT_SETTINGS.chatModel,
+      preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
+      thinkingLevel: updates.thinkingLevel ?? existing.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel
+    }
+  }
+
+  // Create new settings
+  const id = crypto.randomUUID()
+  const now = new Date()
+
+  await db.insert(schema.userSettings).values({
+    id,
+    visitorId,
+    chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
+    preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
+    thinkingLevel: updates.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel,
+    createdAt: now
+  })
+
+  return {
+    chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
+    preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
+    thinkingLevel: updates.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel
+  }
 }

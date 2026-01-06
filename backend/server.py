@@ -1711,6 +1711,462 @@ NONE"""
 
 
 # ============================================================
+# IMAGE PREPROCESSING PIPELINE (YOLOE + Rotations + Labels)
+# ============================================================
+
+class ImageData(BaseModel):
+    """Single image data for preprocessing."""
+    data: str  # base64 data (with or without data URL prefix)
+    mimeType: str = "image/jpeg"
+    name: Optional[str] = None
+
+
+class ImagePreprocessRequest(BaseModel):
+    """Request for preprocessing images with YOLOE detection and rotations."""
+    images: List[ImageData]
+    preprocessingModel: str = "gemini-flash-lite-latest"
+    thinkingLevel: str = "low"
+
+
+class LabelInfo(BaseModel):
+    """Metadata for a labeled image variant."""
+    imageIndex: int
+    label: str
+    type: str  # "rotation" or "crop"
+    rotation: Optional[int] = None
+
+
+class CropInfo(BaseModel):
+    """Crop information for an image."""
+    imageIndex: int
+    hasCrop: bool
+    boundingBox: Optional[dict] = None
+    confidence: Optional[float] = None
+    className: Optional[str] = None
+
+
+class ImageVariant(BaseModel):
+    """A single labeled image variant."""
+    data: str  # base64 JPEG
+    mimeType: str = "image/jpeg"
+    label: str
+    imageIndex: int
+    type: str  # "rotation" or "crop"
+    rotation: Optional[int] = None
+
+
+class TimingInfo(BaseModel):
+    """Timing information for preprocessing."""
+    totalMs: int
+    yoloeMs: Optional[int] = None
+    labelingMs: Optional[int] = None
+
+
+class ImagePreprocessResponse(BaseModel):
+    """Response from preprocessing endpoint."""
+    variants: List[ImageVariant]
+    labels: List[LabelInfo]
+    crops: List[CropInfo]
+    timing: TimingInfo
+
+
+class PreprocessingChoice(BaseModel):
+    """AI's choice for an image."""
+    imageIndex: int
+    rotation: int
+    useCrop: bool
+
+
+class SelectPreprocessingRequest(BaseModel):
+    """Request for AI to select preprocessing options."""
+    variants: List[ImageVariant]
+    labels: List[LabelInfo]
+    preprocessingModel: str = "gemini-flash-lite-latest"
+    thinkingLevel: str = "low"
+
+
+class SelectPreprocessingResponse(BaseModel):
+    """Response from AI selection."""
+    choices: List[PreprocessingChoice]
+    timing: int
+
+
+class ApplyPreprocessingRequest(BaseModel):
+    """Request to apply AI's preprocessing choices."""
+    images: List[ImageData]
+    choices: List[PreprocessingChoice]
+    crops: List[CropInfo]
+
+
+class ProcessedImage(BaseModel):
+    """A processed image after applying choices."""
+    data: str  # base64 JPEG
+    mimeType: str = "image/jpeg"
+    imageIndex: int
+    rotation: int
+    cropped: bool
+
+
+# System prompt for preprocessing AI
+PREPROCESSING_SYSTEM_PROMPT = """You are an image preprocessing assistant. Your job is to prepare images for another AI that will interpret them.
+
+You are given multiple labeled images. For each input image, you see:
+- "N: 0°" - Original orientation
+- "N: 90°" - Rotated 90° clockwise
+- "N: 180°" - Rotated 180°
+- "N: 270°" - Rotated 270° clockwise
+- "N: cropped" - Zoomed/cropped version (if available)
+
+Where N is the image number (1, 2, 3...).
+
+YOUR TASKS:
+1. For each image, determine the CORRECT rotation (which shows text/content right-side up and readable)
+2. For images with a cropped variant, decide if the crop IMPROVES readability:
+   - Choose crop=true if it zooms in on relevant content WITHOUT cutting off important information
+   - Choose crop=false if the crop cuts off relevant data, text, or context
+
+RESPOND WITH ONLY THIS JSON FORMAT:
+{
+  "choices": [
+    {"imageIndex": 1, "rotation": 0, "useCrop": false},
+    {"imageIndex": 2, "rotation": 90, "useCrop": true}
+  ]
+}
+
+IMPORTANT NOTES:
+- The cropped variant is shown UNROTATED - your rotation choice will be applied to it
+- Only recommend useCrop:true if it clearly helps focus on document content
+- When in doubt about crop, choose useCrop:false (keep original framing)
+- Rotation values must be exactly: 0, 90, 180, or 270"""
+
+
+# YOLOE service instance (lazy loaded)
+_yoloe_service = None
+
+
+def _get_yoloe_service():
+    """Get or create YOLOE service instance."""
+    global _yoloe_service
+    if _yoloe_service is None:
+        try:
+            from services.yoloe_service import YOLOEService
+            _yoloe_service = YOLOEService.get_instance()
+        except ImportError as e:
+            logger.warning(f"[YOLOE] Service not available: {e}")
+            return None
+    return _yoloe_service
+
+
+# Image labeling service instance
+_labeling_service = None
+
+
+def _get_labeling_service():
+    """Get or create image labeling service instance."""
+    global _labeling_service
+    if _labeling_service is None:
+        from services.image_labeling import ImageLabelingService
+        _labeling_service = ImageLabelingService()
+    return _labeling_service
+
+
+@app.post("/api/preprocess-images", response_model=ImagePreprocessResponse)
+async def preprocess_images(request: ImagePreprocessRequest):
+    """
+    Generate labeled rotation variants + crop for each input image.
+
+    For each image:
+    1. Resize to max 1080p if needed
+    2. Create 4 rotations (0°, 90°, 180°, 270°) with labels
+    3. Try to detect document with YOLOE and create cropped variant if found
+
+    Returns separate images (not composite) for Gemini multi-image support.
+    """
+    import time
+    from PIL import Image
+    from io import BytesIO
+    from services.image_labeling import base64_to_image, image_to_base64
+
+    start_time = time.time()
+    yoloe_time = 0
+    labeling_time = 0
+
+    labeler = _get_labeling_service()
+    yoloe = _get_yoloe_service()
+
+    variants = []
+    labels = []
+    crops = []
+
+    for idx, img_data in enumerate(request.images):
+        image_num = idx + 1
+
+        # Decode image
+        base64_data = img_data.data
+        if base64_data.startswith("data:"):
+            base64_data = base64_data.split(",", 1)[1]
+
+        image = base64_to_image(base64_data)
+
+        # Create labeled rotation variants
+        label_start = time.time()
+        rotation_variants = labeler.create_labeled_variants(image, image_num, max_size=1080)
+        labeling_time += (time.time() - label_start) * 1000
+
+        for labeled_img, metadata in rotation_variants:
+            variant_data = image_to_base64(labeled_img)
+            variants.append(ImageVariant(
+                data=variant_data,
+                mimeType="image/jpeg",
+                label=metadata["label"],
+                imageIndex=metadata["imageIndex"],
+                type=metadata["type"],
+                rotation=metadata.get("rotation")
+            ))
+            labels.append(LabelInfo(**metadata))
+
+        # Try to detect and crop document with YOLOE
+        crop_info = CropInfo(imageIndex=image_num, hasCrop=False)
+
+        if yoloe is not None:
+            try:
+                yoloe_start = time.time()
+                # Prepare image (EXIF + resize)
+                prepared_image = labeler.prepare_image(image, max_size=1080)
+                cropped, detection = yoloe.detect_and_crop(
+                    prepared_image,
+                    confidence_threshold=0.3,
+                    padding=10
+                )
+                yoloe_time += (time.time() - yoloe_start) * 1000
+
+                if cropped is not None and detection is not None:
+                    # Create labeled cropped variant
+                    label_start = time.time()
+                    labeled_crop, crop_metadata = labeler.create_cropped_variant(
+                        cropped, image_num, max_size=1080
+                    )
+                    labeling_time += (time.time() - label_start) * 1000
+
+                    crop_data = image_to_base64(labeled_crop)
+                    variants.append(ImageVariant(
+                        data=crop_data,
+                        mimeType="image/jpeg",
+                        label=crop_metadata["label"],
+                        imageIndex=crop_metadata["imageIndex"],
+                        type=crop_metadata["type"]
+                    ))
+                    labels.append(LabelInfo(**crop_metadata))
+
+                    crop_info = CropInfo(
+                        imageIndex=image_num,
+                        hasCrop=True,
+                        boundingBox=detection["boundingBox"],
+                        confidence=detection["confidence"],
+                        className=detection["className"]
+                    )
+
+            except Exception as e:
+                logger.warning(f"[Preprocess] YOLOE detection failed for image {image_num}: {e}")
+
+        crops.append(crop_info)
+
+    total_ms = int((time.time() - start_time) * 1000)
+
+    logger.info(f"[Preprocess] Generated {len(variants)} variants for {len(request.images)} images in {total_ms}ms (YOLOE: {int(yoloe_time)}ms, labeling: {int(labeling_time)}ms)")
+
+    return ImagePreprocessResponse(
+        variants=variants,
+        labels=labels,
+        crops=crops,
+        timing=TimingInfo(
+            totalMs=total_ms,
+            yoloeMs=int(yoloe_time) if yoloe_time > 0 else None,
+            labelingMs=int(labeling_time)
+        )
+    )
+
+
+@app.post("/api/select-preprocessing", response_model=SelectPreprocessingResponse)
+async def select_preprocessing(request: SelectPreprocessingRequest):
+    """
+    Send all image variants to AI for rotation + crop selection.
+
+    Uses configurable model and thinking level.
+    Returns AI's choices for each input image.
+    """
+    import time
+    from models import get_chat_model, increment_usage
+
+    start_time = time.time()
+
+    # Build multi-image message for Gemini
+    content = []
+
+    # Add all image variants
+    for variant in request.variants:
+        base64_data = variant.data
+        if base64_data.startswith("data:"):
+            base64_data = base64_data.split(",", 1)[1]
+
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{variant.mimeType};base64,{base64_data}"}
+        })
+
+    # Format labels for context
+    label_lines = ["Available image variants:"]
+    for label in request.labels:
+        label_lines.append(f"- {label.label} (type: {label.type})")
+    label_context = "\n".join(label_lines)
+
+    # Add text prompt
+    content.append({
+        "type": "text",
+        "text": f"{PREPROCESSING_SYSTEM_PROMPT}\n\n{label_context}"
+    })
+
+    # Get model with appropriate thinking level
+    model = get_chat_model(
+        provider="gemini",
+        model_name=request.preprocessingModel,
+        thinking_level=request.thinkingLevel
+    )
+
+    # Call model
+    message = HumanMessage(content=content)
+    result = await model.ainvoke([message])
+
+    # Track usage
+    increment_usage(request.preprocessingModel)
+
+    # Parse response
+    response_text = ""
+    if isinstance(result.content, list):
+        for block in result.content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                response_text = block.get("text", "")
+                break
+    else:
+        response_text = result.content.strip() if result.content else ""
+
+    # Extract JSON from response
+    choices = []
+    try:
+        # Try to find JSON in response
+        json_match = re.search(r'\{[\s\S]*"choices"[\s\S]*\}', response_text)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            for choice_data in parsed.get("choices", []):
+                choices.append(PreprocessingChoice(
+                    imageIndex=choice_data.get("imageIndex", 1),
+                    rotation=choice_data.get("rotation", 0),
+                    useCrop=choice_data.get("useCrop", False)
+                ))
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"[Select] Failed to parse AI response: {e}, raw: {response_text[:200]}")
+
+    # If parsing failed, create default choices (0° rotation, no crop)
+    if not choices:
+        # Get unique image indices
+        image_indices = sorted(set(label.imageIndex for label in request.labels))
+        for img_idx in image_indices:
+            choices.append(PreprocessingChoice(
+                imageIndex=img_idx,
+                rotation=0,
+                useCrop=False
+            ))
+        logger.warning(f"[Select] Using default choices for {len(image_indices)} images")
+
+    total_ms = int((time.time() - start_time) * 1000)
+    logger.info(f"[Select] AI selected preprocessing for {len(choices)} images in {total_ms}ms")
+
+    return SelectPreprocessingResponse(choices=choices, timing=total_ms)
+
+
+@app.post("/api/apply-preprocessing")
+async def apply_preprocessing(request: ApplyPreprocessingRequest):
+    """
+    Apply AI's rotation/crop choices to original images.
+
+    Returns processed images ready for final AI consumption.
+    """
+    import time
+    from PIL import Image, ImageOps
+    from io import BytesIO
+    from services.image_labeling import base64_to_image, image_to_base64
+
+    start_time = time.time()
+    labeler = _get_labeling_service()
+
+    processed = []
+
+    for choice in request.choices:
+        # Find original image
+        original_idx = choice.imageIndex - 1
+        if original_idx < 0 or original_idx >= len(request.images):
+            logger.warning(f"[Apply] Invalid image index: {choice.imageIndex}")
+            continue
+
+        img_data = request.images[original_idx]
+
+        # Decode image
+        base64_data = img_data.data
+        if base64_data.startswith("data:"):
+            base64_data = base64_data.split(",", 1)[1]
+
+        image = base64_to_image(base64_data)
+
+        # Prepare image (EXIF + resize)
+        image = labeler.prepare_image(image, max_size=1080)
+
+        # Apply rotation if needed
+        if choice.rotation != 0:
+            # Negative = clockwise rotation
+            image = image.rotate(-choice.rotation, expand=True)
+
+        # Apply crop if chosen
+        was_cropped = False
+        if choice.useCrop:
+            # Find crop info for this image
+            for crop in request.crops:
+                if crop.imageIndex == choice.imageIndex and crop.hasCrop and crop.boundingBox:
+                    bbox = crop.boundingBox
+                    w, h = image.size
+                    padding = 10
+                    x1 = max(0, int(bbox['x1']) - padding)
+                    y1 = max(0, int(bbox['y1']) - padding)
+                    x2 = min(w, int(bbox['x2']) + padding)
+                    y2 = min(h, int(bbox['y2']) + padding)
+
+                    # Note: We need to adjust bbox for rotation
+                    # For simplicity, re-detect on rotated image or use original bbox
+                    # For now, skip crop if rotation was applied (bbox won't match)
+                    if choice.rotation == 0:
+                        image = image.crop((x1, y1, x2, y2))
+                        was_cropped = True
+                    else:
+                        logger.debug(f"[Apply] Skipping crop for rotated image {choice.imageIndex}")
+                    break
+
+        # Convert to base64
+        result_data = image_to_base64(image)
+
+        processed.append(ProcessedImage(
+            data=result_data,
+            mimeType="image/jpeg",
+            imageIndex=choice.imageIndex,
+            rotation=choice.rotation,
+            cropped=was_cropped
+        ))
+
+    total_ms = int((time.time() - start_time) * 1000)
+    logger.info(f"[Apply] Processed {len(processed)} images in {total_ms}ms")
+
+    return {"processedImages": processed, "timing": total_ms}
+
+
+# ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 

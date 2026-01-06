@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 from ..keyboards import (
     build_chat_selection_keyboard,
     build_model_selection_keyboard,
+    build_settings_main_keyboard,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
 )
@@ -140,6 +141,25 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"🤖 **Seleccionar modelo de IA**\n\n"
         f"Modelo actual: {current_name}\n\n"
         "Selecciona un modelo:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /settings command - show all settings."""
+    visitor_id = f"telegram_{update.effective_user.id}"
+    backend = BackendService()
+
+    try:
+        settings = await backend.get_settings(visitor_id)
+    finally:
+        await backend.close()
+
+    keyboard = build_settings_main_keyboard(settings)
+    await update.message.reply_text(
+        "⚙️ **Configuración**\n\n"
+        "Selecciona una opción para modificar:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )

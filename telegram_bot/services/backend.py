@@ -526,3 +526,84 @@ class BackendService:
         except Exception as e:
             logger.error(f"[Rotation] Error rotating image: {e}")
             return image_bytes
+
+    # =========================================================================
+    # Settings Operations (synced with Frontend database)
+    # =========================================================================
+
+    async def get_settings(self, visitor_id: str) -> dict:
+        """Get user settings from Frontend API.
+
+        Args:
+            visitor_id: Unique visitor identifier (e.g., "telegram_123456")
+
+        Returns:
+            Dict with chatModel, preprocessingModel, thinkingLevel
+        """
+        try:
+            response = await self.client.get(
+                f"{FRONTEND_URL}/api/settings",
+                headers={**self._headers, "X-Visitor-Id": visitor_id}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"[Settings] Failed to get: {response.status_code}")
+                return {
+                    "chatModel": "gemini-3-flash-preview",
+                    "preprocessingModel": "gemini-flash-lite-latest",
+                    "thinkingLevel": "low"
+                }
+
+        except Exception as e:
+            logger.error(f"[Settings] Error getting settings: {e}")
+            return {
+                "chatModel": "gemini-3-flash-preview",
+                "preprocessingModel": "gemini-flash-lite-latest",
+                "thinkingLevel": "low"
+            }
+
+    async def update_settings(
+        self,
+        visitor_id: str,
+        chatModel: str = None,
+        preprocessingModel: str = None,
+        thinkingLevel: str = None
+    ) -> dict:
+        """Update user settings via Frontend API.
+
+        Args:
+            visitor_id: Unique visitor identifier (e.g., "telegram_123456")
+            chatModel: Optional new chat model
+            preprocessingModel: Optional new preprocessing model
+            thinkingLevel: Optional new thinking level
+
+        Returns:
+            Updated settings dict
+        """
+        try:
+            body = {}
+            if chatModel:
+                body["chatModel"] = chatModel
+            if preprocessingModel:
+                body["preprocessingModel"] = preprocessingModel
+            if thinkingLevel:
+                body["thinkingLevel"] = thinkingLevel
+
+            response = await self.client.post(
+                f"{FRONTEND_URL}/api/settings",
+                json=body,
+                headers={**self._headers, "X-Visitor-Id": visitor_id}
+            )
+
+            if response.status_code == 200:
+                logger.info(f"[Settings] Updated: {body}")
+                return response.json()
+            else:
+                logger.warning(f"[Settings] Failed to update: {response.status_code}")
+                return await self.get_settings(visitor_id)
+
+        except Exception as e:
+            logger.error(f"[Settings] Error updating settings: {e}")
+            return await self.get_settings(visitor_id)

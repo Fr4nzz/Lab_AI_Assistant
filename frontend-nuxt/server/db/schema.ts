@@ -76,3 +76,29 @@ export const filesRelations = relations(files, ({ one }) => ({
     references: [messages.id]
   })
 }))
+
+// User settings table - synced between frontend and telegram
+export const userSettings = sqliteTable('user_settings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  visitorId: text('visitor_id').unique(), // For anonymous users (frontend visitorId or telegram user_id)
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+
+  // Main chat model
+  chatModel: text('chat_model').default('gemini-3-flash-preview'),
+
+  // Preprocessing settings
+  preprocessingModel: text('preprocessing_model').default('gemini-flash-lite-latest'),
+  thinkingLevel: text('thinking_level').default('low'),
+
+  ...timestamps
+}, table => [
+  index('user_settings_visitor_id_idx').on(table.visitorId),
+  index('user_settings_user_id_idx').on(table.userId)
+])
+
+export const userSettingsRelations = relations(userSettings, ({ one }) => ({
+  user: one(users, {
+    fields: [userSettings.userId],
+    references: [users.id]
+  })
+}))

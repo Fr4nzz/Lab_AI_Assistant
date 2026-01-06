@@ -102,6 +102,23 @@ AVAILABLE_MODELS = {
 }
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
+# Preprocessing models
+PREPROCESSING_MODELS = {
+    "gemini-flash-lite-latest": "⚡ Gemini 2.5 Flash Lite (más rápido)",
+    "gemini-flash-latest": "✨ Gemini 2.5 Flash",
+    "gemini-3-flash-preview": "🧠 Gemini 3 Flash (mejor)",
+}
+DEFAULT_PREPROCESSING_MODEL = "gemini-flash-lite-latest"
+
+# Thinking levels
+THINKING_LEVELS = {
+    "none": "⚡ Ninguno (más rápido)",
+    "low": "💡 Bajo (predeterminado)",
+    "medium": "🧠 Medio",
+    "high": "✨ Alto (más detallado)",
+}
+DEFAULT_THINKING_LEVEL = "low"
+
 
 def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
     """Build keyboard for selecting AI model.
@@ -119,6 +136,71 @@ def build_model_selection_keyboard(current_model: str = None) -> InlineKeyboardM
         keyboard.append([
             InlineKeyboardButton(text, callback_data=f"model:{model_id}")
         ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_preprocessing_model_keyboard(current_model: str = None) -> InlineKeyboardMarkup:
+    """Build keyboard for selecting preprocessing model.
+
+    Args:
+        current_model: Currently selected preprocessing model ID
+    """
+    keyboard = []
+    for model_id, display_name in PREPROCESSING_MODELS.items():
+        # Add checkmark for current model
+        if model_id == current_model:
+            text = f"✓ {display_name}"
+        else:
+            text = f"   {display_name}"
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"preprocess:{model_id}")
+        ])
+    keyboard.append([InlineKeyboardButton("⬅️ Volver", callback_data="settings:back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_thinking_level_keyboard(current_level: str = None) -> InlineKeyboardMarkup:
+    """Build keyboard for selecting thinking level.
+
+    Args:
+        current_level: Currently selected thinking level
+    """
+    keyboard = []
+    for level_id, display_name in THINKING_LEVELS.items():
+        # Add checkmark for current level
+        if level_id == current_level:
+            text = f"✓ {display_name}"
+        else:
+            text = f"   {display_name}"
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"thinking:{level_id}")
+        ])
+    keyboard.append([InlineKeyboardButton("⬅️ Volver", callback_data="settings:back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_settings_main_keyboard(current_settings: dict = None) -> InlineKeyboardMarkup:
+    """Build main settings keyboard showing current values.
+
+    Args:
+        current_settings: Dict with chatModel, preprocessingModel, thinkingLevel
+    """
+    settings = current_settings or {}
+    chat_model = settings.get("chatModel", DEFAULT_MODEL)
+    preprocess_model = settings.get("preprocessingModel", DEFAULT_PREPROCESSING_MODEL)
+    thinking_level = settings.get("thinkingLevel", DEFAULT_THINKING_LEVEL)
+
+    # Get display names
+    chat_display = AVAILABLE_MODELS.get(chat_model, chat_model)
+    preprocess_display = PREPROCESSING_MODELS.get(preprocess_model, preprocess_model)
+    thinking_display = THINKING_LEVELS.get(thinking_level, thinking_level)
+
+    keyboard = [
+        [InlineKeyboardButton(f"🤖 Modelo: {chat_display}", callback_data="settings:model")],
+        [InlineKeyboardButton(f"🖼️ Preprocesado: {preprocess_display}", callback_data="settings:preprocess")],
+        [InlineKeyboardButton(f"💭 Nivel de pensamiento: {thinking_display}", callback_data="settings:thinking")],
+        [InlineKeyboardButton("✅ Cerrar", callback_data="settings:close")],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 

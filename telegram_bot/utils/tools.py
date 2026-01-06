@@ -37,6 +37,7 @@ TOOL_TRANSLATIONS = {
     # Image preprocessing tools
     "image-rotation": "🔄 Corrigiendo rotación",
     "document-segmentation": "📐 Detectando documento",
+    "image-preprocessing": "🖼️ Preprocesando imágenes",
 }
 
 

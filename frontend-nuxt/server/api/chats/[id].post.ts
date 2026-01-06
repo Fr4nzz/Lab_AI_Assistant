@@ -1,20 +1,19 @@
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
-import { getChat, addMessage, updateChatTitle } from '../../utils/db'
+import { getChat, addMessage, updateChatTitle, getUserSettings } from '../../utils/db'
 import { generateText } from 'ai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { getBestTitleModel } from '../../utils/openrouter-models'
 import { NuxtStreamAdapter, createStreamHeaders } from '../../utils/streamAdapter'
 import {
   extractImageParts,
-  processImagesForRotation,
-  replaceImageParts,
   type ImagePart
 } from '../../utils/imageRotation'
 import {
-  processImagesForSegmentation,
-  replaceWithSegmentedImages
-} from '../../utils/documentSegmentation'
+  processImagesWithPreprocessing,
+  buildPreprocessingToolOutput,
+  replaceWithProcessedImages
+} from '../../utils/preprocessing'
 
 defineRouteMeta({
   openAPI: {
@@ -287,15 +286,16 @@ function parseSSELine(line: string, collector: MessagePartsCollector): boolean {
   }
 }
 
-// Create stream that handles image rotation before proxying to backend
-async function createRotationAwareStream(
+// Create stream that handles image preprocessing (YOLOE + rotation) before proxying to backend
+async function createPreprocessingAwareStream(
   config: ReturnType<typeof useRuntimeConfig>,
   chatId: string,
   messages: any[],
   imageParts: ImagePart[],
   model: string | undefined,
   enabledTools: string[] | undefined,
-  showStats: boolean
+  showStats: boolean,
+  visitorId?: string
 ): Promise<ReadableStream> {
   const adapter = new NuxtStreamAdapter()
   const encoder = new TextEncoder()
@@ -310,117 +310,47 @@ async function createRotationAwareStream(
         // 1. Start the message
         controller.enqueue(encoder.encode(adapter.startMessage()))
 
-        // 2. Emit image-rotation tool start
-        const rotationToolCallId = `call_rotation_${randomUUID().slice(0, 8)}`
-        controller.enqueue(encoder.encode(adapter.toolStart(rotationToolCallId, 'image-rotation')))
+        // 2. Emit image-preprocessing tool start
+        const preprocessingToolCallId = `call_preprocessing_${randomUUID().slice(0, 8)}`
+        controller.enqueue(encoder.encode(adapter.toolStart(preprocessingToolCallId, 'image-preprocessing')))
 
         const toolInput = {
           images: imageParts.map(p => p.name || 'image'),
           count: imageParts.length
         }
-        controller.enqueue(encoder.encode(adapter.toolInputAvailable(rotationToolCallId, 'image-rotation', toolInput)))
+        controller.enqueue(encoder.encode(adapter.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)))
 
-        // Track the rotation tool in collector
-        collector.toolInputStart(rotationToolCallId, 'image-rotation')
-        collector.toolInputAvailable(rotationToolCallId, 'image-rotation', toolInput)
+        // Track the tool in collector
+        collector.toolInputStart(preprocessingToolCallId, 'image-preprocessing')
+        collector.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)
 
-        // 3. Process images for rotation
-        console.log(`[API/chat] Processing ${imageParts.length} images for rotation`)
-        const { results, processedImages } = await processImagesForRotation(imageParts)
+        // 3. Process images through preprocessing pipeline (YOLOE + rotations + AI selection)
+        console.log(`[API/chat] Processing ${imageParts.length} images through preprocessing pipeline`)
 
-        const rotatedCount = results.filter(r => r.applied).length
-        const detectedCount = results.filter(r => r.originalRotation !== 0).length
+        const preprocessResult = await processImagesWithPreprocessing(
+          backendUrl,
+          imageParts,
+          visitorId
+        )
 
-        // 4. Emit tool output with results (include thumbnail URLs for display)
-        const toolOutput: Record<string, unknown> = {
-          processed: results.length,
-          rotated: rotatedCount,
-          detected: detectedCount,
-          results: results.map((r, i) => {
-            const result: Record<string, unknown> = {
-              name: r.name,
-              rotation: r.originalRotation,
-              applied: r.applied
-            }
-            // Include thumbnail URL for rotated images (for display in LabTool)
-            if (r.applied && r.originalRotation !== 0) {
-              const processedImage = processedImages[i]
-              if (processedImage?.url) {
-                result.thumbnailUrl = processedImage.url
-                result.mediaType = processedImage.mediaType
-              }
-            }
-            return result
-          })
-        }
-        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(rotationToolCallId, toolOutput)))
-        collector.toolOutputAvailable(rotationToolCallId, toolOutput)
+        // 4. Emit tool output with results
+        const toolOutput = buildPreprocessingToolOutput(preprocessResult, imageParts)
+        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(preprocessingToolCallId, toolOutput)))
+        collector.toolOutputAvailable(preprocessingToolCallId, toolOutput)
 
-        // Note: File parts cannot be emitted as stream events (not valid in AI SDK protocol)
-        // The rotated image thumbnails are included in the tool output above
-
-        // 5. Replace images in the last message with rotated versions
+        // 5. Replace images in the last message with processed versions
         const lastMessage = messages[messages.length - 1]
         if (lastMessage?.parts) {
-          lastMessage.parts = replaceImageParts(lastMessage.parts, processedImages)
+          lastMessage.parts = replaceWithProcessedImages(lastMessage.parts, preprocessResult.processedImages)
         }
 
-        // 6. Document segmentation (SAM3/Gemini) - crop to focus on documents
-        const segmentationToolCallId = `call_segmentation_${randomUUID().slice(0, 8)}`
-        controller.enqueue(encoder.encode(adapter.toolStart(segmentationToolCallId, 'document-segmentation')))
+        const rotatedCount = preprocessResult.choices.filter(c => c.rotation !== 0).length
+        const croppedCount = preprocessResult.choices.filter(c => c.useCrop).length
 
-        const segmentationInput = {
-          images: processedImages.map(p => p.name || 'image'),
-          count: processedImages.length,
-          prompt: 'document'
-        }
-        controller.enqueue(encoder.encode(adapter.toolInputAvailable(segmentationToolCallId, 'document-segmentation', segmentationInput)))
-
-        collector.toolInputStart(segmentationToolCallId, 'document-segmentation')
-        collector.toolInputAvailable(segmentationToolCallId, 'document-segmentation', segmentationInput)
-
-        console.log(`[API/chat] Processing ${processedImages.length} images for document segmentation`)
-        const { results: segmentResults, processedImages: segmentedImages } = await processImagesForSegmentation(processedImages)
-
-        const segmentedCount = segmentResults.filter(r => r.segmented).length
-
-        const segmentationOutput: Record<string, unknown> = {
-          processed: segmentResults.length,
-          segmented: segmentedCount,
-          results: segmentResults.map((r, i) => {
-            const result: Record<string, unknown> = {
-              name: r.name,
-              segmented: r.segmented,
-              provider: r.provider
-            }
-            if (r.segmented) {
-              result.originalSize = r.originalSize
-              result.croppedSize = r.croppedSize
-              result.boundingBox = r.boundingBox
-              // Include thumbnail URL for segmented images
-              const segmentedImage = segmentedImages[i]
-              if (segmentedImage?.url) {
-                result.thumbnailUrl = segmentedImage.url
-                result.mediaType = segmentedImage.mediaType
-              }
-            } else {
-              result.reason = r.reason
-            }
-            return result
-          })
-        }
-        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(segmentationToolCallId, segmentationOutput)))
-        collector.toolOutputAvailable(segmentationToolCallId, segmentationOutput)
-
-        // 7. Replace images with segmented versions if applicable
-        if (lastMessage?.parts && segmentedCount > 0) {
-          lastMessage.parts = replaceWithSegmentedImages(lastMessage.parts, segmentedImages)
-        }
-
-        // 8. Convert and forward to backend
+        // 6. Convert and forward to backend
         const backendMessages = convertMessagesForBackend(messages)
 
-        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated, ${segmentedCount} segmented images`)
+        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated, ${croppedCount} cropped images (${preprocessResult.timing.totalMs}ms preprocessing)`)
 
         const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
           method: 'POST',
@@ -441,7 +371,7 @@ async function createRotationAwareStream(
           return
         }
 
-        // 9. Pipe backend stream, properly handling SSE format
+        // 7. Pipe backend stream, properly handling SSE format
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let skipStartEvent = true
@@ -580,18 +510,22 @@ export default defineEventHandler(async (event) => {
   // Check for images in the last user message
   const imageParts = lastMessage?.parts ? extractImageParts(lastMessage.parts) : []
 
-  // If we have images, use rotation-aware streaming
+  // If we have images, use preprocessing-aware streaming
   if (imageParts.length > 0) {
-    console.log(`[API/chat] Found ${imageParts.length} images, processing rotation`)
+    console.log(`[API/chat] Found ${imageParts.length} images, processing with YOLOE + rotation pipeline`)
 
-    const stream = await createRotationAwareStream(
+    // Get visitor ID for user settings lookup
+    const visitorId = getCookie(event, 'visitor_id') || undefined
+
+    const stream = await createPreprocessingAwareStream(
       config,
       chatId,
       messages,
       imageParts,
       model,
       enabledTools,
-      showStats
+      showStats,
+      visitorId
     )
 
     return new Response(stream, {

@@ -61,6 +61,16 @@ const toolInfo: Record<string, { label: string; icon: string; activeLabel: strin
     label: 'Corrección de orientación',
     activeLabel: 'Corrigiendo orientación de imágenes...',
     icon: 'i-lucide-rotate-cw'
+  },
+  'image-preprocessing': {
+    label: 'Preprocesamiento de imágenes',
+    activeLabel: 'Preprocesando imágenes...',
+    icon: 'i-lucide-image-plus'
+  },
+  'document-segmentation': {
+    label: 'Segmentación de documento',
+    activeLabel: 'Segmentando documento...',
+    icon: 'i-lucide-crop'
   }
 }
 
@@ -162,6 +172,30 @@ interface ImageRotationResult {
   results?: RotationResultItem[]
 }
 
+// Format image-preprocessing result for display
+interface PreprocessingResultItem {
+  name: string
+  rotation: number
+  useCrop: boolean
+  hasCrop: boolean
+  cropConfidence?: number
+  thumbnailUrl?: string
+  mediaType?: string
+}
+
+interface ImagePreprocessingResult {
+  processed?: number
+  rotated?: number
+  cropped?: number
+  timing?: {
+    preprocessMs: number
+    selectMs: number
+    applyMs: number
+    totalMs: number
+  }
+  results?: PreprocessingResultItem[]
+}
+
 // Extract rotated image thumbnails from image-rotation result
 const rotatedThumbnails = computed(() => {
   if (props.name !== 'image-rotation' || !props.result) return []
@@ -173,6 +207,21 @@ const rotatedThumbnails = computed(() => {
       name: r.name,
       url: r.thumbnailUrl!,
       rotation: r.rotation
+    }))
+})
+
+// Extract processed image thumbnails from image-preprocessing result
+const preprocessedThumbnails = computed(() => {
+  if (props.name !== 'image-preprocessing' || !props.result) return []
+  const result = props.result as ImagePreprocessingResult
+  if (!result.results) return []
+  return result.results
+    .filter(r => r.thumbnailUrl)
+    .map(r => ({
+      name: r.name,
+      url: r.thumbnailUrl!,
+      rotation: r.rotation,
+      cropped: r.useCrop
     }))
 })
 
@@ -199,6 +248,28 @@ function formatRotationResult(result: ImageRotationResult): string {
   return descriptions.join('; ')
 }
 
+function formatPreprocessingResult(result: ImagePreprocessingResult): string {
+  const parts: string[] = []
+
+  if (result.processed) {
+    parts.push(`${result.processed} imagen${result.processed > 1 ? 'es' : ''}`)
+  }
+
+  if (result.rotated && result.rotated > 0) {
+    parts.push(`${result.rotated} rotada${result.rotated > 1 ? 's' : ''}`)
+  }
+
+  if (result.cropped && result.cropped > 0) {
+    parts.push(`${result.cropped} recortada${result.cropped > 1 ? 's' : ''}`)
+  }
+
+  if (result.timing?.totalMs) {
+    parts.push(`${result.timing.totalMs}ms`)
+  }
+
+  return parts.join(', ') || 'Procesamiento completado'
+}
+
 // Format any tool result for display
 function formatResult(toolName: string, result: unknown): string {
   if (typeof result === 'string') {
@@ -207,6 +278,10 @@ function formatResult(toolName: string, result: unknown): string {
 
   if (toolName === 'image-rotation' && typeof result === 'object' && result !== null) {
     return formatRotationResult(result as ImageRotationResult)
+  }
+
+  if (toolName === 'image-preprocessing' && typeof result === 'object' && result !== null) {
+    return formatPreprocessingResult(result as ImagePreprocessingResult)
   }
 
   // For other object results, show a summary
@@ -308,6 +383,28 @@ function formatResult(toolName: string, result: unknown): string {
           >
           <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center">
             {{ thumb.rotation }}° corregido
+          </div>
+        </div>
+      </div>
+
+      <!-- Show preprocessed image thumbnails for image-preprocessing tool -->
+      <div v-if="preprocessedThumbnails.length > 0" class="mt-3 flex flex-wrap gap-2">
+        <div
+          v-for="thumb in preprocessedThumbnails"
+          :key="thumb.name"
+          class="relative group"
+        >
+          <img
+            :src="thumb.url"
+            :alt="thumb.name"
+            class="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity"
+            @click="showImageLightbox(thumb.url, thumb.name)"
+          >
+          <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center">
+            <template v-if="thumb.rotation !== 0 && thumb.cropped">{{ thumb.rotation }}° + recorte</template>
+            <template v-else-if="thumb.rotation !== 0">{{ thumb.rotation }}°</template>
+            <template v-else-if="thumb.cropped">recortada</template>
+            <template v-else>procesada</template>
           </div>
         </div>
       </div>

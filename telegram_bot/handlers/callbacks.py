@@ -10,9 +10,16 @@ from ..keyboards import (
     build_chat_selection_keyboard,
     build_photo_options_keyboard,
     build_model_selection_keyboard,
+    build_preprocessing_model_keyboard,
+    build_thinking_level_keyboard,
+    build_settings_main_keyboard,
     build_ask_user_keyboard,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
+    PREPROCESSING_MODELS,
+    DEFAULT_PREPROCESSING_MODEL,
+    THINKING_LEVELS,
+    DEFAULT_THINKING_LEVEL,
 )
 from ..services import BackendService, AskUserOptions
 from ..utils import build_chat_url
@@ -64,6 +71,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("audio:"):
         await handle_audio_action(query, context, data[6:])
+
+    elif data.startswith("settings:"):
+        await handle_settings_navigation(query, context, data[9:])
+
+    elif data.startswith("preprocess:"):
+        await handle_preprocessing_model_selection(query, context, data[11:])
+
+    elif data.startswith("thinking:"):
+        await handle_thinking_level_selection(query, context, data[9:])
 
 
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -304,14 +320,24 @@ async def handle_chat_selection(query, context: ContextTypes.DEFAULT_TYPE, short
 
 
 async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, model_id: str) -> None:
-    """Handle model selection from /model command."""
+    """Handle model selection from /model command or settings menu."""
     if model_id not in AVAILABLE_MODELS:
         await query.edit_message_text(f"❌ Modelo no válido: {model_id}")
         return
 
-    # Save selected model
+    # Save selected model locally and to backend
     context.user_data["model"] = model_id
     model_name = AVAILABLE_MODELS[model_id]
+
+    # Sync with backend settings API
+    visitor_id = f"telegram_{query.from_user.id}"
+    backend = BackendService()
+    try:
+        await backend.update_settings(visitor_id, chatModel=model_id)
+    except Exception as e:
+        logger.warning(f"Failed to sync model setting: {e}")
+    finally:
+        await backend.close()
 
     await query.edit_message_text(
         f"✅ Modelo cambiado a: {model_name}\n\n"
@@ -319,6 +345,129 @@ async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, mode
         parse_mode="Markdown"
     )
     logger.info(f"User selected model: {model_id}")
+
+
+async def handle_settings_navigation(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
+    """Handle settings menu navigation."""
+    visitor_id = f"telegram_{query.from_user.id}"
+    backend = BackendService()
+
+    try:
+        # Get current settings
+        settings = await backend.get_settings(visitor_id)
+
+        if action == "back":
+            # Go back to main settings menu
+            keyboard = build_settings_main_keyboard(settings)
+            await query.edit_message_text(
+                "⚙️ *Configuración*\n\n"
+                "Selecciona una opción para modificar:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+        elif action == "model":
+            # Show model selection
+            current_model = settings.get("chatModel", DEFAULT_MODEL)
+            keyboard = build_model_selection_keyboard(current_model)
+            await query.edit_message_text(
+                "🤖 *Seleccionar modelo de chat*\n\n"
+                "Elige el modelo para las conversaciones:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+        elif action == "preprocess":
+            # Show preprocessing model selection
+            current = settings.get("preprocessingModel", DEFAULT_PREPROCESSING_MODEL)
+            keyboard = build_preprocessing_model_keyboard(current)
+            await query.edit_message_text(
+                "🖼️ *Modelo de preprocesamiento*\n\n"
+                "Se usa para detectar rotación y recortar imágenes:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+        elif action == "thinking":
+            # Show thinking level selection
+            current = settings.get("thinkingLevel", DEFAULT_THINKING_LEVEL)
+            keyboard = build_thinking_level_keyboard(current)
+            await query.edit_message_text(
+                "💭 *Nivel de pensamiento*\n\n"
+                "Controla qué tan profundo analiza el modelo:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+        elif action == "close":
+            # Close settings menu
+            await query.edit_message_text(
+                "✅ Configuración guardada.",
+                parse_mode="Markdown"
+            )
+
+    finally:
+        await backend.close()
+
+
+async def handle_preprocessing_model_selection(query, context: ContextTypes.DEFAULT_TYPE, model_id: str) -> None:
+    """Handle preprocessing model selection."""
+    if model_id not in PREPROCESSING_MODELS:
+        await query.edit_message_text(f"❌ Modelo no válido: {model_id}")
+        return
+
+    visitor_id = f"telegram_{query.from_user.id}"
+    backend = BackendService()
+
+    try:
+        # Update settings
+        await backend.update_settings(visitor_id, preprocessingModel=model_id)
+        settings = await backend.get_settings(visitor_id)
+
+        # Show updated main settings menu
+        keyboard = build_settings_main_keyboard(settings)
+        model_name = PREPROCESSING_MODELS[model_id]
+
+        await query.edit_message_text(
+            f"✅ Modelo de preprocesamiento: {model_name}\n\n"
+            "⚙️ *Configuración*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"User selected preprocessing model: {model_id}")
+
+    finally:
+        await backend.close()
+
+
+async def handle_thinking_level_selection(query, context: ContextTypes.DEFAULT_TYPE, level_id: str) -> None:
+    """Handle thinking level selection."""
+    if level_id not in THINKING_LEVELS:
+        await query.edit_message_text(f"❌ Nivel no válido: {level_id}")
+        return
+
+    visitor_id = f"telegram_{query.from_user.id}"
+    backend = BackendService()
+
+    try:
+        # Update settings
+        await backend.update_settings(visitor_id, thinkingLevel=level_id)
+        settings = await backend.get_settings(visitor_id)
+
+        # Show updated main settings menu
+        keyboard = build_settings_main_keyboard(settings)
+        level_name = THINKING_LEVELS[level_id]
+
+        await query.edit_message_text(
+            f"✅ Nivel de pensamiento: {level_name}\n\n"
+            "⚙️ *Configuración*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"User selected thinking level: {level_id}")
+
+    finally:
+        await backend.close()
 
 
 async def handle_ask_user_option(query, context: ContextTypes.DEFAULT_TYPE, option_index: str) -> None:
