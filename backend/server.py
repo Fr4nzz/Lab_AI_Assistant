@@ -2060,14 +2060,13 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
 
     thinking_kwargs = {}
     if is_gemini_3:
-        # Map preprocessing levels to Gemini 3 thinking levels
-        level_map = {'none': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high'}
+        # Gemini 3 uses thinkingLevel: minimal, low, medium, high
+        level_map = {'minimal': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high'}
         thinking_kwargs['thinking_level'] = level_map.get(request.thinkingLevel, 'low')
     else:
-        # Map preprocessing levels to Gemini 2.5 thinking budget
-        # none=0 (disable), low/medium/high=-1 (dynamic)
-        budget_map = {'none': 0, 'low': -1, 'medium': -1, 'high': -1}
-        thinking_kwargs['thinking_budget'] = budget_map.get(request.thinkingLevel, -1)
+        # Gemini 2.5 uses thinkingBudget: 0 (off), -1 (dynamic)
+        budget_map = {'off': 0, 'dynamic': -1}
+        thinking_kwargs['thinking_budget'] = budget_map.get(request.thinkingLevel, 0)
 
     model = get_chat_model(
         provider="gemini",

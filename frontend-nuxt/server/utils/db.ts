@@ -318,7 +318,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',
   preprocessingModel: 'gemini-flash-lite-latest',
-  preprocessingThinkingLevel: 'low'
+  preprocessingThinkingLevel: 'off'  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
 }
 
 export async function getUserSettings(visitorId: string): Promise<UserSettings> {

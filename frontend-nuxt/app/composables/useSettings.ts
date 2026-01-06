@@ -32,19 +32,35 @@ export const PREPROCESSING_MODELS = [
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (best)', icon: 'i-lucide-brain' }
 ]
 
-// Thinking levels for preprocessing (simplified)
-export const PREPROCESSING_THINKING_LEVELS = [
-  { id: 'none', name: 'None (fastest)', icon: 'i-lucide-zap' },
+// Thinking levels for Gemini 3 preprocessing (uses thinkingLevel)
+export const PREPROCESSING_THINKING_LEVELS_G3 = [
+  { id: 'minimal', name: 'Minimal (fastest)', icon: 'i-lucide-zap' },
   { id: 'low', name: 'Low (default)', icon: 'i-lucide-lightbulb' },
   { id: 'medium', name: 'Medium', icon: 'i-lucide-brain' },
   { id: 'high', name: 'High (most thorough)', icon: 'i-lucide-sparkles' }
 ]
 
+// Thinking options for Gemini 2.5 preprocessing (uses thinkingBudget: 0=off, -1=dynamic)
+export const PREPROCESSING_THINKING_LEVELS_G25 = [
+  { id: 'off', name: 'Off (no thinking)', icon: 'i-lucide-zap-off' },
+  { id: 'dynamic', name: 'Dynamic', icon: 'i-lucide-sparkles' }
+]
+
+// Get preprocessing thinking levels for a specific model
+export function getPreprocessingThinkingLevels(modelId: string) {
+  return isGemini3Model(modelId) ? PREPROCESSING_THINKING_LEVELS_G3 : PREPROCESSING_THINKING_LEVELS_G25
+}
+
+// Get default preprocessing thinking level for a model
+export function getDefaultPreprocessingThinkingLevel(modelId: string): string {
+  return isGemini3Model(modelId) ? 'low' : 'off'
+}
+
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',  // Default for Gemini 3 Flash
   preprocessingModel: 'gemini-flash-lite-latest',
-  preprocessingThinkingLevel: 'low'
+  preprocessingThinkingLevel: 'off'  // Default for Gemini 2.5 (thinkingBudget: 0)
 }
 
 // Helper to check if model is Gemini 3
@@ -161,9 +177,15 @@ export function useSettings() {
     PREPROCESSING_MODELS.find(m => m.id === settings.value.preprocessingModel) || PREPROCESSING_MODELS[0]
   )
 
-  const currentPreprocessingThinkingLevel = computed(() =>
-    PREPROCESSING_THINKING_LEVELS.find(l => l.id === settings.value.preprocessingThinkingLevel) || PREPROCESSING_THINKING_LEVELS[1]
+  // Preprocessing thinking levels - changes based on selected preprocessing model
+  const availablePreprocessingThinkingLevels = computed(() =>
+    getPreprocessingThinkingLevels(settings.value.preprocessingModel)
   )
+
+  const currentPreprocessingThinkingLevel = computed(() => {
+    const levels = getPreprocessingThinkingLevels(settings.value.preprocessingModel)
+    return levels.find(l => l.id === settings.value.preprocessingThinkingLevel) || levels[0]
+  })
 
   return {
     settings,
@@ -180,13 +202,13 @@ export function useSettings() {
     availableThinkingLevels,
     currentMainThinkingLevel,
     currentPreprocessingModel,
+    availablePreprocessingThinkingLevels,
     currentPreprocessingThinkingLevel,
     isGemini3Model,
     getThinkingLevelsForModel,
     getDefaultThinkingLevel,
     CHAT_MODELS,
     PREPROCESSING_MODELS,
-    PREPROCESSING_THINKING_LEVELS,
     GEMINI_3_THINKING_LEVELS,
     GEMINI_25_THINKING_LEVELS
   }

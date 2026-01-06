@@ -12,9 +12,9 @@ const {
   currentMainThinkingLevel,
   currentPreprocessingModel,
   currentPreprocessingThinkingLevel,
+  availablePreprocessingThinkingLevels,
   CHAT_MODELS,
-  PREPROCESSING_MODELS,
-  PREPROCESSING_THINKING_LEVELS
+  PREPROCESSING_MODELS
 } = useSettings()
 
 // Load settings on mount
@@ -42,7 +42,8 @@ const preprocessingModelItems = computed(() => PREPROCESSING_MODELS.map(m => ({
   icon: m.icon
 })))
 
-const preprocessingThinkingLevelItems = computed(() => PREPROCESSING_THINKING_LEVELS.map(l => ({
+// Preprocessing thinking levels - changes based on selected preprocessing model
+const preprocessingThinkingLevelItems = computed(() => availablePreprocessingThinkingLevels.value.map(l => ({
   label: l.name,
   value: l.id,
   icon: l.icon
