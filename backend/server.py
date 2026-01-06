@@ -1816,17 +1816,15 @@ class ProcessedImage(BaseModel):
 # Static prefix for prompt caching - DO NOT MODIFY without considering cache invalidation
 PREPROCESSING_PROMPT_PREFIX = """You are an image preprocessing assistant. Prepare images for another AI.
 
-For each original image, you see labeled variants:
-- "N: 0°" - Original orientation
-- "N: 90°" - Rotated 90° clockwise
-- "N: 180°" - Rotated 180°
-- "N: 270°" - Rotated 270° clockwise
-- "N: cropped" - Zoomed version (if available)
+For each image N, you see:
+- ROTATION OPTIONS: "N: 0°", "N: 90°", "N: 180°", "N: 270°" - pick which shows text upright
+- CROP COMPARISON (if available): side-by-side showing "N: Crop=False" (left) vs "N: Crop=True" (right)
 
-Where N is the image number. All variants with same N are the SAME original image.
+ROTATION: Choose the angle where text/content appears right-side up and readable.
 
-For each image, pick which rotation shows content upright and readable.
-For cropped variant, use it only if it improves readability without cutting important content."""
+CROP DECISION: If a crop comparison is shown, compare left vs right:
+- Crop=True if the right side zooms in for EASIER READING while keeping all important content
+- Crop=False if the right side cuts off important text, data, or context"""
 
 
 def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
@@ -1942,14 +1940,14 @@ async def preprocess_images(request: ImagePreprocessRequest):
                 yoloe_time += (time.time() - yoloe_start) * 1000
 
                 if cropped is not None and detection is not None:
-                    # Create labeled cropped variant
+                    # Create side-by-side comparison: original vs cropped
                     label_start = time.time()
-                    labeled_crop, crop_metadata = labeler.create_cropped_variant(
-                        cropped, image_num, max_size=1080
+                    comparison_img, crop_metadata = labeler.create_crop_comparison(
+                        prepared_image, cropped, image_num, max_size=1080
                     )
                     labeling_time += (time.time() - label_start) * 1000
 
-                    crop_data = image_to_base64(labeled_crop)
+                    crop_data = image_to_base64(comparison_img)
                     variants.append(ImageVariant(
                         data=crop_data,
                         mimeType="image/jpeg",

@@ -225,6 +225,81 @@ class ImageLabelingService:
 
         return variants
 
+    def create_crop_comparison(
+        self,
+        original_image: Image.Image,
+        cropped_image: Image.Image,
+        image_index: int,
+        max_size: int = 1080
+    ) -> Tuple[Image.Image, dict]:
+        """
+        Create side-by-side comparison of original vs cropped for AI decision.
+
+        Left side: Original (Crop=False)
+        Right side: Cropped (Crop=True)
+
+        Args:
+            original_image: Original PIL Image (already prepared)
+            cropped_image: Cropped PIL Image
+            image_index: 1-based index for labeling
+            max_size: Maximum dimension for each side
+
+        Returns:
+            (comparison_image, metadata) tuple
+        """
+        # Resize both to fit in comparison
+        half_max = max_size // 2
+        original_resized = self.resize_if_needed(original_image.copy(), half_max)
+        cropped_resized = self.resize_if_needed(cropped_image, half_max)
+
+        # Ensure RGB
+        if original_resized.mode != 'RGB':
+            original_resized = original_resized.convert('RGB')
+        if cropped_resized.mode != 'RGB':
+            cropped_resized = cropped_resized.convert('RGB')
+
+        # Make both same height for clean side-by-side
+        max_height = max(original_resized.height, cropped_resized.height)
+
+        # Create canvas for side-by-side
+        gap = 10  # Gap between images
+        total_width = original_resized.width + cropped_resized.width + gap
+
+        # Add space for labels at top
+        font_size = self._calculate_font_size(max_height)
+        label_height = font_size + self.LABEL_PADDING * 2
+
+        canvas = Image.new('RGB', (total_width, max_height + label_height), (255, 255, 255))
+
+        # Draw labels
+        draw = ImageDraw.Draw(canvas)
+        font = self._get_font(font_size)
+
+        # Left label: "N: Crop=False"
+        left_label = f"{image_index}: Crop=False"
+        left_bbox = draw.textbbox((0, 0), left_label, font=font)
+        left_text_x = (original_resized.width - (left_bbox[2] - left_bbox[0])) // 2
+        draw.text((left_text_x, self.LABEL_PADDING), left_label, fill=self.LABEL_TEXT_COLOR, font=font)
+
+        # Right label: "N: Crop=True"
+        right_label = f"{image_index}: Crop=True"
+        right_bbox = draw.textbbox((0, 0), right_label, font=font)
+        right_text_x = original_resized.width + gap + (cropped_resized.width - (right_bbox[2] - right_bbox[0])) // 2
+        draw.text((right_text_x, self.LABEL_PADDING), right_label, fill=self.LABEL_TEXT_COLOR, font=font)
+
+        # Paste images below labels
+        y_offset = label_height
+        canvas.paste(original_resized, (0, y_offset))
+        canvas.paste(cropped_resized, (original_resized.width + gap, y_offset))
+
+        metadata = {
+            "imageIndex": image_index,
+            "label": f"{image_index}: crop comparison",
+            "type": "crop_comparison"
+        }
+
+        return canvas, metadata
+
     def create_cropped_variant(
         self,
         cropped_image: Image.Image,
