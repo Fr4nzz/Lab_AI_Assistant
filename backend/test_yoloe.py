@@ -50,7 +50,7 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
         sys.exit(1)
 
     # Load model (will auto-download if not present)
-    model_name = "yoloe-11s-seg.pt"
+    model_name = "yoloe-11l-seg.pt"  # L = Large model for better accuracy
     print(f"\nLoading model: {model_name}")
     print("  (Will auto-download on first use - no token required)")
 
