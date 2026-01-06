@@ -1824,18 +1824,10 @@ YOUR TASKS:
 1. For each original image, determine which rotation shows text/content right-side up and readable
 2. For images with a cropped variant, decide if crop IMPROVES readability (doesn't cut off important info)
 
-RESPONSE FORMAT - Return ONLY valid JSON:
-{
-  "choices": [
-    {"imageIndex": 1, "rotation": 0, "useCrop": false}
-  ]
-}
-
-RULES:
-- Return exactly ONE choice per original image
-- Rotation values must be exactly: 0, 90, 180, or 270
-- useCrop: true only if crop helps without cutting important content
-- When in doubt about crop, use false"""
+RESPONSE: Return ONLY a JSON object with a "choices" array containing one object per image:
+- imageIndex: integer (the image number N)
+- rotation: integer (0, 90, 180, or 270 - whichever variant shows content upright)
+- useCrop: boolean (true only if crop improves readability without cutting important content)"""
 
 
 def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
