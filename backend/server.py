@@ -2001,11 +2001,18 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
 
     start_time = time.time()
 
+    # Create/clear debug folder for AI input images
+    import shutil
+    debug_dir = Path(__file__).parent / "debug_images"
+    if debug_dir.exists():
+        shutil.rmtree(debug_dir)
+    debug_dir.mkdir(exist_ok=True)
+
     # Build multi-image message for Gemini
     content = []
 
-    # Add all image variants
-    for variant in request.variants:
+    # Add all image variants and save to debug folder
+    for i, variant in enumerate(request.variants):
         base64_data = variant.data
         if base64_data.startswith("data:"):
             base64_data = base64_data.split(",", 1)[1]
@@ -2014,6 +2021,19 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
             "type": "image_url",
             "image_url": {"url": f"data:{variant.mimeType};base64,{base64_data}"}
         })
+
+        # Save variant to debug folder (what AI sees)
+        try:
+            label = request.labels[i].label if i < len(request.labels) else f"variant_{i}"
+            # Clean label for filename: "1: 0°" -> "1_0deg"
+            safe_label = label.replace(": ", "_").replace("°", "deg").replace(" ", "_")
+            debug_filename = f"input_{safe_label}.jpg"
+
+            import base64 as b64
+            img_bytes = b64.b64decode(base64_data)
+            (debug_dir / debug_filename).write_bytes(img_bytes)
+        except Exception as e:
+            logger.debug(f"[Select] Failed to save debug image: {e}")
 
     # Get unique image indices to tell AI exactly how many images to process
     image_indices = sorted(set(label.imageIndex for label in request.labels))
@@ -2115,7 +2135,6 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
     Also saves processed images to debug folder for inspection.
     """
     import time
-    import shutil
     from PIL import Image, ImageOps
     from io import BytesIO
     from services.image_labeling import base64_to_image, image_to_base64
@@ -2123,10 +2142,8 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
     start_time = time.time()
     labeler = _get_labeling_service()
 
-    # Create/clear debug folder for last chat's images
+    # Debug folder (already created by select_preprocessing with input images)
     debug_dir = Path(__file__).parent / "debug_images"
-    if debug_dir.exists():
-        shutil.rmtree(debug_dir)
     debug_dir.mkdir(exist_ok=True)
 
     processed = []
@@ -2182,8 +2199,8 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
         # Convert to base64
         result_data = image_to_base64(image)
 
-        # Save to debug folder
-        debug_filename = f"img{choice.imageIndex}_rot{choice.rotation}_crop{was_cropped}.jpg"
+        # Save to debug folder (output after AI's choice applied)
+        debug_filename = f"output_{choice.imageIndex}_rot{choice.rotation}deg_crop{was_cropped}.jpg"
         try:
             image.save(debug_dir / debug_filename, "JPEG", quality=90)
             logger.info(f"[Apply] Saved debug image: {debug_filename}")
