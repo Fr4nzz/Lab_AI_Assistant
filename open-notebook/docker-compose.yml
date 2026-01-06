@@ -102,7 +102,7 @@ services:
 
   # Speaches TTS for podcast generation (Kokoro model - GPU accelerated)
   speaches:
-    image: ghcr.io/speaches-ai/speaches:v0.6.0-cuda
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
     container_name: open-notebook-speaches
     ports:
       - "8969:8000"
