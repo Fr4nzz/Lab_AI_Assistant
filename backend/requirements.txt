@@ -29,3 +29,4 @@ openpyxl>=3.1.0
 # Image segmentation (SAM3)
 ultralytics>=8.3.237
 pillow>=10.0.0
+huggingface_hub>=0.20.0

@@ -9,14 +9,99 @@ Examples:
     python test_sam3.py photo.jpg
     python test_sam3.py photo.jpg --prompt "notebook"
     python test_sam3.py photo.jpg --prompt "document" --output cropped.jpg
+
+Environment:
+    HF_TOKEN: Hugging Face token for downloading SAM3 model (in .env file)
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from dotenv import load_dotenv
+
+# Load .env from parent directory
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+
+def download_sam3_model(target_path: Path) -> bool:
+    """Download SAM3 model from Hugging Face."""
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+
+    if not hf_token:
+        print("✗ No Hugging Face token found!")
+        print("\nTo enable auto-download, add to your .env file:")
+        print("  HF_TOKEN=hf_your_token_here")
+        print("\nGet your token at: https://huggingface.co/settings/tokens")
+        return False
+
+    try:
+        from huggingface_hub import hf_hub_download
+        print("✓ huggingface_hub available")
+    except ImportError:
+        print("✗ huggingface_hub not installed")
+        print("\nInstall it with:")
+        print("  pip install huggingface_hub")
+        return False
+
+    print(f"\nDownloading SAM3 model from Hugging Face...")
+    print("  Repository: facebook/sam3")
+    print("  This may take a few minutes...")
+
+    try:
+        # Create target directory if needed
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Download the model
+        downloaded_path = hf_hub_download(
+            repo_id="facebook/sam3",
+            filename="sam3.pt",
+            token=hf_token,
+            local_dir=target_path.parent,
+            local_dir_use_symlinks=False
+        )
+
+        print(f"✓ Model downloaded to: {downloaded_path}")
+        return True
+
+    except Exception as e:
+        print(f"✗ Download failed: {e}")
+        print("\nMake sure you have:")
+        print("  1. Accepted the license at: https://huggingface.co/facebook/sam3")
+        print("  2. A valid HF_TOKEN in your .env file")
+        return False
+
+
+def get_model_path() -> Path:
+    """Find or download SAM3 model weights."""
+    # Check for model weights in order of preference
+    model_paths = [
+        Path(__file__).parent / "models" / "sam3.pt",
+        Path("sam3.pt"),
+        Path.home() / ".ultralytics" / "sam3.pt",
+    ]
+
+    for path in model_paths:
+        if path.exists():
+            return path
+
+    # Model not found, try to download
+    print("SAM3 model not found locally.")
+    print("\nSearched in:")
+    for path in model_paths:
+        print(f"  - {path}")
+
+    # Try to download to the first location (backend/models/)
+    target_path = model_paths[0]
+    print(f"\nAttempting to download to: {target_path}")
+
+    if download_sam3_model(target_path):
+        return target_path
+
+    return None
 
 
 def test_sam3(input_path: str, prompt: str = "document", output_path: str = None):
@@ -47,27 +132,15 @@ def test_sam3(input_path: str, prompt: str = "document", output_path: str = None
         print("  pip install -U ultralytics")
         sys.exit(1)
 
-    # Check for model weights
-    model_paths = [
-        Path(__file__).parent / "models" / "sam3.pt",
-        Path("sam3.pt"),
-        Path.home() / ".ultralytics" / "sam3.pt",
-    ]
-
-    model_path = None
-    for path in model_paths:
-        if path.exists():
-            model_path = path
-            break
+    # Get model path (downloads if needed)
+    model_path = get_model_path()
 
     if model_path is None:
-        print("✗ SAM3 model weights not found!")
-        print("\nSearched in:")
-        for path in model_paths:
-            print(f"  - {path}")
-        print("\nTo download SAM3 weights:")
+        print("\n✗ Could not find or download SAM3 model")
+        print("\nManual download:")
         print("  1. Request access at: https://huggingface.co/facebook/sam3")
-        print("  2. Download sam3.pt and place it in one of the above locations")
+        print("  2. Download sam3.pt")
+        print("  3. Place it in: backend/models/sam3.pt")
         sys.exit(1)
 
     print(f"✓ Model found: {model_path}")

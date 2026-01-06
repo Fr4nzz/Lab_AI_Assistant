@@ -1369,10 +1369,47 @@ class DocumentSegmentationRequest(BaseModel):
 _sam3_predictor = None
 
 
+def _download_sam3_model(target_path: Path) -> bool:
+    """Download SAM3 model from Hugging Face using HF_TOKEN from environment."""
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+
+    if not hf_token:
+        logger.warning("[SAM3] No HF_TOKEN found in environment. Cannot auto-download model.")
+        return False
+
+    try:
+        from huggingface_hub import hf_hub_download
+
+        logger.info("[SAM3] Downloading model from HuggingFace (facebook/sam3)...")
+
+        # Create target directory if needed
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Download the model
+        downloaded_path = hf_hub_download(
+            repo_id="facebook/sam3",
+            filename="sam3.pt",
+            token=hf_token,
+            local_dir=target_path.parent,
+            local_dir_use_symlinks=False
+        )
+
+        logger.info(f"[SAM3] Model downloaded to: {downloaded_path}")
+        return True
+
+    except ImportError:
+        logger.error("[SAM3] huggingface_hub not installed. Run: pip install huggingface_hub")
+        return False
+    except Exception as e:
+        logger.error(f"[SAM3] Download failed: {e}")
+        logger.error("[SAM3] Make sure you have accepted the license at: https://huggingface.co/facebook/sam3")
+        return False
+
+
 def _get_sam3_predictor():
     """
     Lazy load SAM3 predictor to avoid startup delay.
-    SAM3 model weights must be downloaded from HuggingFace.
+    Auto-downloads model from HuggingFace if HF_TOKEN is set in environment.
     """
     global _sam3_predictor
     if _sam3_predictor is not None:
@@ -1388,8 +1425,13 @@ def _get_sam3_predictor():
             sam3_path = Path("sam3.pt")
 
         if not sam3_path.exists():
-            logger.warning("[SAM3] Model weights not found. Download from HuggingFace: https://huggingface.co/facebook/sam3")
-            return None
+            # Try to auto-download
+            target_path = Path(__file__).parent / "models" / "sam3.pt"
+            if _download_sam3_model(target_path):
+                sam3_path = target_path
+            else:
+                logger.warning("[SAM3] Model not found. Add HF_TOKEN to .env for auto-download, or download manually from: https://huggingface.co/facebook/sam3")
+                return None
 
         logger.info(f"[SAM3] Loading model from {sam3_path}...")
         overrides = dict(
