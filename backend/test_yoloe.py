@@ -6,24 +6,31 @@ YOLOE supports TEXT PROMPTS like SAM3, allowing detection of any object by name.
 No tokens required - models auto-download on first use.
 
 Usage:
-    python test_yoloe.py <input_image> [--prompt "document"] [--output output.jpg]
+    python test_yoloe.py <input_image> [--prompt "document"] [--cpu]
 
 Examples:
     python test_yoloe.py photo.jpg --prompt "document"
-    python test_yoloe.py photo.jpg --prompt "notebook"
-    python test_yoloe.py photo.jpg --prompt "paper" --output cropped.jpg
-    python test_yoloe.py photo.jpg --prompt "document,person,laptop"  # Multiple classes
+    python test_yoloe.py photo.jpg --prompt "document,paper,notebook" --cpu
+    python test_yoloe.py photo.jpg --prompt "document" --output cropped.jpg
+
+How multiple prompts work:
+    - All prompts are processed in a SINGLE inference pass
+    - Each detected object is assigned the BEST matching class from your prompts
+    - You won't get duplicate detections - each object is labeled once
+    - Example: "document,paper" might label some as "document" and others as "paper"
 """
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageOps
 
 
-def test_yoloe(input_path: str, prompt: str = "document", output_path: str = None, save_crop: bool = True):
+def test_yoloe(input_path: str, prompt: str = "document", output_path: str = None,
+               save_crop: bool = True, force_cpu: bool = False):
     """Test YOLOE segmentation with text prompts."""
 
     # Check input file exists
@@ -35,8 +42,12 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
     # Parse prompts (can be comma-separated)
     prompts = [p.strip() for p in prompt.split(",")]
 
+    # Device selection
+    device = "cpu" if force_cpu else "0"  # "0" = first GPU
+
     print(f"Input: {input_path}")
     print(f"Prompts: {prompts}")
+    print(f"Device: {'CPU (forced)' if force_cpu else 'Auto (GPU if available)'}")
     print("-" * 60)
 
     # Try to import YOLOE
@@ -55,8 +66,10 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
     print("  (Will auto-download on first use - no token required)")
 
     try:
+        load_start = time.time()
         model = YOLOE(model_name)
-        print(f"✓ Model loaded: {model_name}")
+        load_time = time.time() - load_start
+        print(f"✓ Model loaded: {model_name} ({load_time:.2f}s)")
     except Exception as e:
         print(f"✗ Failed to load model: {e}")
         import traceback
@@ -81,9 +94,11 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
     print(f"{'='*60}")
 
     try:
-        results = model.predict(input_path, verbose=False)
+        inference_start = time.time()
+        results = model.predict(input_path, device=device, verbose=False)
+        inference_time = time.time() - inference_start
         result = results[0]
-        print("✓ Inference complete")
+        print(f"✓ Inference complete ({inference_time:.2f}s)")
     except Exception as e:
         print(f"✗ Inference failed: {e}")
         import traceback
@@ -205,8 +220,28 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
     if result.boxes is not None and len(result.boxes) > 0:
         print(f"  ✓ Detected {len(result.boxes)} object(s) matching prompts: {prompts}")
         print(f"  ✓ YOLOE works with text prompts - no predefined classes!")
+
+        # Show class distribution if multiple prompts
+        if len(prompts) > 1:
+            names = result.names if hasattr(result, 'names') else {i: p for i, p in enumerate(prompts)}
+            class_counts = {}
+            for cls in result.boxes.cls.cpu().numpy():
+                class_name = names.get(int(cls), f"class_{int(cls)}")
+                class_counts[class_name] = class_counts.get(class_name, 0) + 1
+            print(f"\n  Class distribution:")
+            for class_name, count in sorted(class_counts.items(), key=lambda x: -x[1]):
+                print(f"    - {class_name}: {count} detection(s)")
     else:
         print(f"  ✗ No objects detected for prompts: {prompts}")
+
+    # Timing summary
+    total_time = load_time + inference_time
+    print(f"\n{'='*60}")
+    print("TIMING SUMMARY:")
+    print(f"{'='*60}")
+    print(f"  Model load:  {load_time:.2f}s")
+    print(f"  Inference:   {inference_time:.2f}s")
+    print(f"  Total:       {total_time:.2f}s")
 
     print(f"\n{'='*60}")
     print("TEST COMPLETE")
@@ -226,9 +261,12 @@ def main():
                         help="Save cropped image to this path")
     parser.add_argument("--no-crop", action="store_true",
                         help="Don't save cropped image")
+    parser.add_argument("--cpu", action="store_true",
+                        help="Force CPU usage (no GPU)")
 
     args = parser.parse_args()
-    test_yoloe(args.input, args.prompt, args.output, save_crop=not args.no_crop)
+    test_yoloe(args.input, args.prompt, args.output,
+               save_crop=not args.no_crop, force_cpu=args.cpu)
 
 
 if __name__ == "__main__":
