@@ -18,11 +18,15 @@ services:
   surrealdb:
     image: surrealdb/surrealdb:v2
     container_name: open-notebook-db
-    command: start --user root --pass password --bind 0.0.0.0:8000 rocksdb:/mydata/database.db
+    # Use memory storage to avoid permission issues, or use file with proper path
+    command: start --user root --pass password --bind 0.0.0.0:8000 memory
+    # For persistent storage, uncomment below and comment out memory line above:
+    # command: start --user root --pass password --bind 0.0.0.0:8000 file:/data/database.db
     ports:
       - "8000:8000"
     volumes:
-      - surreal_data:/mydata
+      - surreal_data:/data
+    user: root
     restart: unless-stopped
 
   # Open Notebook - Main Application
