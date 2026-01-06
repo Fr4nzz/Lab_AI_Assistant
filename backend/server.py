@@ -1808,37 +1808,48 @@ class ProcessedImage(BaseModel):
     cropped: bool
 
 
-# System prompt for preprocessing AI
-PREPROCESSING_SYSTEM_PROMPT = """You are an image preprocessing assistant. Your job is to prepare images for another AI that will interpret them.
+def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
+    """Generate dynamic preprocessing prompt based on number of images."""
 
-You are given multiple labeled images. For each input image, you see:
+    # Build example JSON based on actual image count
+    if num_images == 1:
+        example_json = '{"imageIndex": 1, "rotation": 270, "useCrop": false}'
+        expect_msg = f"You must return EXACTLY 1 choice for image 1."
+    else:
+        examples = [f'{{"imageIndex": {i}, "rotation": 0, "useCrop": false}}' for i in image_indices]
+        example_json = ',\n    '.join(examples)
+        expect_msg = f"You must return EXACTLY {num_images} choices, one for each image: {image_indices}."
+
+    return f"""You are an image preprocessing assistant. Your job is to prepare images for another AI.
+
+NUMBER OF ORIGINAL IMAGES: {num_images}
+{expect_msg}
+
+For each original image, you see multiple labeled variants:
 - "N: 0°" - Original orientation
 - "N: 90°" - Rotated 90° clockwise
 - "N: 180°" - Rotated 180°
 - "N: 270°" - Rotated 270° clockwise
 - "N: cropped" - Zoomed/cropped version (if available)
 
-Where N is the image number (1, 2, 3...).
+Where N is the image number. ALL variants with the same N belong to the SAME original image.
 
 YOUR TASKS:
-1. For each image, determine the CORRECT rotation (which shows text/content right-side up and readable)
-2. For images with a cropped variant, decide if the crop IMPROVES readability:
-   - Choose crop=true if it zooms in on relevant content WITHOUT cutting off important information
-   - Choose crop=false if the crop cuts off relevant data, text, or context
+1. For each original image, determine which rotation shows text/content right-side up and readable
+2. For images with a cropped variant, decide if crop IMPROVES readability (doesn't cut off important info)
 
 RESPOND WITH ONLY THIS JSON FORMAT:
-{
+{{
   "choices": [
-    {"imageIndex": 1, "rotation": 0, "useCrop": false},
-    {"imageIndex": 2, "rotation": 90, "useCrop": true}
+    {example_json}
   ]
-}
+}}
 
-IMPORTANT NOTES:
-- The cropped variant is shown UNROTATED - your rotation choice will be applied to it
-- Only recommend useCrop:true if it clearly helps focus on document content
-- When in doubt about crop, choose useCrop:false (keep original framing)
-- Rotation values must be exactly: 0, 90, 180, or 270"""
+IMPORTANT:
+- Return exactly {num_images} choice(s), one per original image
+- Rotation values must be exactly: 0, 90, 180, or 270
+- useCrop: true only if crop helps without cutting important content
+- When in doubt about crop, use false"""
 
 
 # YOLOE service instance (lazy loaded)
@@ -2015,16 +2026,23 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
             "image_url": {"url": f"data:{variant.mimeType};base64,{base64_data}"}
         })
 
+    # Get unique image indices to tell AI exactly how many images to process
+    image_indices = sorted(set(label.imageIndex for label in request.labels))
+    num_images = len(image_indices)
+
     # Format labels for context
     label_lines = ["Available image variants:"]
     for label in request.labels:
         label_lines.append(f"- {label.label} (type: {label.type})")
     label_context = "\n".join(label_lines)
 
+    # Generate dynamic prompt based on image count
+    system_prompt = get_preprocessing_prompt(num_images, image_indices)
+
     # Add text prompt
     content.append({
         "type": "text",
-        "text": f"{PREPROCESSING_SYSTEM_PROMPT}\n\n{label_context}"
+        "text": f"{system_prompt}\n\n{label_context}"
     })
 
     # Get model with appropriate thinking parameter
