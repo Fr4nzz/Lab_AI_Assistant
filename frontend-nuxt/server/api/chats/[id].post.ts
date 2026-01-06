@@ -11,6 +11,10 @@ import {
   replaceImageParts,
   type ImagePart
 } from '../../utils/imageRotation'
+import {
+  processImagesForSegmentation,
+  replaceWithSegmentedImages
+} from '../../utils/documentSegmentation'
 
 defineRouteMeta({
   openAPI: {
@@ -355,16 +359,68 @@ async function createRotationAwareStream(
         // Note: File parts cannot be emitted as stream events (not valid in AI SDK protocol)
         // The rotated image thumbnails are included in the tool output above
 
-        // 5. Replace images in the last message with processed versions
+        // 5. Replace images in the last message with rotated versions
         const lastMessage = messages[messages.length - 1]
         if (lastMessage?.parts) {
           lastMessage.parts = replaceImageParts(lastMessage.parts, processedImages)
         }
 
-        // 6. Convert and forward to backend
+        // 6. Document segmentation (SAM3/Gemini) - crop to focus on documents
+        const segmentationToolCallId = `call_segmentation_${randomUUID().slice(0, 8)}`
+        controller.enqueue(encoder.encode(adapter.toolStart(segmentationToolCallId, 'document-segmentation')))
+
+        const segmentationInput = {
+          images: processedImages.map(p => p.name || 'image'),
+          count: processedImages.length,
+          prompt: 'document'
+        }
+        controller.enqueue(encoder.encode(adapter.toolInputAvailable(segmentationToolCallId, 'document-segmentation', segmentationInput)))
+
+        collector.toolInputStart(segmentationToolCallId, 'document-segmentation')
+        collector.toolInputAvailable(segmentationToolCallId, 'document-segmentation', segmentationInput)
+
+        console.log(`[API/chat] Processing ${processedImages.length} images for document segmentation`)
+        const { results: segmentResults, processedImages: segmentedImages } = await processImagesForSegmentation(processedImages)
+
+        const segmentedCount = segmentResults.filter(r => r.segmented).length
+
+        const segmentationOutput: Record<string, unknown> = {
+          processed: segmentResults.length,
+          segmented: segmentedCount,
+          results: segmentResults.map((r, i) => {
+            const result: Record<string, unknown> = {
+              name: r.name,
+              segmented: r.segmented,
+              provider: r.provider
+            }
+            if (r.segmented) {
+              result.originalSize = r.originalSize
+              result.croppedSize = r.croppedSize
+              result.boundingBox = r.boundingBox
+              // Include thumbnail URL for segmented images
+              const segmentedImage = segmentedImages[i]
+              if (segmentedImage?.url) {
+                result.thumbnailUrl = segmentedImage.url
+                result.mediaType = segmentedImage.mediaType
+              }
+            } else {
+              result.reason = r.reason
+            }
+            return result
+          })
+        }
+        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(segmentationToolCallId, segmentationOutput)))
+        collector.toolOutputAvailable(segmentationToolCallId, segmentationOutput)
+
+        // 7. Replace images with segmented versions if applicable
+        if (lastMessage?.parts && segmentedCount > 0) {
+          lastMessage.parts = replaceWithSegmentedImages(lastMessage.parts, segmentedImages)
+        }
+
+        // 8. Convert and forward to backend
         const backendMessages = convertMessagesForBackend(messages)
 
-        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated images`)
+        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated, ${segmentedCount} segmented images`)
 
         const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
           method: 'POST',
@@ -385,7 +441,7 @@ async function createRotationAwareStream(
           return
         }
 
-        // 7. Pipe backend stream, properly handling SSE format
+        // 9. Pipe backend stream, properly handling SSE format
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let skipStartEvent = true

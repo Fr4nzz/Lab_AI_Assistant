@@ -33,6 +33,10 @@ TOOL_TRANSLATIONS = {
     "search": "🔎 Buscando",
     "calculate": "🧮 Calculando",
     "format_text": "📝 Formateando texto",
+
+    # Image preprocessing tools
+    "image-rotation": "🔄 Corrigiendo rotación",
+    "document-segmentation": "📐 Detectando documento",
 }
 
 

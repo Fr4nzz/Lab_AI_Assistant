@@ -1355,6 +1355,320 @@ async def detect_image_rotation(request: ImageRotationRequest):
 
 
 # ============================================================
+# DOCUMENT SEGMENTATION ENDPOINT (SAM3)
+# ============================================================
+
+class DocumentSegmentationRequest(BaseModel):
+    image: str  # base64 data (with or without data URL prefix)
+    mimeType: str = "image/jpeg"
+    prompt: str = "document"  # Text prompt for segmentation (e.g., "document", "notebook", "paper")
+    padding: int = 10  # Padding around detected region in pixels
+
+
+# Global SAM3 predictor instance (lazy loaded)
+_sam3_predictor = None
+
+
+def _get_sam3_predictor():
+    """
+    Lazy load SAM3 predictor to avoid startup delay.
+    SAM3 model weights must be downloaded from HuggingFace.
+    """
+    global _sam3_predictor
+    if _sam3_predictor is not None:
+        return _sam3_predictor
+
+    try:
+        from ultralytics.models.sam import SAM3SemanticPredictor
+
+        # Check if SAM3 weights exist
+        sam3_path = Path(__file__).parent / "models" / "sam3.pt"
+        if not sam3_path.exists():
+            # Try current directory
+            sam3_path = Path("sam3.pt")
+
+        if not sam3_path.exists():
+            logger.warning("[SAM3] Model weights not found. Download from HuggingFace: https://huggingface.co/facebook/sam3")
+            return None
+
+        logger.info(f"[SAM3] Loading model from {sam3_path}...")
+        overrides = dict(
+            conf=0.25,
+            task="segment",
+            mode="predict",
+            model=str(sam3_path),
+            half=True,
+        )
+        _sam3_predictor = SAM3SemanticPredictor(overrides=overrides)
+        logger.info("[SAM3] Model loaded successfully")
+        return _sam3_predictor
+
+    except ImportError as e:
+        logger.error(f"[SAM3] Failed to import ultralytics: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[SAM3] Failed to load model: {e}")
+        return None
+
+
+@app.post("/api/segment-document")
+async def segment_document(request: DocumentSegmentationRequest):
+    """
+    Segment and crop a document from an image using SAM3.
+    Uses text prompts to identify the document region.
+
+    If SAM3 is not available, falls back to Gemini vision to detect
+    the document region and returns bounding box coordinates.
+    """
+    import time
+    from io import BytesIO
+
+    start_time = time.time()
+
+    # Extract base64 data (remove data URL prefix if present)
+    base64_data = request.image
+    if base64_data.startswith("data:"):
+        base64_data = base64_data.split(",", 1)[1]
+
+    try:
+        # Try SAM3 first
+        predictor = _get_sam3_predictor()
+
+        if predictor is not None:
+            return await _segment_with_sam3(
+                predictor, base64_data, request.mimeType, request.prompt, request.padding, start_time
+            )
+
+        # Fallback to Gemini vision for document detection
+        logger.info("[SAM3] Model not available, falling back to Gemini vision")
+        return await _segment_with_gemini(
+            base64_data, request.mimeType, request.prompt, request.padding, start_time
+        )
+
+    except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        import traceback
+        logger.error(f"[Segment] Error ({elapsed_ms}ms): {e}\n{traceback.format_exc()}")
+        return {
+            "segmented": False,
+            "error": str(e),
+            "timing": elapsed_ms
+        }
+
+
+async def _segment_with_sam3(predictor, base64_data: str, mime_type: str, prompt: str, padding: int, start_time: float):
+    """Segment document using SAM3 with text prompt."""
+    import numpy as np
+    from PIL import Image
+    from io import BytesIO
+    import time
+
+    try:
+        # Decode image
+        image_bytes = base64.b64decode(base64_data)
+        image = Image.open(BytesIO(image_bytes))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Convert to numpy for SAM3
+        image_np = np.array(image)
+
+        # Set image and run segmentation with text prompt
+        predictor.set_image(image_np)
+        results = predictor(text=[prompt])
+
+        if not results or len(results) == 0:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[SAM3] No '{prompt}' detected ({elapsed_ms}ms)")
+            return {
+                "segmented": False,
+                "reason": f"No '{prompt}' detected in image",
+                "provider": "sam3",
+                "timing": elapsed_ms
+            }
+
+        # Get the first result (best match)
+        result = results[0]
+
+        # Extract bounding box
+        if result.boxes is not None and len(result.boxes) > 0:
+            # Get the largest bounding box (most likely the document)
+            boxes = result.boxes.xyxy.cpu().numpy()
+            areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+            best_idx = np.argmax(areas)
+            x1, y1, x2, y2 = boxes[best_idx].astype(int)
+
+            # Add padding
+            h, w = image_np.shape[:2]
+            x1 = max(0, x1 - padding)
+            y1 = max(0, y1 - padding)
+            x2 = min(w, x2 + padding)
+            y2 = min(h, y2 + padding)
+
+            # Crop image
+            cropped = image.crop((x1, y1, x2, y2))
+
+            # Encode back to base64
+            buffer = BytesIO()
+            img_format = 'JPEG' if 'jpeg' in mime_type.lower() or 'jpg' in mime_type.lower() else 'PNG'
+            cropped.save(buffer, format=img_format, quality=95)
+            cropped_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[SAM3] Segmented '{prompt}': ({x1},{y1}) to ({x2},{y2}) in {elapsed_ms}ms")
+
+            return {
+                "segmented": True,
+                "croppedImage": cropped_base64,
+                "mimeType": mime_type,
+                "boundingBox": {"x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2)},
+                "originalSize": {"width": w, "height": h},
+                "croppedSize": {"width": x2 - x1, "height": y2 - y1},
+                "prompt": prompt,
+                "provider": "sam3",
+                "timing": elapsed_ms
+            }
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return {
+            "segmented": False,
+            "reason": "No bounding box found",
+            "provider": "sam3",
+            "timing": elapsed_ms
+        }
+
+    except Exception as e:
+        import traceback
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"[SAM3] Segmentation error: {e}\n{traceback.format_exc()}")
+        raise
+
+
+async def _segment_with_gemini(base64_data: str, mime_type: str, prompt: str, padding: int, start_time: float):
+    """Fallback: Use Gemini vision to detect document region."""
+    import time
+    from models import get_chat_model, increment_usage
+    from PIL import Image
+    from io import BytesIO
+
+    try:
+        # Get Gemini model
+        model = get_chat_model(provider="gemini", model_name="gemini-3-flash-preview", thinking_level="minimal")
+
+        # Create message asking for bounding box
+        message = HumanMessage(content=[
+            {
+                "type": "text",
+                "text": f"""Look at this image and find the {prompt}.
+If you can see a {prompt} in the image, respond with ONLY the bounding box coordinates in this exact format:
+BOX: x1,y1,x2,y2
+
+Where x1,y1 is the top-left corner and x2,y2 is the bottom-right corner, as percentages of image dimensions (0-100).
+Example: BOX: 10,15,90,85
+
+If no {prompt} is visible or the image is already zoomed in on a {prompt}, respond with:
+NONE"""
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}
+            }
+        ])
+
+        # Call model
+        result = await model.ainvoke([message])
+        increment_usage("gemini-3-flash-preview")
+
+        # Parse response
+        content = result.content
+        if isinstance(content, list):
+            response_text = ""
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    response_text = block.get("text", "")
+                    break
+        else:
+            response_text = content.strip() if content else ""
+
+        # Check if no document detected
+        if "NONE" in response_text.upper():
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[Segment/Gemini] No cropping needed ({elapsed_ms}ms)")
+            return {
+                "segmented": False,
+                "reason": "Image already focused on document or no document detected",
+                "provider": "gemini",
+                "timing": elapsed_ms
+            }
+
+        # Parse bounding box
+        box_match = re.search(r'BOX:\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)', response_text, re.IGNORECASE)
+
+        if box_match:
+            # Parse percentages
+            x1_pct, y1_pct, x2_pct, y2_pct = [float(x) for x in box_match.groups()]
+
+            # Decode image to get dimensions
+            image_bytes = base64.b64decode(base64_data)
+            image = Image.open(BytesIO(image_bytes))
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            w, h = image.size
+
+            # Convert percentages to pixels
+            x1 = int(w * x1_pct / 100)
+            y1 = int(h * y1_pct / 100)
+            x2 = int(w * x2_pct / 100)
+            y2 = int(h * y2_pct / 100)
+
+            # Add padding
+            x1 = max(0, x1 - padding)
+            y1 = max(0, y1 - padding)
+            x2 = min(w, x2 + padding)
+            y2 = min(h, y2 + padding)
+
+            # Crop image
+            cropped = image.crop((x1, y1, x2, y2))
+
+            # Encode back to base64
+            buffer = BytesIO()
+            img_format = 'JPEG' if 'jpeg' in mime_type.lower() or 'jpg' in mime_type.lower() else 'PNG'
+            cropped.save(buffer, format=img_format, quality=95)
+            cropped_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[Segment/Gemini] Cropped '{prompt}': ({x1},{y1}) to ({x2},{y2}) in {elapsed_ms}ms")
+
+            return {
+                "segmented": True,
+                "croppedImage": cropped_base64,
+                "mimeType": mime_type,
+                "boundingBox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+                "originalSize": {"width": w, "height": h},
+                "croppedSize": {"width": x2 - x1, "height": y2 - y1},
+                "prompt": prompt,
+                "provider": "gemini",
+                "timing": elapsed_ms
+            }
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"[Segment/Gemini] Could not parse response: {response_text[:100]} ({elapsed_ms}ms)")
+        return {
+            "segmented": False,
+            "reason": "Could not detect document region",
+            "provider": "gemini",
+            "raw": response_text,
+            "timing": elapsed_ms
+        }
+
+    except Exception as e:
+        import traceback
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"[Segment/Gemini] Error: {e}\n{traceback.format_exc()}")
+        raise
+
+
+# ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================
 
