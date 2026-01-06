@@ -249,20 +249,31 @@ function formatRotationResult(result: ImageRotationResult): string {
 }
 
 function formatPreprocessingResult(result: ImagePreprocessingResult): string {
-  const parts: string[] = []
+  // Show detailed AI decisions for each image
+  if (result.results && result.results.length > 0) {
+    const details = result.results.map((r, i) => {
+      const parts: string[] = []
+      if (r.rotation !== 0) {
+        parts.push(`${r.rotation}°`)
+      }
+      if (r.useCrop) {
+        parts.push('recortada')
+      }
+      if (parts.length === 0) {
+        parts.push('sin cambios')
+      }
+      return `Img${i + 1}: ${parts.join(', ')}`
+    })
 
+    const timing = result.timing?.totalMs ? ` (${result.timing.totalMs}ms)` : ''
+    return details.join(' | ') + timing
+  }
+
+  // Fallback to simple counts
+  const parts: string[] = []
   if (result.processed) {
     parts.push(`${result.processed} imagen${result.processed > 1 ? 'es' : ''}`)
   }
-
-  if (result.rotated && result.rotated > 0) {
-    parts.push(`${result.rotated} rotada${result.rotated > 1 ? 's' : ''}`)
-  }
-
-  if (result.cropped && result.cropped > 0) {
-    parts.push(`${result.cropped} recortada${result.cropped > 1 ? 's' : ''}`)
-  }
-
   if (result.timing?.totalMs) {
     parts.push(`${result.timing.totalMs}ms`)
   }

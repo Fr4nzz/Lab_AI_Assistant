@@ -2065,33 +2065,54 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
     else:
         response_text = result.content.strip() if result.content else ""
 
+    # Get valid image indices from labels
+    valid_image_indices = sorted(set(label.imageIndex for label in request.labels))
+    logger.info(f"[Select] Valid image indices: {valid_image_indices}, Labels: {[l.label for l in request.labels]}")
+
     # Extract JSON from response
-    choices = []
+    raw_choices = []
     try:
         # Try to find JSON in response
         json_match = re.search(r'\{[\s\S]*"choices"[\s\S]*\}', response_text)
         if json_match:
             parsed = json.loads(json_match.group())
-            for choice_data in parsed.get("choices", []):
-                choices.append(PreprocessingChoice(
-                    imageIndex=choice_data.get("imageIndex", 1),
-                    rotation=choice_data.get("rotation", 0),
-                    useCrop=choice_data.get("useCrop", False)
-                ))
+            raw_choices = parsed.get("choices", [])
+            logger.info(f"[Select] AI raw response: {raw_choices}")
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning(f"[Select] Failed to parse AI response: {e}, raw: {response_text[:200]}")
 
-    # If parsing failed, create default choices (0° rotation, no crop)
+    # Deduplicate choices by imageIndex (only keep first choice per image)
+    # and validate that imageIndex exists in original images
+    choices = []
+    seen_indices = set()
+    for choice_data in raw_choices:
+        img_idx = choice_data.get("imageIndex", 1)
+        if img_idx in seen_indices:
+            logger.debug(f"[Select] Skipping duplicate choice for imageIndex {img_idx}")
+            continue
+        if img_idx not in valid_image_indices:
+            logger.warning(f"[Select] AI returned invalid imageIndex {img_idx}, valid are {valid_image_indices}")
+            continue
+        seen_indices.add(img_idx)
+        rotation = choice_data.get("rotation", 0)
+        use_crop = choice_data.get("useCrop", False)
+        choices.append(PreprocessingChoice(
+            imageIndex=img_idx,
+            rotation=rotation,
+            useCrop=use_crop
+        ))
+        logger.info(f"[Select] Image {img_idx}: rotation={rotation}°, useCrop={use_crop}")
+
+    # If parsing failed or no valid choices, create default choices (0° rotation, no crop)
     if not choices:
-        # Get unique image indices
-        image_indices = sorted(set(label.imageIndex for label in request.labels))
-        for img_idx in image_indices:
+        for img_idx in valid_image_indices:
             choices.append(PreprocessingChoice(
                 imageIndex=img_idx,
                 rotation=0,
                 useCrop=False
             ))
-        logger.warning(f"[Select] Using default choices for {len(image_indices)} images")
+            logger.info(f"[Select] Image {img_idx}: using defaults (rotation=0°, useCrop=False)")
+        logger.warning(f"[Select] Using default choices for {len(valid_image_indices)} images")
 
     total_ms = int((time.time() - start_time) * 1000)
     logger.info(f"[Select] AI selected preprocessing for {len(choices)} images in {total_ms}ms")
@@ -2105,14 +2126,22 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
     Apply AI's rotation/crop choices to original images.
 
     Returns processed images ready for final AI consumption.
+    Also saves processed images to debug folder for inspection.
     """
     import time
+    import shutil
     from PIL import Image, ImageOps
     from io import BytesIO
     from services.image_labeling import base64_to_image, image_to_base64
 
     start_time = time.time()
     labeler = _get_labeling_service()
+
+    # Create/clear debug folder for last chat's images
+    debug_dir = Path(__file__).parent / "debug_images"
+    if debug_dir.exists():
+        shutil.rmtree(debug_dir)
+    debug_dir.mkdir(exist_ok=True)
 
     processed = []
 
@@ -2167,6 +2196,14 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
         # Convert to base64
         result_data = image_to_base64(image)
 
+        # Save to debug folder
+        debug_filename = f"img{choice.imageIndex}_rot{choice.rotation}_crop{was_cropped}.jpg"
+        try:
+            image.save(debug_dir / debug_filename, "JPEG", quality=90)
+            logger.info(f"[Apply] Saved debug image: {debug_filename}")
+        except Exception as e:
+            logger.warning(f"[Apply] Failed to save debug image: {e}")
+
         processed.append(ProcessedImage(
             data=result_data,
             mimeType="image/jpeg",
@@ -2176,7 +2213,7 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
         ))
 
     total_ms = int((time.time() - start_time) * 1000)
-    logger.info(f"[Apply] Processed {len(processed)} images in {total_ms}ms")
+    logger.info(f"[Apply] Processed {len(processed)} images in {total_ms}ms, saved to {debug_dir}")
 
     return {"processedImages": processed, "timing": total_ms}
 
