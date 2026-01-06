@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def test_yoloe(input_path: str, prompt: str = "document", output_path: str = None, save_crop: bool = True):
@@ -161,6 +161,8 @@ def test_yoloe(input_path: str, prompt: str = "document", output_path: str = Non
             # Add padding
             padding = 10
             img = Image.open(input_path)
+            # Apply EXIF rotation to fix orientation issues
+            img = ImageOps.exif_transpose(img)
             w, h = img.size
             x1 = max(0, int(x1) - padding)
             y1 = max(0, int(y1) - padding)
