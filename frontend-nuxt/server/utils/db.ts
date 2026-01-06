@@ -87,14 +87,30 @@ function initializeDatabase(sqlite: Database.Database) {
       visitor_id TEXT UNIQUE,
       user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       chat_model TEXT DEFAULT 'gemini-3-flash-preview',
+      main_thinking_level TEXT DEFAULT 'low',
       preprocessing_model TEXT DEFAULT 'gemini-flash-lite-latest',
-      thinking_level TEXT DEFAULT 'low',
+      preprocessing_thinking_level TEXT DEFAULT 'low',
       created_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS user_settings_visitor_id_idx ON user_settings(visitor_id);
     CREATE INDEX IF NOT EXISTS user_settings_user_id_idx ON user_settings(user_id);
+
+    -- Migration: Add new columns if they don't exist (for existing databases)
+    -- SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we use a workaround
   `)
+
+  // Add new columns if they don't exist (migration for existing databases)
+  try {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN main_thinking_level TEXT DEFAULT 'low'`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN preprocessing_thinking_level TEXT DEFAULT 'low'`)
+  } catch {
+    // Column already exists
+  }
 }
 
 // ============================================================
@@ -293,14 +309,16 @@ export async function getFilesByMessage(messageId: string) {
 
 export interface UserSettings {
   chatModel: string
+  mainThinkingLevel: string  // For main chat model (Gemini 3: minimal/low/medium/high, Gemini 2.5: off/dynamic)
   preprocessingModel: string
-  thinkingLevel: string
+  preprocessingThinkingLevel: string  // For image preprocessing
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
+  mainThinkingLevel: 'low',
   preprocessingModel: 'gemini-flash-lite-latest',
-  thinkingLevel: 'low'
+  preprocessingThinkingLevel: 'low'
 }
 
 export async function getUserSettings(visitorId: string): Promise<UserSettings> {
@@ -313,8 +331,9 @@ export async function getUserSettings(visitorId: string): Promise<UserSettings> 
   if (settings) {
     return {
       chatModel: settings.chatModel || DEFAULT_SETTINGS.chatModel,
+      mainThinkingLevel: settings.mainThinkingLevel || DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: settings.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
-      thinkingLevel: settings.thinkingLevel || DEFAULT_SETTINGS.thinkingLevel
+      preprocessingThinkingLevel: settings.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel
     }
   }
 
@@ -338,15 +357,17 @@ export async function updateUserSettings(
       .update(schema.userSettings)
       .set({
         chatModel: updates.chatModel ?? existing.chatModel,
+        mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel,
         preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel,
-        thinkingLevel: updates.thinkingLevel ?? existing.thinkingLevel
+        preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel
       })
       .where(eq(schema.userSettings.id, existing.id))
 
     return {
       chatModel: updates.chatModel ?? existing.chatModel ?? DEFAULT_SETTINGS.chatModel,
+      mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
-      thinkingLevel: updates.thinkingLevel ?? existing.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel
+      preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel
     }
   }
 
@@ -358,14 +379,16 @@ export async function updateUserSettings(
     id,
     visitorId,
     chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
+    mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
-    thinkingLevel: updates.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel,
+    preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
     createdAt: now
   })
 
   return {
     chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
+    mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
-    thinkingLevel: updates.thinkingLevel ?? DEFAULT_SETTINGS.thinkingLevel
+    preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel
   }
 }

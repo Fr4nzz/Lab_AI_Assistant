@@ -8,8 +8,9 @@ export default defineEventHandler(async (event) => {
     // Return defaults if no visitor ID
     return {
       chatModel: 'gemini-3-flash-preview',
+      mainThinkingLevel: 'low',
       preprocessingModel: 'gemini-flash-lite-latest',
-      thinkingLevel: 'low'
+      preprocessingThinkingLevel: 'low'
     }
   }
 

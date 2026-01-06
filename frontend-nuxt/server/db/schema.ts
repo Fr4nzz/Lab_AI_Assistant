@@ -83,12 +83,13 @@ export const userSettings = sqliteTable('user_settings', {
   visitorId: text('visitor_id').unique(), // For anonymous users (frontend visitorId or telegram user_id)
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
 
-  // Main chat model
+  // Main chat model and thinking level
   chatModel: text('chat_model').default('gemini-3-flash-preview'),
+  mainThinkingLevel: text('main_thinking_level').default('low'), // For Gemini 3: minimal/low/medium/high, For 2.5: off/dynamic
 
-  // Preprocessing settings
+  // Image preprocessing settings
   preprocessingModel: text('preprocessing_model').default('gemini-flash-lite-latest'),
-  thinkingLevel: text('thinking_level').default('low'),
+  preprocessingThinkingLevel: text('preprocessing_thinking_level').default('low'),
 
   ...timestamps
 }, table => [

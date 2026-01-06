@@ -2026,11 +2026,25 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
         "text": f"{PREPROCESSING_SYSTEM_PROMPT}\n\n{label_context}"
     })
 
-    # Get model with appropriate thinking level
+    # Get model with appropriate thinking parameter
+    # Gemini 3.x uses thinking_level, Gemini 2.5 uses thinking_budget
+    is_gemini_3 = 'gemini-3' in request.preprocessingModel
+
+    thinking_kwargs = {}
+    if is_gemini_3:
+        # Map preprocessing levels to Gemini 3 thinking levels
+        level_map = {'none': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high'}
+        thinking_kwargs['thinking_level'] = level_map.get(request.thinkingLevel, 'low')
+    else:
+        # Map preprocessing levels to Gemini 2.5 thinking budget
+        # none=0 (disable), low/medium/high=-1 (dynamic)
+        budget_map = {'none': 0, 'low': -1, 'medium': -1, 'high': -1}
+        thinking_kwargs['thinking_budget'] = budget_map.get(request.thinkingLevel, -1)
+
     model = get_chat_model(
         provider="gemini",
         model_name=request.preprocessingModel,
-        thinking_level=request.thinkingLevel
+        **thinking_kwargs
     )
 
     # Call model

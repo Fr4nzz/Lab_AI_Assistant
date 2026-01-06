@@ -4,14 +4,17 @@ const {
   isLoading,
   loadSettings,
   setChatModel,
+  setMainThinkingLevel,
   setPreprocessingModel,
-  setThinkingLevel,
+  setPreprocessingThinkingLevel,
   currentChatModel,
+  availableThinkingLevels,
+  currentMainThinkingLevel,
   currentPreprocessingModel,
-  currentThinkingLevel,
+  currentPreprocessingThinkingLevel,
   CHAT_MODELS,
   PREPROCESSING_MODELS,
-  THINKING_LEVELS
+  PREPROCESSING_THINKING_LEVELS
 } = useSettings()
 
 // Load settings on mount
@@ -26,13 +29,20 @@ const chatModelItems = computed(() => CHAT_MODELS.map(m => ({
   icon: m.icon
 })))
 
+// Main thinking level items - changes based on selected model
+const mainThinkingLevelItems = computed(() => availableThinkingLevels.value.map(l => ({
+  label: l.name,
+  value: l.id,
+  icon: l.icon
+})))
+
 const preprocessingModelItems = computed(() => PREPROCESSING_MODELS.map(m => ({
   label: m.name,
   value: m.id,
   icon: m.icon
 })))
 
-const thinkingLevelItems = computed(() => THINKING_LEVELS.map(l => ({
+const preprocessingThinkingLevelItems = computed(() => PREPROCESSING_THINKING_LEVELS.map(l => ({
   label: l.name,
   value: l.id,
   icon: l.icon
@@ -43,17 +53,21 @@ function handleChatModelChange(value: string) {
   setChatModel(value)
 }
 
+function handleMainThinkingLevelChange(value: string) {
+  setMainThinkingLevel(value)
+}
+
 function handlePreprocessingModelChange(value: string) {
   setPreprocessingModel(value)
 }
 
-function handleThinkingLevelChange(value: string) {
-  setThinkingLevel(value)
+function handlePreprocessingThinkingLevelChange(value: string) {
+  setPreprocessingThinkingLevel(value)
 }
 </script>
 
 <template>
-  <div class="flex items-center gap-2">
+  <div class="flex items-center gap-1">
     <!-- Main Chat Model -->
     <USelectMenu
       :model-value="settings.chatModel"
@@ -70,7 +84,23 @@ function handleThinkingLevelChange(value: string) {
       @update:model-value="handleChatModelChange"
     />
 
-    <!-- Preprocessing Model -->
+    <!-- Main Thinking Level (next to model) -->
+    <USelectMenu
+      :model-value="settings.mainThinkingLevel"
+      :items="mainThinkingLevelItems"
+      size="sm"
+      :icon="currentMainThinkingLevel?.icon"
+      variant="ghost"
+      value-key="value"
+      class="hover:bg-default focus:bg-default data-[state=open]:bg-default"
+      :ui="{
+        trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
+      }"
+      :disabled="isLoading"
+      @update:model-value="handleMainThinkingLevelChange"
+    />
+
+    <!-- Preprocessing Settings Popover -->
     <UPopover>
       <UButton
         icon="i-lucide-settings-2"
@@ -80,9 +110,9 @@ function handleThinkingLevelChange(value: string) {
         :disabled="isLoading"
       />
       <template #content>
-        <div class="p-3 space-y-3 min-w-[240px]">
+        <div class="p-3 space-y-3 min-w-[260px]">
           <div class="text-sm font-medium text-default-500 border-b border-default pb-2">
-            Preprocessing Settings
+            Image Preprocessing Settings
           </div>
 
           <!-- Preprocessing Model -->
@@ -100,18 +130,18 @@ function handleThinkingLevelChange(value: string) {
             />
           </div>
 
-          <!-- Thinking Level -->
+          <!-- Preprocessing Thinking Level -->
           <div class="space-y-1">
             <label class="text-xs text-default-400">Thinking Level</label>
             <USelectMenu
-              :model-value="settings.thinkingLevel"
-              :items="thinkingLevelItems"
+              :model-value="settings.preprocessingThinkingLevel"
+              :items="preprocessingThinkingLevelItems"
               size="sm"
-              :icon="currentThinkingLevel?.icon"
+              :icon="currentPreprocessingThinkingLevel?.icon"
               value-key="value"
               class="w-full"
               :disabled="isLoading"
-              @update:model-value="handleThinkingLevelChange"
+              @update:model-value="handlePreprocessingThinkingLevelChange"
             />
           </div>
         </div>

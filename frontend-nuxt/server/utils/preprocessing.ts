@@ -103,8 +103,9 @@ export async function processImagesWithPreprocessing(
   // Get user settings for preprocessing model and thinking level
   let settings: UserSettings = {
     chatModel: 'gemini-3-flash-preview',
+    mainThinkingLevel: 'low',
     preprocessingModel: 'gemini-flash-lite-latest',
-    thinkingLevel: 'low'
+    preprocessingThinkingLevel: 'low'
   }
 
   if (visitorId) {
@@ -115,7 +116,7 @@ export async function processImagesWithPreprocessing(
     }
   }
 
-  console.log(`[Preprocessing] Using model: ${settings.preprocessingModel}, thinking: ${settings.thinkingLevel}`)
+  console.log(`[Preprocessing] Using model: ${settings.preprocessingModel}, thinking: ${settings.preprocessingThinkingLevel}`)
 
   // Convert image parts to backend format
   const images = imageParts.map(part => ({
@@ -132,7 +133,7 @@ export async function processImagesWithPreprocessing(
     body: JSON.stringify({
       images,
       preprocessingModel: settings.preprocessingModel,
-      thinkingLevel: settings.thinkingLevel
+      thinkingLevel: settings.preprocessingThinkingLevel
     })
   })
 
@@ -155,7 +156,7 @@ export async function processImagesWithPreprocessing(
       variants: preprocessResult.variants,
       labels: preprocessResult.labels,
       preprocessingModel: settings.preprocessingModel,
-      thinkingLevel: settings.thinkingLevel
+      thinkingLevel: settings.preprocessingThinkingLevel
     })
   })
 
