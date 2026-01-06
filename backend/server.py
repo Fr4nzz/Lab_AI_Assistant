@@ -2164,15 +2164,9 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
         # Prepare image (EXIF + resize)
         image = labeler.prepare_image(image, max_size=1080)
 
-        # Apply rotation if needed
-        if choice.rotation != 0:
-            # Negative = clockwise rotation
-            image = image.rotate(-choice.rotation, expand=True)
-
-        # Apply crop if chosen
+        # Apply crop FIRST (before rotation) since bbox was detected on original orientation
         was_cropped = False
         if choice.useCrop:
-            # Find crop info for this image
             for crop in request.crops:
                 if crop.imageIndex == choice.imageIndex and crop.hasCrop and crop.boundingBox:
                     bbox = crop.boundingBox
@@ -2182,16 +2176,15 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
                     y1 = max(0, int(bbox['y1']) - padding)
                     x2 = min(w, int(bbox['x2']) + padding)
                     y2 = min(h, int(bbox['y2']) + padding)
-
-                    # Note: We need to adjust bbox for rotation
-                    # For simplicity, re-detect on rotated image or use original bbox
-                    # For now, skip crop if rotation was applied (bbox won't match)
-                    if choice.rotation == 0:
-                        image = image.crop((x1, y1, x2, y2))
-                        was_cropped = True
-                    else:
-                        logger.debug(f"[Apply] Skipping crop for rotated image {choice.imageIndex}")
+                    image = image.crop((x1, y1, x2, y2))
+                    was_cropped = True
+                    logger.info(f"[Apply] Cropped image {choice.imageIndex} to bbox ({x1},{y1})-({x2},{y2})")
                     break
+
+        # Apply rotation AFTER crop
+        if choice.rotation != 0:
+            # Negative = clockwise rotation
+            image = image.rotate(-choice.rotation, expand=True)
 
         # Convert to base64
         result_data = image_to_base64(image)
