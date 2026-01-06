@@ -4,18 +4,20 @@ Test script for SAM 2.1 (Segment Anything Model 2.1) - Tiny variant
 SAM2 segments objects WITHOUT labels - it just finds distinct regions.
 
 Usage:
-    python test_sam2.py <image_path>
-    python test_sam2.py pedidotest.jpg
+    python test_sam2.py <image_path>           # Auto-detect device (GPU if available)
+    python test_sam2.py <image_path> --cpu     # Force CPU usage
+    python test_sam2.py pedidotest.jpg --cpu
 """
 
 import sys
 import os
+import time
 from pathlib import Path
 
 # Add parent directory for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-def test_sam2(input_path: str):
+def test_sam2(input_path: str, force_cpu: bool = False):
     """Test SAM 2.1 automatic mask generation."""
 
     print("=" * 60)
@@ -28,6 +30,13 @@ def test_sam2(input_path: str):
         return
 
     print(f"\n📁 Input image: {input_path}")
+
+    # Determine device
+    device = "cpu" if force_cpu else None  # None = auto-detect
+    if force_cpu:
+        print("🖥️  Device: CPU (forced)")
+    else:
+        print("🖥️  Device: Auto-detect (GPU if available)")
 
     # Try to import SAM2
     print("\n📦 Loading SAM 2.1...")
@@ -46,8 +55,11 @@ def test_sam2(input_path: str):
             # Load SAM 2.1 tiny model
             model_name = "sam2.1_t.pt"
             print(f"\n🔄 Loading model: {model_name}")
+
+            load_start = time.time()
             model = SAM(model_name)
-            print(f"✅ Model loaded successfully")
+            load_time = time.time() - load_start
+            print(f"✅ Model loaded successfully ({load_time:.2f}s)")
 
             # Load and process image
             from PIL import Image, ImageOps
@@ -57,7 +69,10 @@ def test_sam2(input_path: str):
 
             # Run automatic segmentation (no prompts)
             print("\n🔍 Running automatic segmentation...")
-            results = model.predict(input_path, verbose=False)
+            inference_start = time.time()
+            results = model.predict(input_path, device=device, verbose=False)
+            inference_time = time.time() - inference_start
+            print(f"⏱️  Inference time: {inference_time:.2f}s")
 
             if results and len(results) > 0:
                 result = results[0]
@@ -149,6 +164,13 @@ def test_sam2(input_path: str):
                     overlay_img.save(overlay_path, quality=95)
                     print(f"💾 Saved colored overlay: {overlay_path}")
 
+                    # Print timing summary
+                    total_time = load_time + inference_time
+                    print(f"\n⏱️  TIMING SUMMARY:")
+                    print(f"    Model load:  {load_time:.2f}s")
+                    print(f"    Inference:   {inference_time:.2f}s")
+                    print(f"    Total:       {total_time:.2f}s")
+
                 else:
                     print("\n⚠️ No masks found in the image")
 
@@ -178,8 +200,11 @@ def test_sam2(input_path: str):
                 print("Please download from: https://github.com/facebookresearch/sam2")
                 return
 
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"🖥️ Using device: {device}")
+            if force_cpu:
+                device = "cpu"
+            else:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"🖥️  Using device: {device}")
 
             sam2 = build_sam2(model_cfg, checkpoint, device=device)
             mask_generator = SAM2AutomaticMaskGenerator(sam2)
@@ -234,8 +259,12 @@ def test_sam2(input_path: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python test_sam2.py <image_path>")
+        print("Usage: python test_sam2.py <image_path> [--cpu]")
         print("Example: python test_sam2.py pedidotest.jpg")
+        print("Example: python test_sam2.py pedidotest.jpg --cpu")
         sys.exit(1)
 
-    test_sam2(sys.argv[1])
+    image_path = sys.argv[1]
+    force_cpu = "--cpu" in sys.argv
+
+    test_sam2(image_path, force_cpu=force_cpu)
