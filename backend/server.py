@@ -1808,22 +1808,8 @@ class ProcessedImage(BaseModel):
     cropped: bool
 
 
-def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
-    """Generate dynamic preprocessing prompt based on number of images."""
-
-    # Build example JSON based on actual image count
-    if num_images == 1:
-        example_json = '{"imageIndex": 1, "rotation": 270, "useCrop": false}'
-        expect_msg = f"You must return EXACTLY 1 choice for image 1."
-    else:
-        examples = [f'{{"imageIndex": {i}, "rotation": 0, "useCrop": false}}' for i in image_indices]
-        example_json = ',\n    '.join(examples)
-        expect_msg = f"You must return EXACTLY {num_images} choices, one for each image: {image_indices}."
-
-    return f"""You are an image preprocessing assistant. Your job is to prepare images for another AI.
-
-NUMBER OF ORIGINAL IMAGES: {num_images}
-{expect_msg}
+# Static prefix for prompt caching - DO NOT MODIFY without considering cache invalidation
+PREPROCESSING_PROMPT_PREFIX = """You are an image preprocessing assistant. Your job is to prepare images for another AI.
 
 For each original image, you see multiple labeled variants:
 - "N: 0°" - Original orientation
@@ -1838,18 +1824,30 @@ YOUR TASKS:
 1. For each original image, determine which rotation shows text/content right-side up and readable
 2. For images with a cropped variant, decide if crop IMPROVES readability (doesn't cut off important info)
 
-RESPOND WITH ONLY THIS JSON FORMAT:
-{{
+RESPONSE FORMAT - Return ONLY valid JSON:
+{
   "choices": [
-    {example_json}
+    {"imageIndex": 1, "rotation": 0, "useCrop": false}
   ]
-}}
+}
 
-IMPORTANT:
-- Return exactly {num_images} choice(s), one per original image
+RULES:
+- Return exactly ONE choice per original image
 - Rotation values must be exactly: 0, 90, 180, or 270
 - useCrop: true only if crop helps without cutting important content
 - When in doubt about crop, use false"""
+
+
+def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
+    """Generate preprocessing prompt with static prefix + dynamic suffix."""
+
+    # Dynamic suffix with specific image count (changes per request)
+    if num_images == 1:
+        suffix = "\n\nFOR THIS REQUEST: 1 image (index: 1). Return exactly 1 choice."
+    else:
+        suffix = f"\n\nFOR THIS REQUEST: {num_images} images (indices: {image_indices}). Return exactly {num_images} choices."
+
+    return PREPROCESSING_PROMPT_PREFIX + suffix
 
 
 # YOLOE service instance (lazy loaded)
