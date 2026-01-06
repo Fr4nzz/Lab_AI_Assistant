@@ -5,8 +5,11 @@ export interface FileWithStatus {
   status: 'uploading' | 'uploaded' | 'error'
   base64Data?: string
   error?: string
+  // Preprocessing results
   rotation?: number
-  rotatedBase64?: string
+  rotatedBase64?: string  // Actually contains fully preprocessed (rotated + cropped) image
+  preprocessed?: boolean
+  useCrop?: boolean
 }
 
 export const FILE_UPLOAD_CONFIG = {

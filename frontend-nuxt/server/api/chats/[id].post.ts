@@ -310,47 +310,88 @@ async function createPreprocessingAwareStream(
         // 1. Start the message
         controller.enqueue(encoder.encode(adapter.startMessage()))
 
-        // 2. Emit image-preprocessing tool start
+        // 2. Check if images are already preprocessed (client-side preprocessing completed)
+        const allPreprocessed = imageParts.every(p => p.preprocessed === true || p.rotatedBase64)
         const preprocessingToolCallId = `call_preprocessing_${randomUUID().slice(0, 8)}`
-        controller.enqueue(encoder.encode(adapter.toolStart(preprocessingToolCallId, 'image-preprocessing')))
 
-        const toolInput = {
-          images: imageParts.map(p => p.name || 'image'),
-          count: imageParts.length
+        let rotatedCount = 0
+        let croppedCount = 0
+        let preprocessingTime = 0
+
+        if (allPreprocessed) {
+          // Images already preprocessed on client - just emit completion status
+          console.log(`[API/chat] Images already preprocessed on client, skipping server-side preprocessing`)
+
+          controller.enqueue(encoder.encode(adapter.toolStart(preprocessingToolCallId, 'image-preprocessing')))
+          const toolInput = {
+            images: imageParts.map(p => p.name || 'image'),
+            count: imageParts.length,
+            cached: true
+          }
+          controller.enqueue(encoder.encode(adapter.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)))
+
+          collector.toolInputStart(preprocessingToolCallId, 'image-preprocessing')
+          collector.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)
+
+          // Count from client-side preprocessing
+          rotatedCount = imageParts.filter(p => (p.rotation ?? 0) !== 0).length
+          croppedCount = imageParts.filter(p => p.useCrop).length
+
+          const toolOutput = {
+            processed: imageParts.length,
+            rotated: rotatedCount,
+            cropped: croppedCount,
+            cached: true,
+            results: imageParts.map((p, i) => ({
+              imageIndex: i + 1,
+              rotation: p.rotation ?? 0,
+              useCrop: p.useCrop ?? false
+            }))
+          }
+          controller.enqueue(encoder.encode(adapter.toolOutputAvailable(preprocessingToolCallId, toolOutput)))
+          collector.toolOutputAvailable(preprocessingToolCallId, toolOutput)
+
+        } else {
+          // Run preprocessing pipeline on server
+          controller.enqueue(encoder.encode(adapter.toolStart(preprocessingToolCallId, 'image-preprocessing')))
+          const toolInput = {
+            images: imageParts.map(p => p.name || 'image'),
+            count: imageParts.length
+          }
+          controller.enqueue(encoder.encode(adapter.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)))
+
+          collector.toolInputStart(preprocessingToolCallId, 'image-preprocessing')
+          collector.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)
+
+          console.log(`[API/chat] Processing ${imageParts.length} images through preprocessing pipeline`)
+
+          const preprocessResult = await processImagesWithPreprocessing(
+            backendUrl,
+            imageParts,
+            visitorId
+          )
+
+          // Emit tool output with results
+          const toolOutput = buildPreprocessingToolOutput(preprocessResult, imageParts)
+          controller.enqueue(encoder.encode(adapter.toolOutputAvailable(preprocessingToolCallId, toolOutput)))
+          collector.toolOutputAvailable(preprocessingToolCallId, toolOutput)
+
+          // Replace images in the last message with processed versions
+          const lastMessage = messages[messages.length - 1]
+          if (lastMessage?.parts) {
+            lastMessage.parts = replaceWithProcessedImages(lastMessage.parts, preprocessResult.processedImages)
+          }
+
+          rotatedCount = preprocessResult.choices.filter(c => c.rotation !== 0).length
+          croppedCount = preprocessResult.choices.filter(c => c.useCrop).length
+          preprocessingTime = preprocessResult.timing.totalMs
         }
-        controller.enqueue(encoder.encode(adapter.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)))
-
-        // Track the tool in collector
-        collector.toolInputStart(preprocessingToolCallId, 'image-preprocessing')
-        collector.toolInputAvailable(preprocessingToolCallId, 'image-preprocessing', toolInput)
-
-        // 3. Process images through preprocessing pipeline (YOLOE + rotations + AI selection)
-        console.log(`[API/chat] Processing ${imageParts.length} images through preprocessing pipeline`)
-
-        const preprocessResult = await processImagesWithPreprocessing(
-          backendUrl,
-          imageParts,
-          visitorId
-        )
-
-        // 4. Emit tool output with results
-        const toolOutput = buildPreprocessingToolOutput(preprocessResult, imageParts)
-        controller.enqueue(encoder.encode(adapter.toolOutputAvailable(preprocessingToolCallId, toolOutput)))
-        collector.toolOutputAvailable(preprocessingToolCallId, toolOutput)
-
-        // 5. Replace images in the last message with processed versions
-        const lastMessage = messages[messages.length - 1]
-        if (lastMessage?.parts) {
-          lastMessage.parts = replaceWithProcessedImages(lastMessage.parts, preprocessResult.processedImages)
-        }
-
-        const rotatedCount = preprocessResult.choices.filter(c => c.rotation !== 0).length
-        const croppedCount = preprocessResult.choices.filter(c => c.useCrop).length
 
         // 6. Convert and forward to backend
         const backendMessages = convertMessagesForBackend(messages)
 
-        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated, ${croppedCount} cropped images (${preprocessResult.timing.totalMs}ms preprocessing)`)
+        const preprocessingStatus = allPreprocessed ? 'cached' : `${preprocessingTime}ms`
+        console.log(`[API/chat] Proxying to backend with ${rotatedCount} rotated, ${croppedCount} cropped images (${preprocessingStatus} preprocessing)`)
 
         const response = await fetch(`${backendUrl}/api/chat/aisdk`, {
           method: 'POST',

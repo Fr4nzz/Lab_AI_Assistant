@@ -27,8 +27,11 @@ export interface ImagePart {
   data?: string
   name?: string
   rotation?: number
-  rotatedBase64?: string
+  rotatedBase64?: string  // Fully preprocessed (rotated + cropped) image
   rotationPending?: boolean
+  preprocessed?: boolean  // True if already preprocessed on client
+  useCrop?: boolean
+  preprocessingPending?: boolean
 }
 
 export interface RotationResult {

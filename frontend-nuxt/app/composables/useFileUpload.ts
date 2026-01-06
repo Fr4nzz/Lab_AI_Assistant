@@ -22,7 +22,14 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
-  const { detectRotation, clearRotation, clearAllRotations, waitForPendingRotations, hasPendingRotations } = useImageRotation()
+  // Use new preprocessing pipeline instead of old rotation detection
+  const {
+    preprocessImage,
+    clearPreprocessing,
+    clearAllPreprocessing,
+    waitForPendingPreprocessing,
+    hasPendingPreprocessing
+  } = useImagePreprocessing()
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -63,35 +70,41 @@ export function useFileUploadWithStatus(_chatId: string) {
           base64Data
         }
 
-        // Start rotation detection in background for images (non-blocking)
+        // Start full preprocessing pipeline in background for images (non-blocking)
         if (fileWithStatus.file.type.startsWith('image/')) {
-          detectRotation(
+          preprocessImage(
             fileWithStatus.id,
             base64Data,
-            fileWithStatus.file.type,
-            fileWithStatus.previewUrl
+            fileWithStatus.file.type
           ).then((result) => {
-            // Update file with rotation info when detection completes
-            // Always set rotation (even when 0) to indicate detection is complete
+            // Update file with preprocessing result when complete
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
             if (currentIndex !== -1) {
               files.value[currentIndex] = {
                 ...files.value[currentIndex]!,
                 rotation: result.rotation,
-                rotatedBase64: result.rotatedBase64
+                // Store the fully processed image (rotated + cropped)
+                rotatedBase64: result.processedBase64,
+                // Store additional preprocessing info
+                preprocessed: result.processed,
+                useCrop: result.useCrop
               }
-              if (result.rotation !== 0) {
-                console.log('[useFileUpload] Rotation detected:', result.rotation, 'for file:', fileWithStatus.id)
-              }
+              console.log('[useFileUpload] Preprocessing complete:', {
+                fileId: fileWithStatus.id,
+                rotation: result.rotation,
+                useCrop: result.useCrop,
+                timing: result.timing
+              })
             }
           }).catch((error) => {
-            console.error('[useFileUpload] Rotation detection error:', error)
-            // Mark as processed (rotation = 0) even on error
+            console.error('[useFileUpload] Preprocessing error:', error)
+            // Mark as processed (no changes) even on error
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
             if (currentIndex !== -1) {
               files.value[currentIndex] = {
                 ...files.value[currentIndex]!,
-                rotation: 0
+                rotation: 0,
+                preprocessed: false
               }
             }
           })
@@ -126,13 +139,13 @@ export function useFileUploadWithStatus(_chatId: string) {
   )
 
   // Format files for AI SDK message parts
-  // Includes rotation metadata for server-side processing
+  // Uses preprocessed (rotated + cropped) images if available
   const uploadedFiles = computed(() =>
     files.value
       .filter(f => f.status === 'uploaded' && f.base64Data)
       .map(f => {
         const isImage = f.file.type.startsWith('image/')
-        // Use rotated data if available, otherwise original
+        // Use preprocessed data if available (already rotated + cropped), otherwise original
         const base64 = f.rotatedBase64 || f.base64Data!
         return {
           type: 'file' as const,
@@ -140,12 +153,13 @@ export function useFileUploadWithStatus(_chatId: string) {
           url: `data:${f.file.type};base64,${base64}`,
           data: base64,
           name: f.file.name,
-          // Include rotation metadata for server-side processing
+          // Include preprocessing metadata
           rotation: f.rotation,
           rotatedBase64: f.rotatedBase64,
-          // Flag to indicate if rotation detection is still pending
-          // (only relevant for images that haven't been processed yet)
-          rotationPending: isImage && f.rotation === undefined
+          preprocessed: f.preprocessed,
+          useCrop: f.useCrop,
+          // Flag to indicate if preprocessing is still pending
+          preprocessingPending: isImage && f.rotation === undefined
         }
       })
   )
@@ -155,14 +169,14 @@ export function useFileUploadWithStatus(_chatId: string) {
     if (!file) return
 
     URL.revokeObjectURL(file.previewUrl)
-    clearRotation(id)
+    clearPreprocessing(id)
     files.value = files.value.filter(f => f.id !== id)
   }
 
   function clearFiles() {
     if (files.value.length === 0) return
     files.value.forEach(fileWithStatus => URL.revokeObjectURL(fileWithStatus.previewUrl))
-    clearAllRotations()
+    clearAllPreprocessing()
     files.value = []
   }
 
@@ -179,7 +193,7 @@ export function useFileUploadWithStatus(_chatId: string) {
     addFiles: uploadFiles,
     removeFile,
     clearFiles,
-    waitForPendingRotations,
-    hasPendingRotations
+    waitForPendingPreprocessing,
+    hasPendingPreprocessing
   }
 }
