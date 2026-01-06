@@ -1773,9 +1773,14 @@ class ImagePreprocessResponse(BaseModel):
 
 class PreprocessingChoice(BaseModel):
     """AI's choice for an image."""
-    imageIndex: int
-    rotation: int
-    useCrop: bool
+    imageIndex: int = Field(description="The image number N from the labels")
+    rotation: int = Field(description="Rotation angle: 0, 90, 180, or 270 degrees")
+    useCrop: bool = Field(description="True if cropped version improves readability")
+
+
+class PreprocessingChoicesResponse(BaseModel):
+    """Structured response from preprocessing AI."""
+    choices: List[PreprocessingChoice] = Field(description="One choice per original image")
 
 
 class SelectPreprocessingRequest(BaseModel):
@@ -1809,25 +1814,19 @@ class ProcessedImage(BaseModel):
 
 
 # Static prefix for prompt caching - DO NOT MODIFY without considering cache invalidation
-PREPROCESSING_PROMPT_PREFIX = """You are an image preprocessing assistant. Your job is to prepare images for another AI.
+PREPROCESSING_PROMPT_PREFIX = """You are an image preprocessing assistant. Prepare images for another AI.
 
-For each original image, you see multiple labeled variants:
+For each original image, you see labeled variants:
 - "N: 0°" - Original orientation
 - "N: 90°" - Rotated 90° clockwise
 - "N: 180°" - Rotated 180°
 - "N: 270°" - Rotated 270° clockwise
-- "N: cropped" - Zoomed/cropped version (if available)
+- "N: cropped" - Zoomed version (if available)
 
-Where N is the image number. ALL variants with the same N belong to the SAME original image.
+Where N is the image number. All variants with same N are the SAME original image.
 
-YOUR TASKS:
-1. For each original image, determine which rotation shows text/content right-side up and readable
-2. For images with a cropped variant, decide if crop IMPROVES readability (doesn't cut off important info)
-
-RESPONSE: Return ONLY a JSON object with a "choices" array containing one object per image:
-- imageIndex: integer (the image number N)
-- rotation: integer (0, 90, 180, or 270 - whichever variant shows content upright)
-- useCrop: boolean (true only if crop improves readability without cutting important content)"""
+For each image, pick which rotation shows content upright and readable.
+For cropped variant, use it only if it improves readability without cutting important content."""
 
 
 def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
@@ -1835,9 +1834,9 @@ def get_preprocessing_prompt(num_images: int, image_indices: list) -> str:
 
     # Dynamic suffix with specific image count (changes per request)
     if num_images == 1:
-        suffix = "\n\nFOR THIS REQUEST: 1 image (index: 1). Return exactly 1 choice."
+        suffix = "\n\nThis request has 1 image (index: 1)."
     else:
-        suffix = f"\n\nFOR THIS REQUEST: {num_images} images (indices: {image_indices}). Return exactly {num_images} choices."
+        suffix = f"\n\nThis request has {num_images} images (indices: {image_indices})."
 
     return PREPROCESSING_PROMPT_PREFIX + suffix
 
@@ -2056,62 +2055,41 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
         **thinking_kwargs
     )
 
-    # Call model
-    message = HumanMessage(content=content)
-    result = await model.ainvoke([message])
-
-    # Track usage
-    increment_usage(request.preprocessingModel)
-
-    # Parse response
-    response_text = ""
-    if isinstance(result.content, list):
-        for block in result.content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                response_text = block.get("text", "")
-                break
-    else:
-        response_text = result.content.strip() if result.content else ""
-
     # Get valid image indices from labels
     valid_image_indices = sorted(set(label.imageIndex for label in request.labels))
     logger.info(f"[Select] Valid image indices: {valid_image_indices}, Labels: {[l.label for l in request.labels]}")
 
-    # Extract JSON from response
-    raw_choices = []
-    try:
-        # Try to find JSON in response
-        json_match = re.search(r'\{[\s\S]*"choices"[\s\S]*\}', response_text)
-        if json_match:
-            parsed = json.loads(json_match.group())
-            raw_choices = parsed.get("choices", [])
-            logger.info(f"[Select] AI raw response: {raw_choices}")
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.warning(f"[Select] Failed to parse AI response: {e}, raw: {response_text[:200]}")
+    # Use structured output to get validated response
+    structured_model = model.with_structured_output(PreprocessingChoicesResponse)
 
-    # Deduplicate choices by imageIndex (only keep first choice per image)
-    # and validate that imageIndex exists in original images
+    # Call model with structured output
+    message = HumanMessage(content=content)
     choices = []
-    seen_indices = set()
-    for choice_data in raw_choices:
-        img_idx = choice_data.get("imageIndex", 1)
-        if img_idx in seen_indices:
-            logger.debug(f"[Select] Skipping duplicate choice for imageIndex {img_idx}")
-            continue
-        if img_idx not in valid_image_indices:
-            logger.warning(f"[Select] AI returned invalid imageIndex {img_idx}, valid are {valid_image_indices}")
-            continue
-        seen_indices.add(img_idx)
-        rotation = choice_data.get("rotation", 0)
-        use_crop = choice_data.get("useCrop", False)
-        choices.append(PreprocessingChoice(
-            imageIndex=img_idx,
-            rotation=rotation,
-            useCrop=use_crop
-        ))
-        logger.info(f"[Select] Image {img_idx}: rotation={rotation}°, useCrop={use_crop}")
 
-    # If parsing failed or no valid choices, create default choices (0° rotation, no crop)
+    try:
+        result: PreprocessingChoicesResponse = await structured_model.ainvoke([message])
+        logger.info(f"[Select] AI structured response: {result.choices}")
+
+        # Validate and deduplicate choices
+        seen_indices = set()
+        for choice in result.choices:
+            if choice.imageIndex in seen_indices:
+                logger.debug(f"[Select] Skipping duplicate choice for imageIndex {choice.imageIndex}")
+                continue
+            if choice.imageIndex not in valid_image_indices:
+                logger.warning(f"[Select] AI returned invalid imageIndex {choice.imageIndex}, valid are {valid_image_indices}")
+                continue
+            seen_indices.add(choice.imageIndex)
+            choices.append(choice)
+            logger.info(f"[Select] Image {choice.imageIndex}: rotation={choice.rotation}°, useCrop={choice.useCrop}")
+
+    except Exception as e:
+        logger.warning(f"[Select] Structured output failed: {e}")
+
+    # Track usage
+    increment_usage(request.preprocessingModel)
+
+    # If no valid choices, create defaults
     if not choices:
         for img_idx in valid_image_indices:
             choices.append(PreprocessingChoice(
