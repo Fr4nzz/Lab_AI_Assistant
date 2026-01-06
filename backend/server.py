@@ -373,8 +373,9 @@ async def _trigger_orders_auto_update():
             await fecha_desde.type(one_year_ago, delay=50)
             await asyncio.sleep(0.3)
 
-            await new_page.locator("label[for='fecha-desde']").click()
-            await asyncio.sleep(0.5)
+            # Press Escape to close the datepicker popup before clicking elsewhere
+            await new_page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
 
             # Set up download handler
             download_dir = Path(__file__).parent / "downloads"
