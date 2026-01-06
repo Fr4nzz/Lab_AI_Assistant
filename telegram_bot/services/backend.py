@@ -165,13 +165,44 @@ class BackendService:
         message: str,
         images: List[bytes] = None,
         audio: bytes = None,
-        audio_mime: str = None
+        audio_mime: str = None,
+        preprocessed_images: List[dict] = None
     ) -> list:
-        """Build message content array with text, images, and audio."""
+        """Build message content array with text, images, and audio.
+
+        Args:
+            message: Text message content
+            images: List of raw image bytes (will be preprocessed server-side if preprocessed_images is None)
+            audio: Audio bytes
+            audio_mime: Audio MIME type
+            preprocessed_images: List of already-preprocessed images from preprocess_images().
+                                Each dict has: {data: base64, rotation: int, cropped: bool}
+        """
         parts = []
 
         # Add images first
-        if images:
+        if preprocessed_images:
+            # Use preprocessed images (already rotated/cropped by YOLOE + AI pipeline)
+            for i, img_data in enumerate(preprocessed_images):
+                base64_img = img_data.get("data", "")
+                # Preprocessed images are always JPEG
+                mime_type = "image/jpeg"
+
+                parts.append({
+                    "type": "file",
+                    "data": base64_img,
+                    "mediaType": mime_type,
+                    "url": f"data:{mime_type};base64,{base64_img}",
+                    "name": f"telegram_image_{i + 1}",
+                    "preprocessed": True,  # Already processed, skip server-side preprocessing
+                    "rotation": img_data.get("rotation", 0),
+                    "cropped": img_data.get("cropped", False)
+                })
+                logger.info(f"[Message] Using preprocessed image {i+1}: "
+                           f"rotation={img_data.get('rotation', 0)}°, cropped={img_data.get('cropped', False)}")
+
+        elif images:
+            # Use raw images - server will preprocess them
             for i, img_bytes in enumerate(images):
                 base64_img = base64.b64encode(img_bytes).decode("utf-8")
                 # Detect image type
@@ -220,22 +251,24 @@ class BackendService:
         model: str = None,
         audio: bytes = None,
         audio_mime: str = None,
+        preprocessed_images: List[dict] = None,
     ) -> Tuple[str, List[str], Optional[AskUserOptions]]:
         """Send message via Frontend API and get response.
 
         Args:
             chat_id: Chat/thread ID
             message: User message text
-            images: List of image bytes (JPEG/PNG)
+            images: List of image bytes (JPEG/PNG) - used if preprocessed_images is None
             on_tool_call: Callback for tool call notifications (can be sync or async)
             model: Optional model ID to use (e.g., "gemini-3-flash-preview")
             audio: Optional audio bytes (OGG, MP3, WebM, etc.)
             audio_mime: MIME type of the audio (e.g., "audio/ogg", "audio/mpeg")
+            preprocessed_images: Already-preprocessed images from preprocess_images()
 
         Returns:
             Tuple of (response_text, tools_used, ask_user_options)
         """
-        parts = self._build_message_content(message, images, audio, audio_mime)
+        parts = self._build_message_content(message, images, audio, audio_mime, preprocessed_images)
 
         if not parts:
             return "", [], None
@@ -526,6 +559,135 @@ class BackendService:
         except Exception as e:
             logger.error(f"[Rotation] Error rotating image: {e}")
             return image_bytes
+
+    async def preprocess_images(self, images: List[bytes], visitor_id: str = None) -> dict:
+        """
+        Run full preprocessing pipeline on images (YOLOE + AI rotation/crop selection).
+
+        This is the new unified preprocessing that should be called when images
+        are received, before the user decides what to do with them.
+
+        Args:
+            images: List of image bytes (JPEG/PNG)
+            visitor_id: Optional visitor ID to get user's preprocessing settings
+
+        Returns:
+            Dict with preprocessed images and metadata:
+            {
+                "success": True,
+                "processedImages": [{"data": base64, "rotation": 270, "cropped": True}, ...],
+                "choices": [{"imageIndex": 1, "rotation": 270, "useCrop": True}, ...],
+                "timing": {"totalMs": 1234}
+            }
+        """
+        if not images:
+            return {"success": True, "processedImages": [], "choices": [], "timing": {"totalMs": 0}}
+
+        try:
+            import time
+            start_time = time.time()
+
+            # Get user settings for preprocessing model
+            settings = {}
+            if visitor_id:
+                try:
+                    settings = await self.get_settings(visitor_id)
+                except Exception as e:
+                    logger.warning(f"[Preprocess] Could not get settings: {e}")
+
+            preprocessing_model = settings.get("preprocessingModel", "gemini-flash-lite-latest")
+            thinking_level = settings.get("preprocessingThinkingLevel", "off")
+
+            # Prepare images for API
+            image_data = []
+            for i, img_bytes in enumerate(images):
+                base64_img = base64.b64encode(img_bytes).decode("utf-8")
+
+                # Detect mime type
+                if img_bytes[:3] == b'\xff\xd8\xff':
+                    mime_type = "image/jpeg"
+                elif img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                    mime_type = "image/png"
+                else:
+                    mime_type = "image/jpeg"
+
+                image_data.append({
+                    "data": base64_img,
+                    "mimeType": mime_type,
+                    "name": f"telegram_image_{i + 1}"
+                })
+
+            # Step 1: Generate variants (rotation + YOLOE crop)
+            logger.info(f"[Preprocess] Step 1: Generating variants for {len(images)} images...")
+            preprocess_response = await self.client.post(
+                f"{FRONTEND_URL}/api/preprocess-images",
+                json={"images": image_data},
+                headers=self._headers,
+                timeout=60.0
+            )
+
+            if preprocess_response.status_code != 200:
+                logger.warning(f"[Preprocess] Variant generation failed: {preprocess_response.status_code}")
+                return {"success": False, "error": f"Variant generation failed: {preprocess_response.status_code}"}
+
+            preprocess_result = preprocess_response.json()
+            logger.info(f"[Preprocess] Generated {len(preprocess_result.get('variants', []))} variants")
+
+            # Step 2: AI selects best rotation + crop
+            logger.info(f"[Preprocess] Step 2: AI selecting rotation/crop (model: {preprocessing_model})...")
+            select_response = await self.client.post(
+                f"{FRONTEND_URL}/api/select-preprocessing",
+                json={
+                    "variants": preprocess_result.get("variants", []),
+                    "labels": preprocess_result.get("labels", []),
+                    "preprocessingModel": preprocessing_model,
+                    "thinkingLevel": thinking_level
+                },
+                headers=self._headers,
+                timeout=30.0
+            )
+
+            if select_response.status_code != 200:
+                logger.warning(f"[Preprocess] AI selection failed: {select_response.status_code}")
+                return {"success": False, "error": f"AI selection failed: {select_response.status_code}"}
+
+            select_result = select_response.json()
+            choices = select_result.get("choices", [])
+            logger.info(f"[Preprocess] AI selected: {choices}")
+
+            # Step 3: Apply the choices
+            logger.info(f"[Preprocess] Step 3: Applying rotation/crop choices...")
+            apply_response = await self.client.post(
+                f"{FRONTEND_URL}/api/apply-preprocessing",
+                json={
+                    "images": image_data,
+                    "choices": choices,
+                    "crops": preprocess_result.get("crops", [])
+                },
+                headers=self._headers,
+                timeout=30.0
+            )
+
+            if apply_response.status_code != 200:
+                logger.warning(f"[Preprocess] Apply failed: {apply_response.status_code}")
+                return {"success": False, "error": f"Apply failed: {apply_response.status_code}"}
+
+            apply_result = apply_response.json()
+            processed_images = apply_result.get("processedImages", [])
+
+            total_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[Preprocess] Complete: {len(processed_images)} images in {total_ms}ms")
+
+            return {
+                "success": True,
+                "processedImages": processed_images,
+                "choices": choices,
+                "timing": {"totalMs": total_ms}
+            }
+
+        except Exception as e:
+            logger.error(f"[Preprocess] Error: {e}")
+            return {"success": False, "error": str(e)}
 
     # =========================================================================
     # Settings Operations (synced with Frontend database)

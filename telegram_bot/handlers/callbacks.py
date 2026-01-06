@@ -90,8 +90,9 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle 'new chat' buttons (cotizar, pasar, caption, custom)."""
-    # Use original images - rotation is handled by backend's image-rotation tool
+    # Get original images and preprocessed versions if available
     images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
 
     if action == "custom":
         # Wait for user to type custom prompt
@@ -129,6 +130,8 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         context.user_data["current_chat_id"] = chat_id
         context.user_data["pending_images"] = []
         context.user_data["pending_caption"] = None  # Clear caption after use
+        context.user_data.pop("preprocessed_images", None)  # Clear preprocessed images after use
+        context.user_data.pop("preprocessing_choices", None)
 
         # Show processing message
         await query.message.reply_text("⏳ Procesando...")
@@ -146,12 +149,14 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
+        # Use preprocessed images if available, otherwise fall back to original
         response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
-            images=images,
+            images=images if not preprocessed_images else None,
             on_tool_call=on_tool,
-            model=model
+            model=model,
+            preprocessed_images=preprocessed_images
         )
 
         # Store ask_user options for callback handling
@@ -193,8 +198,9 @@ async def handle_continue_chat(query, context: ContextTypes.DEFAULT_TYPE, short_
 
 async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle prompt selection after choosing to continue a chat."""
-    # Use original images - rotation is handled by backend's image-rotation tool
+    # Get original images and preprocessed versions if available
     images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
     chat_id = context.user_data.get("pending_chat_id")
 
     if not chat_id:
@@ -213,6 +219,8 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
 
     context.user_data["current_chat_id"] = chat_id
     context.user_data["pending_images"] = []
+    context.user_data.pop("preprocessed_images", None)  # Clear preprocessed images after use
+    context.user_data.pop("preprocessing_choices", None)
 
     # Show processing message
     await query.message.reply_text("⏳ Procesando...")
@@ -232,12 +240,14 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
         # Get selected model (default to gemini-3-flash-preview)
         model = context.user_data.get("model", DEFAULT_MODEL)
 
+        # Use preprocessed images if available, otherwise fall back to original
         response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
-            images=images,
+            images=images if not preprocessed_images else None,
             on_tool_call=on_tool,
-            model=model
+            model=model,
+            preprocessed_images=preprocessed_images
         )
 
         # Store ask_user options for callback handling
@@ -546,6 +556,7 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
     audio = context.user_data.get("pending_audio")
     audio_mime = context.user_data.get("pending_audio_mime", "audio/ogg")
     images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
 
     if not audio:
         await query.message.reply_text("❌ No hay audio guardado. Envía un audio primero.")
@@ -584,6 +595,8 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
             context.user_data["pending_audio_mime"] = None
             if include_images:
                 context.user_data["pending_images"] = []
+                context.user_data.pop("preprocessed_images", None)
+                context.user_data.pop("preprocessing_choices", None)
 
             # Show processing message
             await query.message.reply_text("⏳ Procesando...")
@@ -600,14 +613,17 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
 
             model = context.user_data.get("model", DEFAULT_MODEL)
 
+            # Use preprocessed images if available
+            use_preprocessed = include_images and preprocessed_images
             response_text, tools, ask_user_options = await backend.send_message(
                 chat_id=full_chat_id,
                 message=prompt,
-                images=images if include_images else None,
+                images=images if include_images and not use_preprocessed else None,
                 audio=audio,
                 audio_mime=audio_mime,
                 on_tool_call=on_tool,
-                model=model
+                model=model,
+                preprocessed_images=preprocessed_images if use_preprocessed else None
             )
 
             if ask_user_options:
@@ -652,6 +668,8 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
         context.user_data["pending_audio_mime"] = None
         if include_images:
             context.user_data["pending_images"] = []
+            context.user_data.pop("preprocessed_images", None)
+            context.user_data.pop("preprocessing_choices", None)
 
         # Show processing message
         await query.message.reply_text("⏳ Procesando...")
@@ -668,14 +686,17 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
 
         model = context.user_data.get("model", DEFAULT_MODEL)
 
+        # Use preprocessed images if available
+        use_preprocessed = include_images and preprocessed_images
         response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
-            images=images if include_images else None,
+            images=images if include_images and not use_preprocessed else None,
             audio=audio,
             audio_mime=audio_mime,
             on_tool_call=on_tool,
-            model=model
+            model=model,
+            preprocessed_images=preprocessed_images if use_preprocessed else None
         )
 
         if ask_user_options:

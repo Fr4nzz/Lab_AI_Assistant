@@ -113,8 +113,9 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handle custom prompt input after user selected 'Escribe el prompt'."""
     message = update.message
 
-    # Get pending data - use pre-rotated images if available
-    images = context.user_data.get("pending_images_rotated") or context.user_data.get("pending_images", [])
+    # Get pending data - use preprocessed images if available
+    images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
     chat_id = context.user_data.get("pending_chat_id")
 
     # Clear the awaiting flag
@@ -147,17 +148,20 @@ async def handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYP
         # Get selected model
         model = context.user_data.get("model", DEFAULT_MODEL)
 
+        # Use preprocessed images if available
         response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
-            images=images,
+            images=images if not preprocessed_images else None,
             on_tool_call=on_tool,
-            model=model
+            model=model,
+            preprocessed_images=preprocessed_images
         )
 
         # Clear pending images
         context.user_data["pending_images"] = []
-        context.user_data["pending_images_rotated"] = []
+        context.user_data.pop("preprocessed_images", None)
+        context.user_data.pop("preprocessing_choices", None)
 
         # Store ask_user options for callback handling
         if ask_user_options:
@@ -183,6 +187,7 @@ async def handle_custom_audio_prompt(update: Update, context: ContextTypes.DEFAU
     audio = context.user_data.get("pending_audio")
     audio_mime = context.user_data.get("pending_audio_mime", "audio/ogg")
     images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
     chat_id = context.user_data.get("pending_chat_id")
 
     # Clear the awaiting flag
@@ -221,15 +226,17 @@ async def handle_custom_audio_prompt(update: Update, context: ContextTypes.DEFAU
 
         # Include images if present
         include_images = len(images) > 0
+        use_preprocessed = include_images and preprocessed_images
 
         response_text, tools, ask_user_options = await backend.send_message(
             chat_id=chat_id,
             message=prompt,
-            images=images if include_images else None,
+            images=images if include_images and not use_preprocessed else None,
             audio=audio,
             audio_mime=audio_mime,
             on_tool_call=on_tool,
-            model=model
+            model=model,
+            preprocessed_images=preprocessed_images if use_preprocessed else None
         )
 
         # Clear pending data
@@ -237,6 +244,8 @@ async def handle_custom_audio_prompt(update: Update, context: ContextTypes.DEFAU
         context.user_data["pending_audio_mime"] = None
         if include_images:
             context.user_data["pending_images"] = []
+            context.user_data.pop("preprocessed_images", None)
+            context.user_data.pop("preprocessing_choices", None)
 
         # Store ask_user options for callback handling
         if ask_user_options:

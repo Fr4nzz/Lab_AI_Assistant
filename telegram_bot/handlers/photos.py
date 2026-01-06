@@ -16,21 +16,42 @@ logger = logging.getLogger(__name__)
 media_groups: Dict[str, Dict] = {}
 
 
-async def prefetch_in_background(photos: List[bytes], user_data: dict) -> None:
+async def prefetch_in_background(photos: List[bytes], user_data: dict, visitor_id: str = None) -> None:
     """
-    Prefetch orders in background while user decides what to do.
+    Prefetch orders and preprocess images in background while user decides what to do.
     Results are stored in user_data for later use.
-
-    Note: Image rotation is NOT done here - it's handled by the backend's
-    image-rotation tool when the agent processes the message.
     """
     backend = BackendService()
     try:
-        # Prefetch orders
-        result = await backend.prefetch_orders()
-        user_data["prefetch_orders_result"] = result
-        user_data["prefetch_orders_timestamp"] = time.time()
-        logger.info(f"[Prefetch] Orders ready: {result.get('freshness', {})}")
+        # Run orders prefetch and image preprocessing in parallel
+        orders_task = asyncio.create_task(backend.prefetch_orders())
+        preprocess_task = asyncio.create_task(backend.preprocess_images(photos, visitor_id))
+
+        # Wait for both to complete
+        orders_result, preprocess_result = await asyncio.gather(
+            orders_task, preprocess_task, return_exceptions=True
+        )
+
+        # Store orders result
+        if isinstance(orders_result, Exception):
+            logger.error(f"[Prefetch] Orders prefetch error: {orders_result}")
+        else:
+            user_data["prefetch_orders_result"] = orders_result
+            user_data["prefetch_orders_timestamp"] = time.time()
+            logger.info(f"[Prefetch] Orders ready: {orders_result.get('freshness', {})}")
+
+        # Store preprocessing result
+        if isinstance(preprocess_result, Exception):
+            logger.error(f"[Prefetch] Preprocessing error: {preprocess_result}")
+        elif preprocess_result.get("success"):
+            user_data["preprocessed_images"] = preprocess_result.get("processedImages", [])
+            user_data["preprocessing_choices"] = preprocess_result.get("choices", [])
+            user_data["preprocessing_timestamp"] = time.time()
+            logger.info(f"[Prefetch] Images preprocessed: {len(user_data['preprocessed_images'])} images, "
+                       f"choices: {preprocess_result.get('choices', [])}, "
+                       f"timing: {preprocess_result.get('timing', {}).get('totalMs', 0)}ms")
+        else:
+            logger.warning(f"[Prefetch] Preprocessing failed: {preprocess_result.get('error', 'unknown')}")
 
     except Exception as e:
         logger.error(f"[Prefetch] Background prefetch error: {e}")
@@ -113,9 +134,10 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
     app_user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-    # Start prefetch in background (orders)
+    # Start prefetch in background (orders + image preprocessing)
     # This runs concurrently while user decides what to do
-    asyncio.create_task(prefetch_in_background(photos, app_user_data))
+    visitor_id = f"telegram_{user_id}"
+    asyncio.create_task(prefetch_in_background(photos, app_user_data, visitor_id))
 
     # Get the most recent chat to offer "Continuar en chat" option
     backend = BackendService()
@@ -161,9 +183,10 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["pending_chat_id"] = None
         context.user_data["pending_caption"] = caption  # Store caption for "caption" action
 
-        # Start prefetch in background (orders)
+        # Start prefetch in background (orders + image preprocessing)
         # This runs concurrently while user decides what to do
-        asyncio.create_task(prefetch_in_background(photos, context.user_data))
+        visitor_id = f"telegram_{message.from_user.id}"
+        asyncio.create_task(prefetch_in_background(photos, context.user_data, visitor_id))
 
         # Get the most recent chat to offer "Continuar en chat" option
         backend = BackendService()
