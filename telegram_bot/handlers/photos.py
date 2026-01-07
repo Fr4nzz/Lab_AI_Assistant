@@ -131,10 +131,14 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Store photos and caption in user context for later use
     # Access via application's user_data
+    # IMPORTANT: Clear old preprocessing data FIRST to prevent using stale results
     app_user_data = context.application.user_data.setdefault(user_id, {})
     app_user_data["pending_images"] = photos
     app_user_data["pending_chat_id"] = None  # Will be set when user selects action
     app_user_data["pending_caption"] = caption  # Store caption for "caption" action
+    app_user_data.pop("preprocessed_images", None)  # Clear old preprocessing
+    app_user_data.pop("preprocessing_choices", None)
+    app_user_data.pop("preprocessing_timestamp", None)
 
     # Start prefetch in background (orders + image preprocessing)
     # This runs concurrently while user decides what to do
@@ -180,10 +184,16 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         photo_bytes = await file.download_as_bytearray()
 
         # Store in user context (including caption)
+        # IMPORTANT: Clear old preprocessing data FIRST to prevent using stale results
+        # This fixes bug where clicking button before new preprocessing completes
+        # would use OLD preprocessed images from previous photo session
         photos = [bytes(photo_bytes)]
         context.user_data["pending_images"] = photos
         context.user_data["pending_chat_id"] = None
         context.user_data["pending_caption"] = caption  # Store caption for "caption" action
+        context.user_data.pop("preprocessed_images", None)  # Clear old preprocessing
+        context.user_data.pop("preprocessing_choices", None)
+        context.user_data.pop("preprocessing_timestamp", None)
 
         # Start prefetch in background (orders + image preprocessing)
         # This runs concurrently while user decides what to do
