@@ -42,6 +42,7 @@ data/tunnel_url.txt
 
 # Service logs (generated in silent mode)
 logs/
+backend/logs/
 
 # Requirements hash (pip optimization cache)
 backend/.requirements_hash

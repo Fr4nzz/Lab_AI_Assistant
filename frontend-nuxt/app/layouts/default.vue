@@ -8,6 +8,7 @@ const { loggedIn, openInPopup } = useUserSession()
 const { isOAuthEnabled } = useAuthConfig()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
+const { enableAgentLogging } = useAgentLogging()
 
 const open = ref(false)
 const tabEditorOpen = ref(false)
@@ -234,6 +235,25 @@ defineShortcuts({
                 />
               </UButton>
 
+              <!-- Agent Logging toggle -->
+              <UButton
+                variant="ghost"
+                color="neutral"
+                block
+                class="justify-between"
+                @click="enableAgentLogging = !enableAgentLogging"
+              >
+                <span class="flex items-center gap-2">
+                  <UIcon name="i-lucide-file-text" class="w-4 h-4" />
+                  Guardar logs
+                </span>
+                <UIcon
+                  :name="enableAgentLogging ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
+                  class="w-5 h-5"
+                  :class="enableAgentLogging ? 'text-primary' : 'text-muted'"
+                />
+              </UButton>
+
               <!-- Admin Panel -->
               <SidebarAdminPanel />
             </div>
@@ -266,6 +286,15 @@ defineShortcuts({
                 :color="showStats ? 'primary' : 'neutral'"
                 block
                 @click="showStats = !showStats"
+              />
+            </UTooltip>
+            <UTooltip :text="enableAgentLogging ? 'Desactivar logs' : 'Activar logs'">
+              <UButton
+                icon="i-lucide-file-text"
+                variant="ghost"
+                :color="enableAgentLogging ? 'primary' : 'neutral'"
+                block
+                @click="enableAgentLogging = !enableAgentLogging"
               />
             </UTooltip>
           </div>

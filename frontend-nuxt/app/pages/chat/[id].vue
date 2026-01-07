@@ -16,6 +16,7 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { enabledTools } = useEnabledTools()
+const { enableAgentLogging } = useAgentLogging()
 const tts = useTTS()
 const showCamera = ref(false)
 const chatPromptRef = ref<{ inputRef: { el: HTMLTextAreaElement } } | null>(null)
@@ -226,7 +227,8 @@ const chat = new Chat({
     api: `/api/chats/${data.value.id}`,
     body: () => ({
       model: model.value,
-      enabledTools: enabledTools.value
+      enabledTools: enabledTools.value,
+      enableAgentLogging: enableAgentLogging.value
     })
   }),
   onFinish() {

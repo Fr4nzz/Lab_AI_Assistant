@@ -69,6 +69,7 @@ from extractors import EXTRACT_ORDENES_JS
 from config import settings
 from prompts import SYSTEM_PROMPT, load_prompts, save_prompts, reload_prompts, get_default_prompts
 from stream_adapter import StreamAdapter
+from agent_logger import AgentConversationLogger
 
 
 def load_exams_from_csv() -> List[dict]:
@@ -2315,6 +2316,7 @@ class AISdkChatRequest(BaseModel):
     chatId: Optional[str] = None
     model: Optional[str] = None
     showStats: bool = True
+    enableAgentLogging: bool = False
 
 
 @app.post("/api/chat/aisdk")
@@ -2432,6 +2434,13 @@ async def chat_aisdk(request: AISdkChatRequest):
         current_model = model_name
         used_fallback = False
 
+        # Initialize agent logger if enabled
+        agent_log = None
+        if request.enableAgentLogging:
+            agent_log = AgentConversationLogger(thread_id, model_name)
+            # Log user message
+            agent_log.log_user_message(last_user_msg)
+
         try:
             # Check if first message and reset state
             is_first_message = len(conversation_messages) <= 2
@@ -2453,6 +2462,14 @@ async def chat_aisdk(request: AISdkChatRequest):
                 context_parts.append(tabs_context)
             if context_parts:
                 initial_state["current_page_context"] = "\n\n".join(context_parts)
+
+            # Log system prompt and context if logging enabled
+            if agent_log:
+                agent_log.log_system_prompt(SYSTEM_PROMPT)
+                if should_include_orders and current_context:
+                    agent_log.log_context(current_context, "ORDERS CONTEXT")
+                if tabs_context:
+                    agent_log.log_context(tabs_context, "BROWSER TABS CONTEXT")
 
             # Stream events using new AI SDK v6 protocol
             adapter = StreamAdapter()
@@ -2491,6 +2508,9 @@ async def chat_aisdk(request: AISdkChatRequest):
                             tool_call_id = f"call_{run_id[:12]}" if run_id else None
                             # Don't log here - agent.py already logs consolidated summary
                             yield adapter.tool_status(tool_name, "start", tool_input, tool_call_id=tool_call_id)
+                            # Log tool call if agent logging enabled
+                            if agent_log:
+                                agent_log.log_tool_call(tool_name, tool_input)
 
                         elif event_type == "on_tool_end":
                             tool_name = event.get("name", "unknown")
@@ -2516,6 +2536,9 @@ async def chat_aisdk(request: AISdkChatRequest):
 
                             # Don't log here - tools.py already logs details
                             yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_data)
+                            # Log tool result if agent logging enabled
+                            if agent_log:
+                                agent_log.log_tool_result(tool_name, tool_output)
 
                         elif event_type == "on_chat_model_stream":
                             chunk = event["data"].get("chunk")
@@ -2650,8 +2673,21 @@ async def chat_aisdk(request: AISdkChatRequest):
             response_preview = ''.join(full_response)[:100]
             logger.info(f"[AI SDK] Done: {ai_responses} AI responses, {total_tokens} tokens, response: {response_preview}...")
 
+            # Save agent log if enabled
+            if agent_log:
+                full_response_text = ''.join(full_response)
+                if full_response_text.strip():
+                    agent_log.log_ai_response(full_response_text)
+                log_path = agent_log.save()
+                logger.info(f"[AI SDK] Agent conversation log saved: {log_path}")
+
         except Exception as e:
             logger.error(f"[AI SDK] Error: {e}", exc_info=True)
+            # Log error if agent logging enabled
+            if agent_log:
+                agent_log.log_error(str(e))
+                log_path = agent_log.save()
+                logger.info(f"[AI SDK] Agent conversation log saved (with error): {log_path}")
             adapter = StreamAdapter()
             yield adapter.error(str(e))
             yield adapter.finish("error")

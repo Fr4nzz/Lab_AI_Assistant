@@ -255,6 +255,7 @@ async function createPreprocessingAwareStream(
   model: string | undefined,
   enabledTools: string[] | undefined,
   showStats: boolean,
+  enableAgentLogging: boolean,
   visitorId?: string
 ): Promise<ReadableStream> {
   const adapter = new NuxtStreamAdapter()
@@ -361,7 +362,8 @@ async function createPreprocessingAwareStream(
             chatId,
             model: model || 'lab-assistant',
             tools: enabledTools,
-            showStats
+            showStats,
+            enableAgentLogging
           })
         })
 
@@ -470,11 +472,12 @@ export default defineEventHandler(async (event) => {
     id: z.string()
   }).parse)
 
-  const { messages, model, enabledTools, showStats = true } = await readValidatedBody(event, z.object({
+  const { messages, model, enabledTools, showStats = true, enableAgentLogging = false } = await readValidatedBody(event, z.object({
     messages: z.array(z.any()),
     model: z.string().optional(),
     enabledTools: z.array(z.string()).optional(),
-    showStats: z.boolean().optional()
+    showStats: z.boolean().optional(),
+    enableAgentLogging: z.boolean().optional()
   }).parse)
 
   // Get chat to verify it exists
@@ -531,6 +534,7 @@ export default defineEventHandler(async (event) => {
       model,
       enabledTools,
       showStats,
+      enableAgentLogging,
       visitorId
     )
 
@@ -555,7 +559,8 @@ export default defineEventHandler(async (event) => {
         chatId,
         model: model || 'lab-assistant',
         tools: enabledTools,
-        showStats
+        showStats,
+        enableAgentLogging
       })
     })
   } catch (error) {
