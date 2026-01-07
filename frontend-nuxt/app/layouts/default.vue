@@ -23,8 +23,9 @@ const deleteModal = overlay.create(LazyModalConfirm, {
   }
 })
 
-const { data: chats, refresh: refreshChats } = await useFetch<Chat[]>('/api/chats', {
+const { data: chats, refresh: refreshChats } = useLazyFetch<Chat[]>('/api/chats', {
   key: 'chats',
+  default: () => [],
   transform: data => data.map(chat => ({
     id: chat.id,
     label: chat.title || 'Untitled',
@@ -34,11 +35,13 @@ const { data: chats, refresh: refreshChats } = await useFetch<Chat[]>('/api/chat
   }))
 })
 
-onNuxtReady(() => {
-  // Prefetch first 5 chats in parallel (non-blocking, for faster navigation)
-  const first5 = (chats.value || []).slice(0, 5)
-  Promise.all(first5.map(chat => $fetch(`/api/chats/${chat.id}`).catch(() => {})))
-})
+// Prefetch chats when they become available (non-blocking)
+watch(chats, (newChats) => {
+  if (newChats?.length) {
+    const first5 = newChats.slice(0, 5)
+    Promise.all(first5.map(chat => $fetch(`/api/chats/${chat.id}`).catch(() => {})))
+  }
+}, { once: true })
 
 watch(loggedIn, () => {
   refreshChats()
