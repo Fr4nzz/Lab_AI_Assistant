@@ -942,12 +942,9 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         if button_id:
             btn = page.locator(f'#{button_id}')
             try:
-                # Playwright best practice: click with auto-waiting, then wait for result
-                # When exam is added, button is removed from available list (becomes hidden)
+                # Click with Playwright's auto-waiting (waits for actionable)
+                # Button stays visible after click (exam added to selected list)
                 await btn.click()
-                # Wait for button to disappear - this confirms the action completed
-                # Much better than arbitrary timeouts: waits exactly as long as needed
-                await btn.wait_for(state="hidden", timeout=5000)
                 added_codes.append(exam_code_upper)
             except Exception as e:
                 logger.warning(f"[create_order] Failed to click {exam_code_upper}: {e}")
