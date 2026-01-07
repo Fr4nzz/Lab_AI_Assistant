@@ -98,6 +98,43 @@ def load_exams_from_csv() -> List[dict]:
 # Cache exams at module level (loaded once at startup)
 _cached_exams: List[dict] = []
 
+# Cache for preprocessing results (prevents duplicate processing)
+# Key: hash of image data, Value: (result, timestamp)
+import hashlib
+import time as time_module
+_preprocessing_cache: dict = {}
+_PREPROCESSING_CACHE_TTL = 60  # 60 seconds TTL
+
+
+def _get_preprocessing_cache_key(images: List) -> str:
+    """Generate cache key from image data."""
+    hasher = hashlib.md5()
+    for img in images:
+        data = img.data if hasattr(img, 'data') else str(img)
+        # Only hash first 1000 chars for speed
+        hasher.update(data[:1000].encode() if isinstance(data, str) else data[:1000])
+    return hasher.hexdigest()
+
+
+def _get_cached_preprocessing(cache_key: str):
+    """Get cached preprocessing result if still valid."""
+    if cache_key in _preprocessing_cache:
+        result, timestamp = _preprocessing_cache[cache_key]
+        if time_module.time() - timestamp < _PREPROCESSING_CACHE_TTL:
+            return result
+        else:
+            del _preprocessing_cache[cache_key]
+    return None
+
+
+def _set_preprocessing_cache(cache_key: str, result: dict):
+    """Cache preprocessing result."""
+    _preprocessing_cache[cache_key] = (result, time_module.time())
+    # Clean old entries (keep max 20)
+    if len(_preprocessing_cache) > 20:
+        oldest_key = min(_preprocessing_cache.keys(), key=lambda k: _preprocessing_cache[k][1])
+        del _preprocessing_cache[oldest_key]
+
 
 def get_available_exams_context() -> str:
     """Generate context string for available exams."""
@@ -1886,6 +1923,13 @@ async def preprocess_images(request: ImagePreprocessRequest):
     from io import BytesIO
     from services.image_labeling import base64_to_image, image_to_base64
 
+    # Check cache first to prevent duplicate processing
+    cache_key = _get_preprocessing_cache_key(request.images)
+    cached_result = _get_cached_preprocessing(cache_key)
+    if cached_result is not None:
+        logger.info(f"[Preprocess] Cache hit for {len(request.images)} images")
+        return cached_result
+
     start_time = time.time()
     yoloe_time = 0
     labeling_time = 0
@@ -1974,7 +2018,7 @@ async def preprocess_images(request: ImagePreprocessRequest):
 
     logger.info(f"[Preprocess] Generated {len(variants)} variants for {len(request.images)} images in {total_ms}ms (YOLOE: {int(yoloe_time)}ms, labeling: {int(labeling_time)}ms)")
 
-    return ImagePreprocessResponse(
+    result = ImagePreprocessResponse(
         variants=variants,
         labels=labels,
         crops=crops,
@@ -1984,6 +2028,11 @@ async def preprocess_images(request: ImagePreprocessRequest):
             labelingMs=int(labeling_time)
         )
     )
+
+    # Cache result to prevent duplicate processing
+    _set_preprocessing_cache(cache_key, result)
+
+    return result
 
 
 @app.post("/api/select-preprocessing", response_model=SelectPreprocessingResponse)
