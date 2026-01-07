@@ -84,9 +84,12 @@ export function useSettings() {
   const isLoading = useState<boolean>('settingsLoading', () => false)
   const isLoaded = useState<boolean>('settingsLoaded', () => false)
 
-  // Ensure visitor ID cookie exists
+  // Use a fixed shared visitor ID so settings sync between web and Telegram
+  // For multi-user apps, you'd want per-user IDs instead
+  const SHARED_VISITOR_ID = 'shared'
+
   const visitorId = useCookie('visitor_id', {
-    default: () => crypto.randomUUID(),
+    default: () => SHARED_VISITOR_ID,
     maxAge: 60 * 60 * 24 * 365 // 1 year
   })
 

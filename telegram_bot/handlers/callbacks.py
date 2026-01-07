@@ -340,7 +340,7 @@ async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, mode
     model_name = AVAILABLE_MODELS[model_id]
 
     # Sync with backend settings API
-    visitor_id = f"telegram_{query.from_user.id}"
+    visitor_id = "shared"  # Sync settings with web UI
     backend = BackendService()
     try:
         await backend.update_settings(visitor_id, chatModel=model_id)
@@ -359,7 +359,7 @@ async def handle_model_selection(query, context: ContextTypes.DEFAULT_TYPE, mode
 
 async def handle_settings_navigation(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle settings menu navigation."""
-    visitor_id = f"telegram_{query.from_user.id}"
+    visitor_id = "shared"  # Sync settings with web UI
     backend = BackendService()
 
     try:
@@ -426,7 +426,7 @@ async def handle_preprocessing_model_selection(query, context: ContextTypes.DEFA
         await query.edit_message_text(f"❌ Modelo no válido: {model_id}")
         return
 
-    visitor_id = f"telegram_{query.from_user.id}"
+    visitor_id = "shared"  # Sync settings with web UI
     backend = BackendService()
 
     try:
@@ -456,7 +456,7 @@ async def handle_thinking_level_selection(query, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(f"❌ Nivel no válido: {level_id}")
         return
 
-    visitor_id = f"telegram_{query.from_user.id}"
+    visitor_id = "shared"  # Sync settings with web UI
     backend = BackendService()
 
     try:
