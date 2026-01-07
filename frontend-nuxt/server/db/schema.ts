@@ -91,6 +91,9 @@ export const userSettings = sqliteTable('user_settings', {
   preprocessingModel: text('preprocessing_model').default('gemini-flash-latest'),
   preprocessingThinkingLevel: text('preprocessing_thinking_level').default('off'),
 
+  // Agent logging (for model evaluation)
+  enableAgentLogging: integer('enable_agent_logging', { mode: 'boolean' }).default(false),
+
   ...timestamps
 }, table => [
   index('user_settings_visitor_id_idx').on(table.visitorId),

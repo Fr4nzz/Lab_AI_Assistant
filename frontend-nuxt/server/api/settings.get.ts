@@ -10,7 +10,8 @@ export default defineEventHandler(async (event) => {
       chatModel: 'gemini-3-flash-preview',
       mainThinkingLevel: 'low',
       preprocessingModel: 'gemini-flash-latest',
-      preprocessingThinkingLevel: 'off'
+      preprocessingThinkingLevel: 'off',
+      enableAgentLogging: false
     }
   }
 

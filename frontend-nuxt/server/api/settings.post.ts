@@ -5,6 +5,7 @@ interface SettingsUpdateBody {
   mainThinkingLevel?: string
   preprocessingModel?: string
   preprocessingThinkingLevel?: string
+  enableAgentLogging?: boolean
 }
 
 // Valid options
@@ -68,6 +69,11 @@ export default defineEventHandler(async (event) => {
   const effectivePreprocessingModel = body.preprocessingModel || currentSettings.preprocessingModel
   if (body.preprocessingThinkingLevel && isValidThinkingLevel(body.preprocessingThinkingLevel, effectivePreprocessingModel)) {
     updates.preprocessingThinkingLevel = body.preprocessingThinkingLevel
+  }
+
+  // Boolean settings (no validation needed)
+  if (typeof body.enableAgentLogging === 'boolean') {
+    updates.enableAgentLogging = body.enableAgentLogging
   }
 
   // Update settings

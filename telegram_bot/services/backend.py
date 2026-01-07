@@ -273,9 +273,18 @@ class BackendService:
         if not parts:
             return "", [], None
 
+        # Get user settings (includes enableAgentLogging)
+        visitor_id = "shared"  # Sync settings with web UI
+        settings = {}
+        try:
+            settings = await self.get_settings(visitor_id)
+        except Exception as e:
+            logger.warning(f"[send_message] Could not get settings: {e}")
+
         # Build request body for Frontend API
         request_body = {
-            "messages": [{"role": "user", "parts": parts}]
+            "messages": [{"role": "user", "parts": parts}],
+            "enableAgentLogging": settings.get("enableAgentLogging", False)
         }
 
         # Add model if specified

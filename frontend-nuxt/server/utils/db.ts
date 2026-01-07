@@ -111,6 +111,11 @@ function initializeDatabase(sqlite: Database.Database) {
   } catch {
     // Column already exists
   }
+  try {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN enable_agent_logging INTEGER DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
 }
 
 // ============================================================
@@ -312,13 +317,15 @@ export interface UserSettings {
   mainThinkingLevel: string  // For main chat model (Gemini 3: minimal/low/medium/high, Gemini 2.5: off/dynamic)
   preprocessingModel: string
   preprocessingThinkingLevel: string  // For image preprocessing
+  enableAgentLogging: boolean  // For AI conversation logging (model evaluation)
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',
   preprocessingModel: 'gemini-flash-latest',
-  preprocessingThinkingLevel: 'off'  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
+  preprocessingThinkingLevel: 'off',  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
+  enableAgentLogging: false
 }
 
 export async function getUserSettings(visitorId: string): Promise<UserSettings> {
@@ -333,7 +340,8 @@ export async function getUserSettings(visitorId: string): Promise<UserSettings> 
       chatModel: settings.chatModel || DEFAULT_SETTINGS.chatModel,
       mainThinkingLevel: settings.mainThinkingLevel || DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: settings.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
-      preprocessingThinkingLevel: settings.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel
+      preprocessingThinkingLevel: settings.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel,
+      enableAgentLogging: settings.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
     }
   }
 
@@ -359,7 +367,8 @@ export async function updateUserSettings(
         chatModel: updates.chatModel ?? existing.chatModel,
         mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel,
         preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel,
-        preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel
+        preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel,
+        enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging
       })
       .where(eq(schema.userSettings.id, existing.id))
 
@@ -367,7 +376,8 @@ export async function updateUserSettings(
       chatModel: updates.chatModel ?? existing.chatModel ?? DEFAULT_SETTINGS.chatModel,
       mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
-      preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel
+      preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
+      enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
     }
   }
 
@@ -382,6 +392,7 @@ export async function updateUserSettings(
     mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
     preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
+    enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
     createdAt: now
   })
 
@@ -389,6 +400,7 @@ export async function updateUserSettings(
     chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
     mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
-    preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel
+    preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
+    enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
   }
 }
