@@ -143,7 +143,9 @@ async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     # Start prefetch in background (orders + image preprocessing)
     # This runs concurrently while user decides what to do
     # Use "shared" visitor ID to sync settings with web UI
-    asyncio.create_task(prefetch_in_background(photos, app_user_data, "shared"))
+    # Store task so callback handler can await it if needed
+    prefetch_task = asyncio.create_task(prefetch_in_background(photos, app_user_data, "shared"))
+    app_user_data["prefetch_task"] = prefetch_task
 
     # Get the most recent chat to offer "Continuar en chat" option
     backend = BackendService()
@@ -198,7 +200,9 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         # Start prefetch in background (orders + image preprocessing)
         # This runs concurrently while user decides what to do
         # Use "shared" visitor ID to sync settings with web UI
-        asyncio.create_task(prefetch_in_background(photos, context.user_data, "shared"))
+        # Store task so callback handler can await it if needed
+        prefetch_task = asyncio.create_task(prefetch_in_background(photos, context.user_data, "shared"))
+        context.user_data["prefetch_task"] = prefetch_task
 
         # Get the most recent chat to offer "Continuar en chat" option
         backend = BackendService()

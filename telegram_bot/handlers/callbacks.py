@@ -1,5 +1,6 @@
 """Callback query handlers for inline keyboard buttons."""
 
+import asyncio
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -31,6 +32,33 @@ PROMPTS = {
     "cotizar": "Cotiza",
     "pasar": "Pasa o revisa que esten bien pasados los datos de estos pacientes",
 }
+
+# Timeout for waiting for preprocessing to complete (seconds)
+PREPROCESSING_TIMEOUT = 15.0
+
+
+async def wait_for_preprocessing(user_data: dict, timeout: float = PREPROCESSING_TIMEOUT) -> None:
+    """
+    Wait for preprocessing task to complete if it's still running.
+
+    This ensures that when user clicks a button, we wait for preprocessing
+    to finish before sending the message. Otherwise, the frontend would
+    receive raw images and run its own preprocessing, potentially getting
+    different results.
+    """
+    prefetch_task = user_data.get("prefetch_task")
+    if prefetch_task and not prefetch_task.done():
+        logger.info("[Callback] Waiting for preprocessing to complete...")
+        try:
+            await asyncio.wait_for(prefetch_task, timeout=timeout)
+            logger.info("[Callback] Preprocessing complete, proceeding with message")
+        except asyncio.TimeoutError:
+            logger.warning(f"[Callback] Preprocessing timed out after {timeout}s, proceeding without it")
+        except Exception as e:
+            logger.warning(f"[Callback] Error waiting for preprocessing: {e}")
+
+    # Clear the task reference
+    user_data.pop("prefetch_task", None)
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -90,10 +118,6 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle 'new chat' buttons (cotizar, pasar, caption, custom)."""
-    # Get original images and preprocessed versions if available
-    images = context.user_data.get("pending_images", [])
-    preprocessed_images = context.user_data.get("preprocessed_images")
-
     if action == "custom":
         # Wait for user to type custom prompt
         context.user_data["awaiting_prompt"] = True
@@ -102,6 +126,14 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
             "✏️ Escribe el prompt para acompañar la(s) imagen(es):"
         )
         return
+
+    # Wait for preprocessing to complete before getting images
+    # This ensures we use the preprocessed version, not raw images
+    await wait_for_preprocessing(context.user_data)
+
+    # Get original images and preprocessed versions
+    images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
 
     # Handle "caption" action - use the caption the user sent with the image
     if action == "caption":
@@ -198,9 +230,6 @@ async def handle_continue_chat(query, context: ContextTypes.DEFAULT_TYPE, short_
 
 async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """Handle prompt selection after choosing to continue a chat."""
-    # Get original images and preprocessed versions if available
-    images = context.user_data.get("pending_images", [])
-    preprocessed_images = context.user_data.get("preprocessed_images")
     chat_id = context.user_data.get("pending_chat_id")
 
     if not chat_id:
@@ -213,6 +242,13 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
             "✏️ Escribe el prompt para acompañar la(s) imagen(es):"
         )
         return
+
+    # Wait for preprocessing to complete before getting images
+    await wait_for_preprocessing(context.user_data)
+
+    # Get original images and preprocessed versions
+    images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
 
     # Get predefined prompt
     prompt = PROMPTS.get(action, f"Analiza esta imagen: {action}")
@@ -555,26 +591,31 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
     """
     audio = context.user_data.get("pending_audio")
     audio_mime = context.user_data.get("pending_audio_mime", "audio/ogg")
-    images = context.user_data.get("pending_images", [])
-    preprocessed_images = context.user_data.get("preprocessed_images")
 
     if not audio:
         await query.message.reply_text("❌ No hay audio guardado. Envía un audio primero.")
         return
 
+    if action == "custom":
+        # Wait for user to type custom prompt
+        context.user_data["awaiting_audio_prompt"] = True
+        context.user_data["pending_chat_id"] = None
+        await query.message.reply_text(
+            "✏️ Escribe el prompt para acompañar el audio:"
+        )
+        return
+
+    # Wait for preprocessing if images are pending
+    await wait_for_preprocessing(context.user_data)
+
+    # Get images and preprocessed versions (after waiting)
+    images = context.user_data.get("pending_images", [])
+    preprocessed_images = context.user_data.get("preprocessed_images")
+
     backend = BackendService()
 
     try:
-        if action == "custom":
-            # Wait for user to type custom prompt
-            context.user_data["awaiting_audio_prompt"] = True
-            context.user_data["pending_chat_id"] = None
-            await query.message.reply_text(
-                "✏️ Escribe el prompt para acompañar el audio:"
-            )
-            return
-
-        elif action.startswith("cont:"):
+        if action.startswith("cont:"):
             # Continue in existing chat
             short_id = action[5:]
             chat_info = await backend.get_chat_by_short_id(short_id)
