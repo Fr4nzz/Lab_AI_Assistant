@@ -43,6 +43,13 @@ watch(chats, (newChats) => {
   }
 }, { once: true })
 
+// Auto-refresh chats when window regains focus (catches Telegram-created chats)
+onMounted(() => {
+  const onFocus = () => refreshChats()
+  window.addEventListener('focus', onFocus)
+  onUnmounted(() => window.removeEventListener('focus', onFocus))
+})
+
 watch(loggedIn, () => {
   refreshChats()
 
