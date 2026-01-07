@@ -309,32 +309,43 @@ class BrowserManager:
     async def _dismiss_modal(self, modal) -> bool:
         """Helper to dismiss a modal by clicking its buttons."""
         try:
+            clicked = False
+
             # Try to click "Entendido" button first (preferred)
             entendido_btn = modal.locator("button.btn-primary", has_text="Entendido")
             if await entendido_btn.count() > 0:
                 await entendido_btn.click(timeout=2000)
                 print("[BrowserManager] Clicked 'Entendido' button")
-                await asyncio.sleep(0.3)
-                return True
+                clicked = True
 
             # Try the close button (X)
-            close_btn = modal.locator("button.btn-close")
-            if await close_btn.count() > 0:
-                await close_btn.click(timeout=2000)
-                print("[BrowserManager] Clicked close button")
-                await asyncio.sleep(0.3)
-                return True
+            if not clicked:
+                close_btn = modal.locator("button.btn-close")
+                if await close_btn.count() > 0:
+                    await close_btn.click(timeout=2000)
+                    print("[BrowserManager] Clicked close button")
+                    clicked = True
 
             # Try any button with data-bs-dismiss="modal"
-            dismiss_btn = modal.locator("[data-bs-dismiss='modal']")
-            if await dismiss_btn.count() > 0:
-                await dismiss_btn.first.click(timeout=2000)
-                print("[BrowserManager] Clicked dismiss button")
-                await asyncio.sleep(0.3)
-                return True
+            if not clicked:
+                dismiss_btn = modal.locator("[data-bs-dismiss='modal']")
+                if await dismiss_btn.count() > 0:
+                    await dismiss_btn.first.click(timeout=2000)
+                    print("[BrowserManager] Clicked dismiss button")
+                    clicked = True
 
-            print("[BrowserManager] Could not find dismiss button for popup")
-            return False
+            if not clicked:
+                print("[BrowserManager] Could not find dismiss button for popup")
+                return False
+
+            # Wait for modal to actually disappear instead of arbitrary sleep
+            # Bootstrap modals lose the 'show' class when hidden
+            try:
+                await modal.wait_for(state="hidden", timeout=2000)
+            except Exception:
+                # Fallback: modal might be detached from DOM entirely
+                pass
+            return True
 
         except Exception as e:
             print(f"[BrowserManager] Error clicking modal button: {e}")

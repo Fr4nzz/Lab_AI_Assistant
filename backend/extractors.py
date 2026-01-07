@@ -438,7 +438,11 @@ class PageDataExtractor:
                 "total_ordenes": int
             }
         """
-        await self.page.wait_for_timeout(1000)  # Esperar Vue.js
+        # Wait for table rows to appear (Vue.js rendered) instead of arbitrary timeout
+        try:
+            await self.page.locator("table tbody tr, .order-row").first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass  # Table might be empty, continue anyway
 
         ordenes = await self.page.evaluate(EXTRACT_ORDENES_JS)
 
@@ -469,7 +473,11 @@ class PageDataExtractor:
                 ]
             }
         """
-        await self.page.wait_for_timeout(2000)  # Vue.js necesita más tiempo
+        # Wait for exam table to render instead of arbitrary 2s timeout
+        try:
+            await self.page.locator("tr.examen, .exam-row").first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass  # Page might have no exams, continue anyway
 
         data = await self.page.evaluate(EXTRACT_REPORTES_JS)
         data["page_type"] = "reportes"
@@ -489,7 +497,11 @@ class PageDataExtractor:
                 "totales": {...}
             }
         """
-        await self.page.wait_for_timeout(1500)
+        # Wait for order form to render instead of arbitrary 1.5s timeout
+        try:
+            await self.page.locator("#identificacion, .examen-row, tr.examen").first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass  # Continue anyway
 
         data = await self.page.evaluate(EXTRACT_ORDEN_EDIT_JS)
         data["page_type"] = "orden_edit"
@@ -508,7 +520,11 @@ class PageDataExtractor:
                 "totales": {...}
             }
         """
-        await self.page.wait_for_timeout(1000)
+        # Wait for create form to render instead of arbitrary 1s timeout
+        try:
+            await self.page.locator("#identificacion, #buscar-examen-input").first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass  # Continue anyway
 
         data = await self.page.evaluate(r"""
             () => {
@@ -559,7 +575,11 @@ class PageDataExtractor:
                 "total": int
             }
         """
-        await self.page.wait_for_timeout(500)
+        # Wait for exam search input to be ready instead of arbitrary 500ms
+        try:
+            await self.page.locator("#buscar-examen-input").wait_for(state="visible", timeout=3000)
+        except Exception:
+            pass  # Continue anyway
 
         exams = await self.page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
 
@@ -583,7 +603,11 @@ class PageDataExtractor:
                 "total": int
             }
         """
-        await self.page.wait_for_timeout(500)
+        # Wait for selected exams container instead of arbitrary 500ms
+        try:
+            await self.page.locator("#examenes-seleccionados, .selected-exams").first.wait_for(state="visible", timeout=3000)
+        except Exception:
+            pass  # May have no exams selected, continue anyway
 
         exams = await self.page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
