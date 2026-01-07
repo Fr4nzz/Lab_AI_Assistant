@@ -2477,20 +2477,15 @@ async def chat_aisdk(request: AISdkChatRequest):
                     output = event.get("data", {}).get("output")
                     event_name = event.get("name", "unknown")
 
-                    # Debug: log all on_chat_model_end events (temporarily INFO for debugging)
-                    event_tags = event.get("tags", [])
-                    parent_ids = event.get("parent_ids", [])
-                    logger.info(f"[AI SDK] on_chat_model_end: name={event_name}, run_id={run_id[:8] if run_id else 'none'}, "
-                               f"tags={event_tags}, parent_ids_count={len(parent_ids)}, has_output={output is not None}")
-
                     # Skip if we've already counted this run_id (avoid double-counting)
                     if run_id and run_id in counted_run_ids:
-                        logger.debug(f"[AI SDK] Skipping duplicate run_id: {run_id[:8]}")
                         continue
 
-                    # Only count events from the main agent (ChatGoogleGenerativeAI), not internal components
-                    if event_name and "ChatGoogle" not in event_name and "ChatModel" not in event_name:
-                        logger.debug(f"[AI SDK] Skipping non-chat-model event: {event_name}")
+                    # LangChain emits on_chat_model_end twice per LLM call:
+                    # 1. From base class (ChatGoogleGenerativeAI)
+                    # 2. From wrapper class (ChatGoogleGenerativeAIWithKeyRotation)
+                    # Only count events from the BASE class to avoid double-counting
+                    if event_name != "ChatGoogleGenerativeAI":
                         continue
 
                     if output:
@@ -2918,6 +2913,14 @@ async def openai_compatible_chat(request: OpenAIChatRequest):
                     # Handle non-streaming model responses (after key rotation) and extract token usage
                     elif event_type == "on_chat_model_end":
                         output = event.get("data", {}).get("output")
+                        event_name = event.get("name", "unknown")
+
+                        # LangChain emits on_chat_model_end twice per LLM call:
+                        # 1. From base class (ChatGoogleGenerativeAI)
+                        # 2. From wrapper class (ChatGoogleGenerativeAIWithKeyRotation)
+                        # Only count events from the BASE class to avoid double-counting
+                        if event_name != "ChatGoogleGenerativeAI":
+                            continue
 
                         if output:
                             # Count this as an AI response and increment usage
