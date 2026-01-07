@@ -263,7 +263,7 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, api_keys: List[str], model_name: str = "gemini-2.0-flash", thinking_budget: Optional[int] = None, thinking_level: Optional[str] = None, **kwargs):
+    def __init__(self, api_keys: List[str], model_name: str = "gemini-flash-latest", thinking_budget: Optional[int] = None, thinking_level: Optional[str] = None, **kwargs):
         super().__init__(api_keys=api_keys, model_name=model_name, thinking_budget=thinking_budget, thinking_level=thinking_level, **kwargs)
         self.max_retries = len(api_keys) * 2
         self._bound_tools = None
@@ -565,7 +565,7 @@ def get_chat_model(
         if not api_keys:
             raise ValueError("No Gemini API keys found. Set GEMINI_API_KEYS or GOOGLE_API_KEY")
 
-        model = model_name or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        model = model_name or os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
         logger.info(f"[Model] Using Gemini with {len(api_keys)} key(s), model: {model}")
 
         if len(api_keys) > 1:
@@ -592,7 +592,7 @@ def get_chat_model(
 
     elif provider == "openrouter":
         return ChatOpenAI(
-            model=model_name or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free"),
+            model=model_name or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash-preview-05-20"),
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY"),
             default_headers={
@@ -611,10 +611,10 @@ def get_model_with_multimodal_support(provider: Optional[str] = None) -> BaseCha
     provider = provider or os.environ.get("LLM_PROVIDER", "gemini")
 
     if provider == "gemini":
-        return get_chat_model(provider="gemini", model_name="gemini-2.0-flash")
+        return get_chat_model(provider="gemini", model_name="gemini-flash-latest")
     else:
         return ChatOpenAI(
-            model="google/gemini-2.0-flash-exp:free",
+            model="google/gemini-2.5-flash-preview-05-20",
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY"),
         )

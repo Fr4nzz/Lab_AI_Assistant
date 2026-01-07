@@ -107,7 +107,7 @@ function initializeDatabase(sqlite: Database.Database) {
     // Column already exists
   }
   try {
-    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN preprocessing_thinking_level TEXT DEFAULT 'low'`)
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN preprocessing_thinking_level TEXT DEFAULT 'off'`)
   } catch {
     // Column already exists
   }

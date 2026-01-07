@@ -20,7 +20,7 @@ class Settings:
 
         # Gemini settings
         self.gemini_api_keys: List[str] = self._get_api_keys()
-        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
         # Also set GOOGLE_API_KEY for LangChain compatibility
         if self.gemini_api_keys and not os.getenv("GOOGLE_API_KEY"):
@@ -28,7 +28,7 @@ class Settings:
 
         # OpenRouter settings (for production)
         self.openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
-        self.openrouter_model: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+        self.openrouter_model: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash-preview-05-20")
 
         # Target website - start at orders page 1 for faster context extraction
         self.target_url: str = os.getenv("TARGET_URL", "https://laboratoriofranz.orion-labs.com/ordenes?page=1")

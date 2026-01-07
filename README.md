@@ -90,7 +90,7 @@ Lab_Assistant.bat --restart    # Restart mode (no browser)
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `GEMINI_API_KEYS` | Comma-separated Gemini API keys | `key1,key2,key3` |
-| `GEMINI_MODEL` | Model to use | `gemini-2.0-flash` |
+| `GEMINI_MODEL` | Model to use | `gemini-flash-latest` |
 | `BROWSER_CHANNEL` | Browser to use | `msedge`, `chrome`, `chromium` |
 | `TARGET_URL` | Lab system URL | `https://laboratoriofranz.orion-labs.com/` |
 | `OPENROUTER_API_KEY` | For chat title naming | `sk-or-v1-xxx` |
