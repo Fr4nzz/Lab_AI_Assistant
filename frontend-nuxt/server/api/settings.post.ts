@@ -1,4 +1,4 @@
-import { updateUserSettings } from '../utils/db'
+import { getUserSettings, updateUserSettings } from '../utils/db'
 
 interface SettingsUpdateBody {
   chatModel?: string
@@ -44,6 +44,9 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody<SettingsUpdateBody>(event)
 
+  // Get current settings to use as context for validation
+  const currentSettings = await getUserSettings(visitorId)
+
   // Validate inputs
   const updates: SettingsUpdateBody = {}
 
@@ -51,7 +54,9 @@ export default defineEventHandler(async (event) => {
     updates.chatModel = body.chatModel
   }
 
-  if (body.mainThinkingLevel && isValidThinkingLevel(body.mainThinkingLevel, body.chatModel || updates.chatModel)) {
+  // Use the new model (if changing) or current model for thinking level validation
+  const effectiveChatModel = body.chatModel || currentSettings.chatModel
+  if (body.mainThinkingLevel && isValidThinkingLevel(body.mainThinkingLevel, effectiveChatModel)) {
     updates.mainThinkingLevel = body.mainThinkingLevel
   }
 
@@ -59,7 +64,9 @@ export default defineEventHandler(async (event) => {
     updates.preprocessingModel = body.preprocessingModel
   }
 
-  if (body.preprocessingThinkingLevel && isValidThinkingLevel(body.preprocessingThinkingLevel, body.preprocessingModel || updates.preprocessingModel)) {
+  // Use the new preprocessing model (if changing) or current for thinking level validation
+  const effectivePreprocessingModel = body.preprocessingModel || currentSettings.preprocessingModel
+  if (body.preprocessingThinkingLevel && isValidThinkingLevel(body.preprocessingThinkingLevel, effectivePreprocessingModel)) {
     updates.preprocessingThinkingLevel = body.preprocessingThinkingLevel
   }
 
