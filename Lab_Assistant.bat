@@ -59,9 +59,14 @@ if defined DEBUG_MODE (
     set "RUN_HIDDEN=1"
 )
 
-:: Create logs directory for silent mode
+:: Create logs directory and clean old logs on restart
 if defined RUN_HIDDEN (
     if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs"
+    :: Delete old log files so they start fresh
+    if exist "%SCRIPT_DIR%logs\backend.log" del "%SCRIPT_DIR%logs\backend.log" 2>nul
+    if exist "%SCRIPT_DIR%logs\frontend.log" del "%SCRIPT_DIR%logs\frontend.log" 2>nul
+    if exist "%SCRIPT_DIR%logs\telegram.log" del "%SCRIPT_DIR%logs\telegram.log" 2>nul
+    if exist "%SCRIPT_DIR%logs\tunnel.log" del "%SCRIPT_DIR%logs\tunnel.log" 2>nul
 )
 
 :: ============================================
@@ -265,6 +270,9 @@ powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 
 :: Kill the tunnel manager script first (otherwise it restarts cloudflared)
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 taskkill /IM cloudflared.exe /F 2>nul
+
+:: Kill Telegram bot process (may be running hidden without window title)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 
 timeout /t 1 /nobreak >nul
 
