@@ -374,9 +374,9 @@ async function handlePaste(e: ClipboardEvent) {
 }
 
 onMounted(() => {
-  if (data.value?.messages.length === 1) {
-    chat.regenerate()
-  }
+  // Note: We no longer auto-regenerate on page load.
+  // Previously this caused duplicate processing when refreshing during an ongoing chat.
+  // The user can manually click "regenerate" if needed.
 
   // Add paste listener for images
   document.addEventListener('paste', handlePaste)
