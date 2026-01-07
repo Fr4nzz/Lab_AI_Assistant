@@ -104,8 +104,8 @@ export async function processImagesWithPreprocessing(
   let settings: UserSettings = {
     chatModel: 'gemini-3-flash-preview',
     mainThinkingLevel: 'low',
-    preprocessingModel: 'gemini-flash-lite-latest',
-    preprocessingThinkingLevel: 'low'
+    preprocessingModel: 'gemini-flash-latest',
+    preprocessingThinkingLevel: 'off'
   }
 
   if (visitorId) {

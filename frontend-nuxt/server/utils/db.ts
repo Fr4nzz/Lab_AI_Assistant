@@ -88,8 +88,8 @@ function initializeDatabase(sqlite: Database.Database) {
       user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       chat_model TEXT DEFAULT 'gemini-3-flash-preview',
       main_thinking_level TEXT DEFAULT 'low',
-      preprocessing_model TEXT DEFAULT 'gemini-flash-lite-latest',
-      preprocessing_thinking_level TEXT DEFAULT 'low',
+      preprocessing_model TEXT DEFAULT 'gemini-flash-latest',
+      preprocessing_thinking_level TEXT DEFAULT 'off',
       created_at INTEGER NOT NULL
     );
 
@@ -317,7 +317,7 @@ export interface UserSettings {
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',
-  preprocessingModel: 'gemini-flash-lite-latest',
+  preprocessingModel: 'gemini-flash-latest',
   preprocessingThinkingLevel: 'off'  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
 }
 

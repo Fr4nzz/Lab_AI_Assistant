@@ -1725,8 +1725,8 @@ class ImageData(BaseModel):
 class ImagePreprocessRequest(BaseModel):
     """Request for preprocessing images with YOLOE detection and rotations."""
     images: List[ImageData]
-    preprocessingModel: str = "gemini-flash-lite-latest"
-    thinkingLevel: str = "low"
+    preprocessingModel: str = "gemini-flash-latest"
+    thinkingLevel: str = "off"
 
 
 class LabelInfo(BaseModel):
@@ -1787,8 +1787,8 @@ class SelectPreprocessingRequest(BaseModel):
     """Request for AI to select preprocessing options."""
     variants: List[ImageVariant]
     labels: List[LabelInfo]
-    preprocessingModel: str = "gemini-flash-lite-latest"
-    thinkingLevel: str = "low"
+    preprocessingModel: str = "gemini-flash-latest"
+    thinkingLevel: str = "off"
 
 
 class SelectPreprocessingResponse(BaseModel):

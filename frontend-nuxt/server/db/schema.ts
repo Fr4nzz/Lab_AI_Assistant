@@ -88,8 +88,8 @@ export const userSettings = sqliteTable('user_settings', {
   mainThinkingLevel: text('main_thinking_level').default('low'), // For Gemini 3: minimal/low/medium/high, For 2.5: off/dynamic
 
   // Image preprocessing settings
-  preprocessingModel: text('preprocessing_model').default('gemini-flash-lite-latest'),
-  preprocessingThinkingLevel: text('preprocessing_thinking_level').default('low'),
+  preprocessingModel: text('preprocessing_model').default('gemini-flash-latest'),
+  preprocessingThinkingLevel: text('preprocessing_thinking_level').default('off'),
 
   ...timestamps
 }, table => [
