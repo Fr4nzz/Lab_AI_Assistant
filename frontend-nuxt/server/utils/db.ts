@@ -116,6 +116,11 @@ function initializeDatabase(sqlite: Database.Database) {
   } catch {
     // Column already exists
   }
+  try {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN media_resolution TEXT DEFAULT 'unspecified'`)
+  } catch {
+    // Column already exists
+  }
 }
 
 // ============================================================
@@ -315,6 +320,7 @@ export async function getFilesByMessage(messageId: string) {
 export interface UserSettings {
   chatModel: string
   mainThinkingLevel: string  // For main chat model (Gemini 3: minimal/low/medium/high, Gemini 2.5: off/dynamic)
+  mediaResolution: string  // For Gemini 3: unspecified/low/medium/high/ultra_high
   preprocessingModel: string
   preprocessingThinkingLevel: string  // For image preprocessing
   enableAgentLogging: boolean  // For AI conversation logging (model evaluation)
@@ -323,6 +329,7 @@ export interface UserSettings {
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',
+  mediaResolution: 'unspecified',
   preprocessingModel: 'gemini-flash-latest',
   preprocessingThinkingLevel: 'off',  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
   enableAgentLogging: false
@@ -339,6 +346,7 @@ export async function getUserSettings(visitorId: string): Promise<UserSettings> 
     return {
       chatModel: settings.chatModel || DEFAULT_SETTINGS.chatModel,
       mainThinkingLevel: settings.mainThinkingLevel || DEFAULT_SETTINGS.mainThinkingLevel,
+      mediaResolution: settings.mediaResolution || DEFAULT_SETTINGS.mediaResolution,
       preprocessingModel: settings.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
       preprocessingThinkingLevel: settings.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel,
       enableAgentLogging: settings.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
@@ -366,6 +374,7 @@ export async function updateUserSettings(
       .set({
         chatModel: updates.chatModel ?? existing.chatModel,
         mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel,
+        mediaResolution: updates.mediaResolution ?? existing.mediaResolution,
         preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel,
         preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel,
         enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging
@@ -375,6 +384,7 @@ export async function updateUserSettings(
     return {
       chatModel: updates.chatModel ?? existing.chatModel ?? DEFAULT_SETTINGS.chatModel,
       mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
+      mediaResolution: updates.mediaResolution ?? existing.mediaResolution ?? DEFAULT_SETTINGS.mediaResolution,
       preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
       preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
       enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
@@ -390,6 +400,7 @@ export async function updateUserSettings(
     visitorId,
     chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
     mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
+    mediaResolution: updates.mediaResolution ?? DEFAULT_SETTINGS.mediaResolution,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
     preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
     enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
@@ -399,6 +410,7 @@ export async function updateUserSettings(
   return {
     chatModel: updates.chatModel ?? DEFAULT_SETTINGS.chatModel,
     mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
+    mediaResolution: updates.mediaResolution ?? DEFAULT_SETTINGS.mediaResolution,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
     preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
     enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging

@@ -5,16 +5,20 @@ const {
   loadSettings,
   setChatModel,
   setMainThinkingLevel,
+  setMediaResolution,
   setPreprocessingModel,
   setPreprocessingThinkingLevel,
   currentChatModel,
   availableThinkingLevels,
   currentMainThinkingLevel,
+  currentMediaResolution,
   currentPreprocessingModel,
   currentPreprocessingThinkingLevel,
   availablePreprocessingThinkingLevels,
+  isGemini3Model,
   CHAT_MODELS,
-  PREPROCESSING_MODELS
+  PREPROCESSING_MODELS,
+  MEDIA_RESOLUTIONS
 } = useSettings()
 
 // Load settings on mount
@@ -49,6 +53,16 @@ const preprocessingThinkingLevelItems = computed(() => availablePreprocessingThi
   icon: l.icon
 })))
 
+// Media resolution items (only for Gemini 3)
+const mediaResolutionItems = computed(() => MEDIA_RESOLUTIONS.map(r => ({
+  label: r.name,
+  value: r.id,
+  icon: r.icon
+})))
+
+// Check if current model is Gemini 3
+const showMediaResolution = computed(() => isGemini3Model(settings.value.chatModel))
+
 // Handlers
 function handleChatModelChange(value: string) {
   setChatModel(value)
@@ -64,6 +78,10 @@ function handlePreprocessingModelChange(value: string) {
 
 function handlePreprocessingThinkingLevelChange(value: string) {
   setPreprocessingThinkingLevel(value)
+}
+
+function handleMediaResolutionChange(value: string) {
+  setMediaResolution(value)
 }
 </script>
 
@@ -99,6 +117,23 @@ function handlePreprocessingThinkingLevelChange(value: string) {
       }"
       :disabled="isLoading"
       @update:model-value="handleMainThinkingLevelChange"
+    />
+
+    <!-- Media Resolution (only for Gemini 3) -->
+    <USelectMenu
+      v-if="showMediaResolution"
+      :model-value="settings.mediaResolution"
+      :items="mediaResolutionItems"
+      size="sm"
+      :icon="currentMediaResolution?.icon"
+      variant="ghost"
+      value-key="value"
+      class="hover:bg-default focus:bg-default data-[state=open]:bg-default"
+      :ui="{
+        trailingIcon: 'group-data-[state=open]:rotate-180 transition-transform duration-200'
+      }"
+      :disabled="isLoading"
+      @update:model-value="handleMediaResolutionChange"
     />
 
     <!-- Preprocessing Settings Popover -->

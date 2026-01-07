@@ -3,6 +3,7 @@ import { getUserSettings, updateUserSettings } from '../utils/db'
 interface SettingsUpdateBody {
   chatModel?: string
   mainThinkingLevel?: string
+  mediaResolution?: string
   preprocessingModel?: string
   preprocessingThinkingLevel?: string
   enableAgentLogging?: boolean
@@ -15,6 +16,9 @@ const VALID_PREPROCESSING_MODELS = ['gemini-flash-lite-latest', 'gemini-flash-la
 // Thinking levels vary by model
 const VALID_GEMINI_3_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high']
 const VALID_GEMINI_25_THINKING_LEVELS = ['off', 'dynamic']
+
+// Media resolution (only for Gemini 3)
+const VALID_MEDIA_RESOLUTIONS = ['unspecified', 'low', 'medium', 'high', 'ultra_high']
 
 function isGemini3Model(model?: string): boolean {
   return model?.includes('gemini-3') ?? false
@@ -59,6 +63,11 @@ export default defineEventHandler(async (event) => {
   const effectiveChatModel = body.chatModel || currentSettings.chatModel
   if (body.mainThinkingLevel && isValidThinkingLevel(body.mainThinkingLevel, effectiveChatModel)) {
     updates.mainThinkingLevel = body.mainThinkingLevel
+  }
+
+  // Media resolution (only valid for Gemini 3 models)
+  if (body.mediaResolution && VALID_MEDIA_RESOLUTIONS.includes(body.mediaResolution)) {
+    updates.mediaResolution = body.mediaResolution
   }
 
   if (body.preprocessingModel && VALID_PREPROCESSING_MODELS.includes(body.preprocessingModel)) {
