@@ -920,24 +920,24 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     added_codes = []
     failed_exams = []
 
-    # OPTIMIZATION: Extract available exams ONCE and build a lookup map
-    # Button IDs are stable CSS IDs that don't change when other exams are clicked
-    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-    exam_button_map = {
-        exam['codigo'].upper(): exam['button_id']
-        for exam in available
-        if exam.get('codigo') and exam.get('button_id')
-    }
-
-    # Click all exam buttons quickly without re-extracting the DOM each time
+    # Click exam buttons - must re-extract available exams after each click
+    # because clicking removes the exam from available list and shifts button IDs
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
-        button_id = exam_button_map.get(exam_code_upper)
+
+        # Extract current available exams (IDs shift after each click)
+        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+
+        # Find button ID for this exam
+        button_id = None
+        for exam in available:
+            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
+                button_id = exam['button_id']
+                break
 
         if button_id:
             btn = page.locator(f'#{button_id}')
             try:
-                # Fast click without re-checking count (button exists from our map)
                 await btn.click(timeout=2000)
                 added_codes.append(exam_code_upper)
             except Exception as e:
@@ -946,7 +946,7 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
 
-    # Brief wait for UI to settle after all clicks
+    # Brief wait for UI to settle
     await page.wait_for_timeout(300)
 
     # Get the final list of added exams and totals
