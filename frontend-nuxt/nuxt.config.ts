@@ -61,14 +61,20 @@ export default defineNuxtConfig({
         // AI SDK packages (heavy, frequently cause re-optimization)
         'ai',
         '@ai-sdk/vue',
+        '@ai-sdk/google',
 
         // Database packages
         'drizzle-orm',
-        'better-sqlite3',
 
         // UI dependencies
-        'date-fns'
+        'date-fns',
+
+        // Additional deps to reduce cold-start optimization time
+        'zod',
+        'nanoid'
       ],
+      // Native modules can't be pre-bundled
+      exclude: ['better-sqlite3'],
       // Hold first results until static imports are crawled
       holdUntilCrawlEnd: true
     },
