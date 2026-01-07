@@ -34,12 +34,10 @@ const { data: chats, refresh: refreshChats } = await useFetch<Chat[]>('/api/chat
   }))
 })
 
-onNuxtReady(async () => {
-  const first10 = (chats.value || []).slice(0, 10)
-  for (const chat of first10) {
-    // prefetch the chat and let the browser cache it
-    await $fetch(`/api/chats/${chat.id}`)
-  }
+onNuxtReady(() => {
+  // Prefetch first 5 chats in parallel (non-blocking, for faster navigation)
+  const first5 = (chats.value || []).slice(0, 5)
+  Promise.all(first5.map(chat => $fetch(`/api/chats/${chat.id}`).catch(() => {})))
 })
 
 watch(loggedIn, () => {
