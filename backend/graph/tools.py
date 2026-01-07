@@ -1141,6 +1141,54 @@ async def get_available_exams(order_id: Optional[int] = None) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+@tool
+def set_chat_title(title: str) -> str:
+    """
+    Set a descriptive title for this chat conversation.
+
+    IMPORTANT: Call this tool on your FIRST response in a new chat to give the conversation
+    a meaningful title. You can call this alongside other tools or with your final response.
+
+    RULES:
+    - Title must be 2-5 words in Spanish
+    - Describe the main topic/action of the user's request
+    - NO markdown, quotes, or special punctuation
+    - Do NOT start with "Título:" or similar prefixes
+
+    EXAMPLES:
+    - User asks to search for patient Juan → "Búsqueda paciente Juan"
+    - User asks about hemograma results → "Resultados hemograma"
+    - User wants to add glucose exam → "Agregar examen glucosa"
+    - User asks what exams are available → "Exámenes disponibles"
+    - User sends an image of results → "Pasar datos imagen"
+
+    Args:
+        title: Short descriptive title (2-5 words in Spanish)
+
+    Returns:
+        Confirmation that title was set
+    """
+    # Clean up the title
+    clean_title = title.strip()
+    clean_title = re.sub(r'^\*\*|\*\*$', '', clean_title)  # Remove markdown bold
+    clean_title = re.sub(r'^#+\s*', '', clean_title)  # Remove markdown headers
+    clean_title = re.sub(r'^["\'"]|["\'"]$', '', clean_title)  # Remove quotes
+    clean_title = re.sub(r'^Título:\s*', '', clean_title, flags=re.IGNORECASE)  # Remove "Título:" prefix
+    clean_title = re.sub(r'\n.*', '', clean_title)  # Only first line
+    clean_title = clean_title.strip()
+
+    # Truncate if too long
+    if len(clean_title) > 50:
+        clean_title = clean_title[:47] + '...'
+
+    logger.info(f"[Tool] set_chat_title: '{clean_title}'")
+
+    return json.dumps({
+        "title": clean_title,
+        "status": "title_set"
+    }, ensure_ascii=False)
+
+
 # Function to get all tabs info (used by server.py for context)
 async def _get_browser_tabs_impl() -> dict:
     """Get info about all browser tabs."""
@@ -1156,5 +1204,10 @@ ALL_TOOLS = [
     edit_order_exams,
     create_new_order,
     ask_user,
-    get_available_exams
+    get_available_exams,
+    set_chat_title
 ]
+
+# Tools that should not prevent the response from being final
+# These are "passive" tools that are executed but don't require agent to continue
+PASSIVE_TOOLS = {'set_chat_title'}

@@ -42,7 +42,7 @@ from langgraph.prebuilt import ToolNode
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from .state import LabAssistantState
-from .tools import ALL_TOOLS, set_browser
+from .tools import ALL_TOOLS, PASSIVE_TOOLS, set_browser
 from models import get_chat_model
 from prompts import SYSTEM_PROMPT
 
@@ -192,8 +192,8 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
         """
         Determine if we should execute tools or end.
 
-        Simple logic:
-        - If last message has tool_calls -> execute them
+        Logic:
+        - If last message has tool_calls -> execute them (even passive tools need execution)
         - Otherwise -> end (agent has responded to user)
         """
         last_message = state["messages"][-1]
@@ -209,18 +209,34 @@ def create_lab_agent(browser_manager=None, model_name: str = None):
         """
         Determine if we should continue after tools or stop.
 
-        If ask_user was called, we should stop and let the user respond.
-        The frontend will render the options and send the user's choice.
+        Stop conditions:
+        - ask_user was called (wait for user response)
+        - Only passive tools (set_chat_title) were called (treat as final response)
         """
-        # Check recent messages for ask_user tool calls
+        # Get the tool calls from the last AIMessage (before tool messages)
+        last_ai_tool_calls = []
         for msg in reversed(state["messages"]):
-            # ToolMessage has 'name' attribute with the tool name
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                last_ai_tool_calls = [tc.get('name', '') for tc in msg.tool_calls]
+                break
+
+        # Check if ask_user was called
+        for msg in reversed(state["messages"]):
             if hasattr(msg, 'name') and msg.name == 'ask_user':
                 logger.info("[Agent] ask_user called - stopping loop to wait for user input")
                 return END
-            # Only check the last batch of tool messages
             if hasattr(msg, 'tool_calls'):
                 break
+
+        # Check if ONLY passive tools were called (e.g., just set_chat_title)
+        # In that case, treat it as a final response - don't loop back to agent
+        if last_ai_tool_calls:
+            non_passive_tools = [t for t in last_ai_tool_calls if t not in PASSIVE_TOOLS]
+            if not non_passive_tools:
+                # All tool calls were passive - this is the final response
+                logger.info(f"[Agent] Only passive tools called {last_ai_tool_calls} - treating as final response")
+                return END
+
         return "agent"
 
     # ============================================================

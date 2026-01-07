@@ -1,9 +1,6 @@
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
-import { getChat, addMessage, updateChatTitle, getUserSettings } from '../../utils/db'
-import { generateText } from 'ai'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getBestTitleModel } from '../../utils/openrouter-models'
+import { getChat, addMessage, updateChatTitle } from '../../utils/db'
 import { NuxtStreamAdapter, createStreamHeaders } from '../../utils/streamAdapter'
 import {
   extractImageParts,
@@ -96,6 +93,26 @@ class MessagePartsCollector {
     return this.textContent
   }
 
+  // Get chat title if set_chat_title tool was called
+  getChatTitle(): string | null {
+    for (const tool of this.toolCalls.values()) {
+      if (tool.toolName === 'set_chat_title' && tool.result) {
+        try {
+          // Result is either a string (JSON) or already parsed object
+          const result = typeof tool.result === 'string'
+            ? JSON.parse(tool.result)
+            : tool.result
+          if (result?.title) {
+            return result.title
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+    return null
+  }
+
   // Build the parts array in correct order
   buildParts(): MessagePart[] {
     const parts: MessagePart[] = []
@@ -116,80 +133,6 @@ class MessagePartsCollector {
     }
 
     return parts
-  }
-}
-
-// Generate title for a chat using best practices for prompt engineering
-async function generateTitle(chatId: string, messageContent: string): Promise<void> {
-  const config = useRuntimeConfig()
-
-  if (!config.openrouterApiKey) {
-    console.log('[API/chat] No OpenRouter key configured in OPENROUTER_API_KEY env var, skipping title generation')
-    console.log('[API/chat] Add your key to frontend-nuxt/.env file')
-    return
-  }
-
-  try {
-    const modelId = await getBestTitleModel()
-    console.log('[API/chat] Generating title with:', modelId)
-
-    const openrouter = createOpenRouter({
-      apiKey: config.openrouterApiKey
-    })
-
-    const prompt = `Eres un asistente que genera títulos cortos para conversaciones de chat.
-
-REGLAS ESTRICTAS:
-- Genera SOLO el título, sin explicaciones
-- El título debe tener entre 2-5 palabras en español
-- NO uses markdown (**, ##, etc.)
-- NO uses comillas ni puntuación especial
-- NO empieces con "Título:" ni similar
-- El título debe describir el tema principal del mensaje
-
-EJEMPLOS:
-Mensaje: "Busca la orden del paciente Juan Pérez"
-Título: Búsqueda orden Juan Pérez
-
-Mensaje: "Quiero ver los resultados del hemograma de la orden 12345"
-Título: Resultados hemograma
-
-Mensaje: "Necesito agregar un examen de glucosa a la orden existente"
-Título: Agregar examen glucosa
-
-Mensaje: "¿Cuáles son los exámenes disponibles para perfil lipídico?"
-Título: Exámenes perfil lipídico
-
-Ahora genera un título para este mensaje:
-"${messageContent.slice(0, 300)}"
-
-Título:`
-
-    const { text } = await generateText({
-      model: openrouter(modelId),
-      prompt,
-      temperature: 0.3,
-      maxTokens: 20
-    })
-
-    let title = text.trim()
-      .replace(/^\*\*|\*\*$/g, '')
-      .replace(/^#+\s*/, '')
-      .replace(/^["']|["']$/g, '')
-      .replace(/^Título:\s*/i, '')
-      .replace(/\n.*/g, '')
-      .trim()
-
-    if (title.length > 50) {
-      title = title.substring(0, 47) + '...'
-    }
-
-    if (title && title !== 'Nuevo Chat' && title.length > 0) {
-      await updateChatTitle(chatId, title)
-      console.log('[API/chat] Generated title:', title)
-    }
-  } catch (error) {
-    console.error('[API/chat] Title generation error:', error)
   }
 }
 
@@ -480,6 +423,13 @@ async function createPreprocessingAwareStream(
             parts
           })
           console.log(`[API/chat] Saved assistant response with ${parts.length} parts, text length: ${textContent.length}`)
+
+          // Check if AI set a chat title via tool
+          const aiTitle = collector.getChatTitle()
+          if (aiTitle) {
+            await updateChatTitle(chatId, aiTitle)
+            console.log(`[API/chat] Chat title set by AI: "${aiTitle}"`)
+          }
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error)
@@ -538,11 +488,7 @@ export default defineEventHandler(async (event) => {
         parts: lastMessage.parts
       })
       console.log('[API/chat] Saved new user message')
-
-      // Generate title for new chats (fire and forget)
-      if (!chat.title || chat.title === 'Nuevo Chat') {
-        generateTitle(chatId, textContent).catch(console.error)
-      }
+      // Note: Chat title is now set by AI via set_chat_title tool
     } else {
       console.log('[API/chat] Skipped saving duplicate user message (regenerate case)')
     }
@@ -657,6 +603,13 @@ export default defineEventHandler(async (event) => {
             parts
           })
           console.log(`[API/chat] Saved assistant response with ${parts.length} parts, text length: ${textContent.length}`)
+
+          // Check if AI set a chat title via tool
+          const aiTitle = collector.getChatTitle()
+          if (aiTitle) {
+            await updateChatTitle(chatId, aiTitle)
+            console.log(`[API/chat] Chat title set by AI: "${aiTitle}"`)
+          }
         }
       } catch (error) {
         console.error('[API/chat] Stream error:', error)
