@@ -21,6 +21,7 @@ async def prefetch_in_background(photos: List[bytes], user_data: dict, visitor_i
     Prefetch orders and preprocess images in background while user decides what to do.
     Results are stored in user_data for later use.
     """
+    logger.info(f"[Prefetch] Starting background prefetch for {len(photos)} image(s), visitor_id={visitor_id}")
     backend = BackendService()
     try:
         # Run orders prefetch and image preprocessing in parallel
@@ -54,8 +55,9 @@ async def prefetch_in_background(photos: List[bytes], user_data: dict, visitor_i
             logger.warning(f"[Prefetch] Preprocessing failed: {preprocess_result.get('error', 'unknown')}")
 
     except Exception as e:
-        logger.error(f"[Prefetch] Background prefetch error: {e}")
+        logger.exception(f"[Prefetch] Background prefetch error: {e}")
     finally:
+        logger.info("[Prefetch] Background prefetch tasks completed")
         await backend.close()
 
 
