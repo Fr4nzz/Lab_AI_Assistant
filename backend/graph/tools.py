@@ -849,13 +849,13 @@ async def _edit_order_exams_impl(
 
         # Add exams
         if add:
+            search = page.locator('#buscar-examen-input')
             for exam_code in add:
                 exam_code_upper = exam_code.upper().strip()
-                search = page.locator('#buscar-examen-input')
                 await search.fill('')
-                await page.wait_for_timeout(200)
                 await search.fill(exam_code_upper)
-                await page.wait_for_timeout(1000)
+                # Wait for search results (reduced from 1000ms)
+                await page.wait_for_timeout(400)
 
                 available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
                 matched_exam = None
@@ -867,19 +867,16 @@ async def _edit_order_exams_impl(
                 if matched_exam:
                     button_id = matched_exam['button_id']
                     btn = page.locator(f'#{button_id}')
-                    if await btn.count() > 0:
-                        # Dismiss popups before clicking (they can appear anytime)
-                        await _browser.dismiss_popups()
-                        await btn.click()
+                    try:
+                        await btn.click(timeout=2000)
                         result["added"].append(exam_code_upper)
-                        await page.wait_for_timeout(300)
-                    else:
-                        result["failed_add"].append({'codigo': exam_code_upper, 'reason': 'button not found'})
+                    except Exception as e:
+                        result["failed_add"].append({'codigo': exam_code_upper, 'reason': str(e)})
                 else:
                     result["failed_add"].append({'codigo': exam_code_upper, 'reason': 'no exact match'})
 
         # Get updated state
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(300)
         current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
         totals = await page.evaluate(r"""
             () => {
@@ -923,34 +920,34 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
     added_codes = []
     failed_exams = []
 
+    # OPTIMIZATION: Extract available exams ONCE and build a lookup map
+    # Button IDs are stable CSS IDs that don't change when other exams are clicked
+    available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
+    exam_button_map = {
+        exam['codigo'].upper(): exam['button_id']
+        for exam in available
+        if exam.get('codigo') and exam.get('button_id')
+    }
+
+    # Click all exam buttons quickly without re-extracting the DOM each time
     for exam_code in exams:
         exam_code_upper = exam_code.upper().strip()
-
-        # Extract current available exams (indices shift after each click)
-        available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
-
-        # Find the button for this exam
-        button_id = None
-        for exam in available:
-            if exam.get('codigo') and exam['codigo'].upper() == exam_code_upper:
-                button_id = exam['button_id']
-                break
+        button_id = exam_button_map.get(exam_code_upper)
 
         if button_id:
             btn = page.locator(f'#{button_id}')
-            if await btn.count() > 0:
-                # Dismiss popups before clicking (they can appear anytime)
-                await _browser.dismiss_popups()
-                await btn.click()
+            try:
+                # Fast click without re-checking count (button exists from our map)
+                await btn.click(timeout=2000)
                 added_codes.append(exam_code_upper)
-                await page.wait_for_timeout(100)
-            else:
-                failed_exams.append({'codigo': exam_code_upper, 'reason': 'button not found'})
+            except Exception as e:
+                logger.warning(f"[create_order] Failed to click {exam_code_upper}: {e}")
+                failed_exams.append({'codigo': exam_code_upper, 'reason': str(e)})
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
 
-    # Wait a bit for all additions to settle
-    await page.wait_for_timeout(500)
+    # Brief wait for UI to settle after all clicks
+    await page.wait_for_timeout(300)
 
     # Get the final list of added exams and totals
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
