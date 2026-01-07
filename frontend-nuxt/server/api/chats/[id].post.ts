@@ -97,6 +97,10 @@ class MessagePartsCollector {
     return this.textContent
   }
 
+  getToolCallsCount(): number {
+    return this.toolCalls.size
+  }
+
   // Get chat title if set_chat_title tool was called
   getChatTitle(): string | null {
     console.log(`[getChatTitle] Checking ${this.toolCalls.size} tool calls`)
@@ -206,6 +210,11 @@ function parseSSELine(line: string, collector: MessagePartsCollector): boolean {
 
   try {
     const parsed = JSON.parse(data)
+
+    // Log tool-related events for debugging
+    if (parsed.type?.startsWith('tool-')) {
+      console.log(`[parseSSELine] Tool event: ${parsed.type}, toolName: ${parsed.toolName}, toolCallId: ${parsed.toolCallId}`)
+    }
 
     switch (parsed.type) {
       case 'text-delta':
@@ -433,7 +442,9 @@ async function createPreprocessingAwareStream(
           console.log(`[API/chat] Saved assistant response with ${parts.length} parts, text length: ${textContent.length}`)
 
           // Check if AI set a chat title via tool
+          console.log(`[API/chat] About to call getChatTitle(), collector has ${collector.getToolCallsCount()} tool calls`)
           const aiTitle = collector.getChatTitle()
+          console.log(`[API/chat] getChatTitle() returned: ${aiTitle}`)
           if (aiTitle) {
             await updateChatTitle(chatId, aiTitle)
             console.log(`[API/chat] Chat title set by AI: "${aiTitle}"`)
