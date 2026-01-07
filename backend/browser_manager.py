@@ -64,6 +64,8 @@ class BrowserManager:
             # Suppress the "--no-sandbox" warning infobar
             # Note: --test-type tells Chrome this is a test environment
             "--test-type",
+            # Start maximized for better initial viewport
+            "--start-maximized",
         ]
 
         # Additional args for headless/Docker mode (no X11/GPU)
@@ -77,11 +79,13 @@ class BrowserManager:
         # For chromium (Docker), don't specify channel
         channel = None if browser == "chromium" else browser
 
+        # Use no_viewport=True to allow manual window resizing (more natural browser behavior)
+        # This is useful when you want to manually interact with the browser
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.user_data_dir,
             headless=headless,
             channel=channel,  # None for bundled chromium, "msedge"/"chrome" for installed browsers
-            viewport={"width": 1280, "height": 900},
+            no_viewport=True,  # Allow viewport to follow window size (enables manual resizing)
             accept_downloads=True,
             args=browser_args,
             ignore_default_args=["--enable-automation"],  # Less intrusive automation
