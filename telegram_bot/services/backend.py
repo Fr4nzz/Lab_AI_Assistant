@@ -595,7 +595,7 @@ class BackendService:
                 except Exception as e:
                     logger.warning(f"[Preprocess] Could not get settings: {e}")
 
-            preprocessing_model = settings.get("preprocessingModel", "gemini-flash-lite-latest")
+            preprocessing_model = settings.get("preprocessingModel", "gemini-flash-latest")
             thinking_level = settings.get("preprocessingThinkingLevel", "off")
 
             # Prepare images for API
@@ -714,7 +714,7 @@ class BackendService:
                 logger.warning(f"[Settings] Failed to get: {response.status_code}")
                 return {
                     "chatModel": "gemini-3-flash-preview",
-                    "preprocessingModel": "gemini-flash-lite-latest",
+                    "preprocessingModel": "gemini-flash-latest",
                     "thinkingLevel": "low"
                 }
 
@@ -722,7 +722,7 @@ class BackendService:
             logger.error(f"[Settings] Error getting settings: {e}")
             return {
                 "chatModel": "gemini-3-flash-preview",
-                "preprocessingModel": "gemini-flash-lite-latest",
+                "preprocessingModel": "gemini-flash-latest",
                 "thinkingLevel": "low"
             }
 

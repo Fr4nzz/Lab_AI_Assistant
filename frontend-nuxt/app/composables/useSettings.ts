@@ -59,7 +59,7 @@ export function getDefaultPreprocessingThinkingLevel(modelId: string): string {
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',  // Default for Gemini 3 Flash
-  preprocessingModel: 'gemini-flash-lite-latest',
+  preprocessingModel: 'gemini-flash-latest',  // Gemini 2.5 Flash - more accurate than Lite
   preprocessingThinkingLevel: 'off'  // Default for Gemini 2.5 (thinkingBudget: 0)
 }
 

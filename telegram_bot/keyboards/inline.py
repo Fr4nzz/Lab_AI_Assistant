@@ -105,10 +105,10 @@ DEFAULT_MODEL = "gemini-3-flash-preview"
 # Preprocessing models
 PREPROCESSING_MODELS = {
     "gemini-flash-lite-latest": "⚡ Gemini 2.5 Flash Lite (más rápido)",
-    "gemini-flash-latest": "✨ Gemini 2.5 Flash",
+    "gemini-flash-latest": "✨ Gemini 2.5 Flash (recomendado)",
     "gemini-3-flash-preview": "🧠 Gemini 3 Flash (mejor)",
 }
-DEFAULT_PREPROCESSING_MODEL = "gemini-flash-lite-latest"
+DEFAULT_PREPROCESSING_MODEL = "gemini-flash-latest"  # More accurate than Lite
 
 # Thinking levels
 THINKING_LEVELS = {
