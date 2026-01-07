@@ -53,6 +53,7 @@ class MessagePartsCollector {
   }
 
   toolInputStart(toolCallId: string, toolName: string) {
+    console.log(`[Collector] toolInputStart: ${toolName} (${toolCallId})`)
     this.toolCalls.set(toolCallId, {
       type: 'tool-invocation',
       toolCallId,
@@ -62,6 +63,7 @@ class MessagePartsCollector {
   }
 
   toolInputAvailable(toolCallId: string, toolName: string, input: Record<string, unknown>) {
+    console.log(`[Collector] toolInputAvailable: ${toolName} (${toolCallId})`)
     const existing = this.toolCalls.get(toolCallId)
     if (existing) {
       existing.state = 'call'
@@ -79,9 +81,11 @@ class MessagePartsCollector {
 
   toolOutputAvailable(toolCallId: string, output: unknown) {
     const existing = this.toolCalls.get(toolCallId)
+    console.log(`[Collector] toolOutputAvailable: ${toolCallId}, found existing: ${!!existing}, output type: ${typeof output}`)
     if (existing) {
       existing.state = 'result'
       existing.result = output
+      console.log(`[Collector] Updated tool ${existing.toolName} with result`)
     }
   }
 
@@ -95,18 +99,22 @@ class MessagePartsCollector {
 
   // Get chat title if set_chat_title tool was called
   getChatTitle(): string | null {
+    console.log(`[getChatTitle] Checking ${this.toolCalls.size} tool calls`)
     for (const tool of this.toolCalls.values()) {
+      console.log(`[getChatTitle] Tool: ${tool.toolName}, state: ${tool.state}, has result: ${!!tool.result}`)
       if (tool.toolName === 'set_chat_title' && tool.result) {
+        console.log(`[getChatTitle] Found set_chat_title result:`, tool.result)
         try {
           // Result is either a string (JSON) or already parsed object
           const result = typeof tool.result === 'string'
             ? JSON.parse(tool.result)
             : tool.result
           if (result?.title) {
+            console.log(`[getChatTitle] Extracted title: ${result.title}`)
             return result.title
           }
-        } catch {
-          // Ignore parse errors
+        } catch (e) {
+          console.error(`[getChatTitle] Parse error:`, e)
         }
       }
     }
