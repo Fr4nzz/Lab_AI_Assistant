@@ -67,12 +67,12 @@ if defined DEBUG_MODE (
 
 :: Create logs directory and clean old logs on restart
 if defined RUN_HIDDEN (
-    if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs"
+    if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs" >nul 2>&1
     :: Delete old log files so they start fresh
-    if exist "%SCRIPT_DIR%logs\backend.log" del "%SCRIPT_DIR%logs\backend.log" 2>nul
-    if exist "%SCRIPT_DIR%logs\frontend.log" del "%SCRIPT_DIR%logs\frontend.log" 2>nul
-    if exist "%SCRIPT_DIR%logs\telegram.log" del "%SCRIPT_DIR%logs\telegram.log" 2>nul
-    if exist "%SCRIPT_DIR%logs\tunnel.log" del "%SCRIPT_DIR%logs\tunnel.log" 2>nul
+    del "%SCRIPT_DIR%logs\backend.log" >nul 2>&1
+    del "%SCRIPT_DIR%logs\frontend.log" >nul 2>&1
+    del "%SCRIPT_DIR%logs\telegram.log" >nul 2>&1
+    del "%SCRIPT_DIR%logs\tunnel.log" >nul 2>&1
 )
 
 :: ============================================
@@ -262,27 +262,18 @@ call :timestamp STEP1_END
 call :timestamp STEP2_START
 echo [2/4] Stopping existing processes...
 
-:: Kill processes on our ports
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 24678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
+:: Consolidated PowerShell cleanup (single invocation instead of multiple)
+powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; @(8000,3000,24678)|%%{Get-NetTCPConnection -LocalPort $_ -EA 0|%%{Stop-Process -Id $_.OwningProcess -Force}}; Get-Process|?{$_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant'}|Stop-Process -Force; Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\"|?{$_.CommandLine -like '*start-tunnel.ps1*'}|%%{Stop-Process -Id $_.ProcessId -Force}; Get-CimInstance Win32_Process -Filter \"Name='python.exe'\"|?{$_.CommandLine -like '*telegram_bot*'}|%%{Stop-Process -Id $_.ProcessId -Force}" 2>nul
 
-timeout /t 1 /nobreak >nul
+:: Kill named processes (fast taskkill commands in parallel via start /b)
+start /b taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F >nul 2>&1
+start /b taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F >nul 2>&1
+start /b taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F >nul 2>&1
+start /b taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F >nul 2>&1
+start /b taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F >nul 2>&1
+start /b taskkill /IM cloudflared.exe /F >nul 2>&1
 
-:: Close all Lab Assistant windows
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Backend*" /F 2>nul
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Frontend*" /F 2>nul
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Telegram*" /F 2>nul
-taskkill /FI "WINDOWTITLE eq Lab Assistant - Tunnel*" /F 2>nul
-taskkill /FI "WINDOWTITLE eq Cloudflare Quick Tunnel*" /F 2>nul
-powershell -NoProfile -Command "Get-Process | Where-Object { $_.ProcessName -eq 'cmd' -and $_.MainWindowTitle -like '*Lab Assistant*' -and $_.MainWindowTitle -ne 'Lab Assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
-:: Kill the tunnel manager script first (otherwise it restarts cloudflared)
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*start-tunnel.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
-taskkill /IM cloudflared.exe /F 2>nul
-
-:: Kill Telegram bot process (may be running hidden without window title)
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
-
+:: Brief wait for processes to terminate
 timeout /t 1 /nobreak >nul
 
 :: ============================================
