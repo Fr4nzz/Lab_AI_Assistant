@@ -127,6 +127,15 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         )
         return
 
+    # Immediate feedback - show what was selected
+    action_names = {
+        "cotizar": "Cotizar",
+        "pasar": "Pasar datos",
+        "caption": "Usar mensaje"
+    }
+    action_display = action_names.get(action, action.capitalize())
+    await query.message.reply_text(f"✓ Seleccionó Nuevo Chat: {action_display}")
+
     # Wait for preprocessing to complete before getting images
     # This ensures we use the preprocessed version, not raw images
     await wait_for_preprocessing(context.user_data)
@@ -156,7 +165,7 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
         chat_id = await backend.create_chat(title=title)
 
         if not chat_id:
-            await query.message.reply_text("❌ Error al crear el chat.")
+            await query.message.reply_text("❌ Error al crear el chat. Intenta de nuevo.")
             return
 
         context.user_data["current_chat_id"] = chat_id
@@ -199,6 +208,15 @@ async def handle_new_chat(query, context: ContextTypes.DEFAULT_TYPE, action: str
 
         # Send response as new message
         await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+
+    except Exception as e:
+        # Log the error and notify user
+        logger.error(f"[Callback] Error in handle_new_chat: {e}", exc_info=True)
+        error_msg = "❌ Error de conexión. Por favor intenta de nuevo."
+        if "timeout" in str(e).lower():
+            error_msg = "❌ Tiempo de espera agotado. Por favor intenta de nuevo."
+        await query.message.reply_text(error_msg)
+
     finally:
         await backend.close()
 
@@ -242,6 +260,15 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
             "✏️ Escribe el prompt para acompañar la(s) imagen(es):"
         )
         return
+
+    # Immediate feedback - show what was selected
+    action_names = {
+        "cotizar": "Cotizar",
+        "pasar": "Pasar datos",
+        "caption": "Usar mensaje"
+    }
+    action_display = action_names.get(action, action.capitalize())
+    await query.message.reply_text(f"✓ Seleccionó: {action_display}")
 
     # Wait for preprocessing to complete before getting images
     await wait_for_preprocessing(context.user_data)
@@ -294,6 +321,15 @@ async def handle_prompt_selection(query, context: ContextTypes.DEFAULT_TYPE, act
 
         # Send response as new message
         await send_response(query, context, response_text, chat_id, tools, ask_user_options)
+
+    except Exception as e:
+        # Log the error and notify user
+        logger.error(f"[Callback] Error in handle_prompt_selection: {e}", exc_info=True)
+        error_msg = "❌ Error de conexión. Por favor intenta de nuevo."
+        if "timeout" in str(e).lower():
+            error_msg = "❌ Tiempo de espera agotado. Por favor intenta de nuevo."
+        await query.message.reply_text(error_msg)
+
     finally:
         await backend.close()
 
@@ -604,6 +640,17 @@ async def handle_audio_action(query, context: ContextTypes.DEFAULT_TYPE, action:
             "✏️ Escribe el prompt para acompañar el audio:"
         )
         return
+
+    # Immediate feedback - show what was selected
+    audio_action_names = {
+        "new": "Nuevo Chat (Audio)",
+        "new_with_images": "Nuevo Chat (Audio + Imágenes)",
+        "new_audio_only": "Nuevo Chat (Solo Audio)"
+    }
+    if action.startswith("cont:"):
+        await query.message.reply_text("✓ Seleccionó: Continuar en chat existente")
+    elif action in audio_action_names:
+        await query.message.reply_text(f"✓ Seleccionó: {audio_action_names[action]}")
 
     # Wait for preprocessing if images are pending
     await wait_for_preprocessing(context.user_data)

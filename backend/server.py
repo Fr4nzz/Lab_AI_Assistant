@@ -196,6 +196,12 @@ AVAILABLE_MODELS = [
 ]
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
+# Fallback models when primary model's API keys are exhausted
+MODEL_FALLBACKS = {
+    "gemini-3-flash-preview": "gemini-flash-latest",
+    # gemini-flash-latest has no fallback (it's the last option)
+}
+
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -2416,6 +2422,13 @@ async def chat_aisdk(request: AISdkChatRequest):
     logger.info(f"[AI SDK] Thread: {thread_id}, Messages: {len(conversation_messages)}")
 
     async def generate():
+        # Import AllKeysExhaustedError for fallback handling
+        from models import AllKeysExhaustedError, increment_usage, get_usage_stats, get_daily_limit
+
+        # Track current model for potential fallback
+        current_model = model_name
+        used_fallback = False
+
         try:
             # Check if first message and reset state
             is_first_message = len(conversation_messages) <= 2
@@ -2451,118 +2464,148 @@ async def chat_aisdk(request: AISdkChatRequest):
             INPUT_PRICE_PER_1M = 0.075
             OUTPUT_PRICE_PER_1M = 0.30
 
-            # Import usage tracking
-            from models import increment_usage, get_usage_stats, get_daily_limit
-
             # Start the message
             yield adapter.start_message()
 
-            async for event in graph.astream_events(
-                initial_state,
-                config,
-                version="v2"
-            ):
-                event_type = event.get("event", "")
+            # Use current graph (may switch to fallback on AllKeysExhaustedError)
+            active_graph = graph
+            active_model = current_model
 
-                if event_type == "on_tool_start":
-                    tool_name = event.get("name", "unknown")
-                    tool_input = event.get("data", {}).get("input", {})
-                    run_id = event.get("run_id", "")
-                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
-                    # Don't log here - agent.py already logs consolidated summary
-                    yield adapter.tool_status(tool_name, "start", tool_input, tool_call_id=tool_call_id)
+            # Retry loop for handling model fallback
+            while True:
+                try:
+                    async for event in active_graph.astream_events(
+                        initial_state,
+                        config,
+                        version="v2"
+                    ):
+                        event_type = event.get("event", "")
 
-                elif event_type == "on_tool_end":
-                    tool_name = event.get("name", "unknown")
-                    run_id = event.get("run_id", "")
-                    tool_call_id = f"call_{run_id[:12]}" if run_id else None
-                    tool_output = event.get("data", {}).get("output", "")
+                        if event_type == "on_tool_start":
+                            tool_name = event.get("name", "unknown")
+                            tool_input = event.get("data", {}).get("input", {})
+                            run_id = event.get("run_id", "")
+                            tool_call_id = f"call_{run_id[:12]}" if run_id else None
+                            # Don't log here - agent.py already logs consolidated summary
+                            yield adapter.tool_status(tool_name, "start", tool_input, tool_call_id=tool_call_id)
 
-                    # Extract content from ToolMessage if it's a LangChain message object
-                    if hasattr(tool_output, 'content'):
-                        tool_output = tool_output.content
+                        elif event_type == "on_tool_end":
+                            tool_name = event.get("name", "unknown")
+                            run_id = event.get("run_id", "")
+                            tool_call_id = f"call_{run_id[:12]}" if run_id else None
+                            tool_output = event.get("data", {}).get("output", "")
 
-                    # Parse JSON string to object if possible (for ask_user, etc.)
-                    result_data = tool_output
-                    if isinstance(tool_output, str) and tool_output.startswith('{'):
-                        try:
-                            result_data = json.loads(tool_output)
-                        except json.JSONDecodeError:
-                            result_data = tool_output[:500] if tool_output else "completed"
-                    elif tool_output:
-                        result_data = str(tool_output)[:500]
+                            # Extract content from ToolMessage if it's a LangChain message object
+                            if hasattr(tool_output, 'content'):
+                                tool_output = tool_output.content
+
+                            # Parse JSON string to object if possible (for ask_user, etc.)
+                            result_data = tool_output
+                            if isinstance(tool_output, str) and tool_output.startswith('{'):
+                                try:
+                                    result_data = json.loads(tool_output)
+                                except json.JSONDecodeError:
+                                    result_data = tool_output[:500] if tool_output else "completed"
+                            elif tool_output:
+                                result_data = str(tool_output)[:500]
+                            else:
+                                result_data = "completed"
+
+                            # Don't log here - tools.py already logs details
+                            yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_data)
+
+                        elif event_type == "on_chat_model_stream":
+                            chunk = event["data"].get("chunk")
+                            if chunk and hasattr(chunk, 'content') and chunk.content:
+                                content = chunk.content
+                                if isinstance(content, list):
+                                    text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                    content = ''.join(text_parts)
+                                if content:
+                                    full_response.append(content)
+                                    yield adapter.text_delta(content)
+
+                        elif event_type == "on_chat_model_end":
+                            run_id = event.get("run_id", "")
+                            output = event.get("data", {}).get("output")
+                            event_name = event.get("name", "unknown")
+
+                            # Skip if we've already counted this run_id (avoid double-counting)
+                            if run_id and run_id in counted_run_ids:
+                                continue
+
+                            # LangChain emits on_chat_model_end twice per LLM call:
+                            # 1. From base class (ChatGoogleGenerativeAI)
+                            # 2. From wrapper class (ChatGoogleGenerativeAIWithKeyRotation)
+                            # Only count events from the BASE class to avoid double-counting
+                            if event_name != "ChatGoogleGenerativeAI":
+                                continue
+
+                            if output:
+                                # Only count if LLM returned actual tool_calls or content
+                                has_tool_calls = hasattr(output, 'tool_calls') and output.tool_calls
+                                has_content = False
+                                if hasattr(output, 'content') and output.content:
+                                    content = output.content
+                                    if isinstance(content, str):
+                                        has_content = bool(content.strip())
+                                    elif isinstance(content, list):
+                                        # Check for text content in list format (Gemini 3)
+                                        has_content = any(
+                                            isinstance(p, dict) and p.get('type') == 'text' and p.get('text', '').strip()
+                                            for p in content
+                                        )
+
+                                if has_tool_calls or has_content:
+                                    if run_id:
+                                        counted_run_ids.add(run_id)
+                                    ai_responses += 1
+                                    increment_usage(active_model)
+
+                                # Handle usage metadata
+                                usage = getattr(output, 'usage_metadata', None)
+                                if usage and isinstance(usage, dict):
+                                    total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
+                                    total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
+
+                                # If streaming didn't happen, yield the full content here
+                                if not full_response and hasattr(output, 'content') and output.content:
+                                    content = output.content
+                                    if isinstance(content, str) and content:
+                                        full_response.append(content)
+                                        yield adapter.text_delta(content)
+                                    elif isinstance(content, list):
+                                        text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
+                                        text = ''.join(text_parts)
+                                        if text:
+                                            full_response.append(text)
+                                            yield adapter.text_delta(text)
+
+                    # Stream completed successfully, exit the retry loop
+                    break
+
+                except AllKeysExhaustedError as e:
+                    # Check if there's a fallback model available
+                    fallback_model = MODEL_FALLBACKS.get(active_model)
+                    if fallback_model and fallback_model in graphs:
+                        # Notify user about the model switch
+                        logger.warning(f"[AI SDK] All keys exhausted for {active_model}, switching to {fallback_model}")
+                        switch_msg = f"\n\n⚠️ **Límite diario alcanzado para {active_model}**. Cambiando a {fallback_model}...\n\n"
+                        yield adapter.text_delta(switch_msg)
+                        full_response.append(switch_msg)
+
+                        # Switch to fallback model
+                        active_graph = graphs[fallback_model]
+                        active_model = fallback_model
+                        used_fallback = True
+
+                        # Reset state for retry (keep conversation messages, clear partial response context)
+                        full_response = []
+                        continue  # Retry with fallback model
                     else:
-                        result_data = "completed"
-
-                    # Don't log here - tools.py already logs details
-                    yield adapter.tool_status(tool_name, "end", tool_call_id=tool_call_id, result=result_data)
-
-                elif event_type == "on_chat_model_stream":
-                    chunk = event["data"].get("chunk")
-                    if chunk and hasattr(chunk, 'content') and chunk.content:
-                        content = chunk.content
-                        if isinstance(content, list):
-                            text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
-                            content = ''.join(text_parts)
-                        if content:
-                            full_response.append(content)
-                            yield adapter.text_delta(content)
-
-                elif event_type == "on_chat_model_end":
-                    run_id = event.get("run_id", "")
-                    output = event.get("data", {}).get("output")
-                    event_name = event.get("name", "unknown")
-
-                    # Skip if we've already counted this run_id (avoid double-counting)
-                    if run_id and run_id in counted_run_ids:
-                        continue
-
-                    # LangChain emits on_chat_model_end twice per LLM call:
-                    # 1. From base class (ChatGoogleGenerativeAI)
-                    # 2. From wrapper class (ChatGoogleGenerativeAIWithKeyRotation)
-                    # Only count events from the BASE class to avoid double-counting
-                    if event_name != "ChatGoogleGenerativeAI":
-                        continue
-
-                    if output:
-                        # Only count if LLM returned actual tool_calls or content
-                        has_tool_calls = hasattr(output, 'tool_calls') and output.tool_calls
-                        has_content = False
-                        if hasattr(output, 'content') and output.content:
-                            content = output.content
-                            if isinstance(content, str):
-                                has_content = bool(content.strip())
-                            elif isinstance(content, list):
-                                # Check for text content in list format (Gemini 3)
-                                has_content = any(
-                                    isinstance(p, dict) and p.get('type') == 'text' and p.get('text', '').strip()
-                                    for p in content
-                                )
-
-                        if has_tool_calls or has_content:
-                            if run_id:
-                                counted_run_ids.add(run_id)
-                            ai_responses += 1
-                            increment_usage(model_name)
-
-                        # Handle usage metadata
-                        usage = getattr(output, 'usage_metadata', None)
-                        if usage and isinstance(usage, dict):
-                            total_input_tokens += usage.get('input_tokens', 0) or usage.get('prompt_token_count', 0) or 0
-                            total_output_tokens += usage.get('output_tokens', 0) or usage.get('candidates_token_count', 0) or 0
-
-                        # If streaming didn't happen, yield the full content here
-                        if not full_response and hasattr(output, 'content') and output.content:
-                            content = output.content
-                            if isinstance(content, str) and content:
-                                full_response.append(content)
-                                yield adapter.text_delta(content)
-                            elif isinstance(content, list):
-                                text_parts = [p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text']
-                                text = ''.join(text_parts)
-                                if text:
-                                    full_response.append(text)
-                                    yield adapter.text_delta(text)
+                        # No fallback available, re-raise the error
+                        logger.error(f"[AI SDK] All keys exhausted for {active_model}, no fallback available")
+                        raise
 
             # Calculate and send usage summary as text (if enabled)
             total_tokens = total_input_tokens + total_output_tokens
@@ -2574,10 +2617,15 @@ async def chat_aisdk(request: AISdkChatRequest):
                 # Get current usage stats for this model
                 usage_stats = get_usage_stats()
                 daily_limit = get_daily_limit()
-                model_usage = usage_stats.get("models", {}).get(model_name, 0)
+                model_usage = usage_stats.get("models", {}).get(active_model, 0)
+
+                # Build usage summary
+                model_display = active_model
+                if used_fallback:
+                    model_display = f"{active_model} (fallback)"
 
                 # Send usage summary at the end
-                usage_summary = f"\n\n---\n📊 **Stats**: {ai_responses} prompts ({model_usage}/{daily_limit} today)"
+                usage_summary = f"\n\n---\n📊 **Stats**: {ai_responses} prompts ({model_usage}/{daily_limit} today) | {model_display}"
                 if total_tokens > 0:
                     usage_summary += f" | Tokens: {total_input_tokens:,} in + {total_output_tokens:,} out"
                     usage_summary += f" | ${total_cost:.6f}"
