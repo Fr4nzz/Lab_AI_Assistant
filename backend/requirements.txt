@@ -21,6 +21,7 @@ asyncpg
 aiosqlite
 nest_asyncio
 pydantic-settings
+httpx>=0.27.0
 
 # Fuzzy search and XLSX parsing
 rapidfuzz>=3.0.0

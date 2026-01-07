@@ -1141,6 +1141,16 @@ async def get_available_exams(order_id: Optional[int] = None) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+# Global variable to store the current chat_id for set_chat_title
+_current_chat_id: Optional[str] = None
+
+
+def set_current_chat_id(chat_id: str) -> None:
+    """Set the current chat ID for the set_chat_title tool to use."""
+    global _current_chat_id
+    _current_chat_id = chat_id
+
+
 @tool
 def set_chat_title(title: str) -> str:
     """
@@ -1168,6 +1178,8 @@ def set_chat_title(title: str) -> str:
     Returns:
         Confirmation that title was set
     """
+    import httpx
+
     # Clean up the title
     clean_title = title.strip()
     clean_title = re.sub(r'^\*\*|\*\*$', '', clean_title)  # Remove markdown bold
@@ -1182,6 +1194,24 @@ def set_chat_title(title: str) -> str:
         clean_title = clean_title[:47] + '...'
 
     logger.info(f"[Tool] set_chat_title: '{clean_title}'")
+
+    # Directly update the chat title via HTTP call to frontend
+    global _current_chat_id
+    if _current_chat_id:
+        try:
+            # Use sync httpx since this is a sync tool
+            response = httpx.patch(
+                f"http://localhost:3000/api/chats/{_current_chat_id}",
+                json={"title": clean_title},
+                headers={"X-Internal-Api-Key": "lab-assistant-internal"},
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                logger.info(f"[Tool] Chat title updated via API: '{clean_title}'")
+            else:
+                logger.warning(f"[Tool] Failed to update title via API: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"[Tool] Error updating title via API: {e}")
 
     return json.dumps({
         "title": clean_title,

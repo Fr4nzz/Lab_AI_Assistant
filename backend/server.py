@@ -63,7 +63,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Local imports
 from graph.agent import create_lab_agent, compile_agent
-from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state, ALL_TOOLS
+from graph.tools import set_browser, close_all_tabs, get_active_tabs, _get_browser_tabs_impl, reset_tab_state, ALL_TOOLS, set_current_chat_id
 from browser_manager import BrowserManager
 from extractors import EXTRACT_ORDENES_JS
 from config import settings
@@ -2331,6 +2331,9 @@ async def chat_aisdk(request: AISdkChatRequest):
 
     thread_id = request.chatId or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Set the current chat_id for the set_chat_title tool
+    set_current_chat_id(thread_id)
 
     # Select the appropriate graph based on requested model
     model_name = request.model or DEFAULT_MODEL
