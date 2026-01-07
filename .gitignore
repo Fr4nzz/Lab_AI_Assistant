@@ -46,6 +46,9 @@ logs/
 # Requirements hash (pip optimization cache)
 backend/.requirements_hash
 
+# AI models download marker
+backend/.models_downloaded
+
 # Cloudflare Tunnel credentials (stored in user profile, not in repo)
 # Note: config is in %USERPROFILE%\.cloudflared\, not in repo
 backend/config/lista_de_ordenes.csv

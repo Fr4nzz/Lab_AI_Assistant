@@ -320,6 +320,22 @@ if not defined SKIP_PIP (
     echo !CURRENT_HASH!>"%REQ_HASH_FILE%"
 )
 
+:: Pre-download AI models (YOLOE for document detection)
+:: Only check/download if ultralytics is installed
+python -c "import ultralytics" >nul 2>&1
+if %errorlevel% equ 0 (
+    :: Check if models already downloaded using marker file
+    if not exist "%SCRIPT_DIR%backend\.models_downloaded" (
+        echo   Downloading AI models ^(first time only^)...
+        python "%SCRIPT_DIR%backend\scripts\download_models.py"
+        if !errorlevel! equ 0 (
+            echo.>"%SCRIPT_DIR%backend\.models_downloaded"
+        )
+    ) else (
+        echo   [OK] AI models already downloaded
+    )
+)
+
 :: Install frontend dependencies if needed
 set "NEED_INSTALL="
 if not exist "%SCRIPT_DIR%frontend-nuxt\node_modules\.bin\nuxt.cmd" set "NEED_INSTALL=1"
