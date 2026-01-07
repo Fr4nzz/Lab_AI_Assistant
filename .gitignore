@@ -49,11 +49,13 @@ backend/.requirements_hash
 # AI models download marker
 backend/.models_downloaded
 
-# Cloudflare Tunnel credentials (stored in user profile, not in repo)
-# Note: config is in %USERPROFILE%\.cloudflared\, not in repo
-backend/config/lista_de_ordenes.csv
-backend/config/ordenes_last_update.txt
-.gitignore
+# AI models (YOLOE, MobileCLIP) - large binary files
+*.pt
+mobileclip_blt.ts
 backend/mobileclip_blt.ts
+
+# Sensitive config files (patient/order data)
+backend/config/lista_de_examenes.csv
 backend/config/lista_de_ordenes.csv
-backend/yoloe-11l-seg.pt
+backend/config/exams_last_update.txt
+backend/config/ordenes_last_update.txt

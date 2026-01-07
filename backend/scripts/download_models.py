@@ -6,29 +6,36 @@ This script downloads:
 - MobileCLIP for text prompts
 
 Run during first-time setup to avoid delays on first use.
+Models are saved in the backend/ directory.
 """
 
 import sys
 import os
+from pathlib import Path
+
+# Get the backend directory (parent of scripts/)
+BACKEND_DIR = Path(__file__).parent.parent.absolute()
 
 # Add backend to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(BACKEND_DIR))
 
 
 def download_yoloe_model():
     """Download YOLOE model if not already present."""
     model_name = "yoloe-11l-seg.pt"
+    model_path = BACKEND_DIR / model_name
 
-    # Check if model already exists in ultralytics cache
-    from pathlib import Path
-    cache_dir = Path.home() / ".cache" / "ultralytics"
-
-    # Also check current directory (ultralytics sometimes downloads here)
-    if Path(model_name).exists():
+    # Check if model already exists in backend directory
+    if model_path.exists():
         print(f"  [OK] {model_name} already downloaded")
         return True
 
-    print(f"  Downloading {model_name}...")
+    print(f"  Downloading {model_name} to backend/...")
+
+    # Change to backend directory so models are saved there
+    original_dir = os.getcwd()
+    os.chdir(BACKEND_DIR)
+
     try:
         from ultralytics import YOLOE
 
@@ -49,6 +56,9 @@ def download_yoloe_model():
     except Exception as e:
         print(f"  [!] Failed to download YOLOE model: {e}")
         return False
+    finally:
+        # Restore original directory
+        os.chdir(original_dir)
 
 
 def main():
