@@ -32,6 +32,7 @@ frontend-lobechat/
 
 # Data directories
 backend/data/
+backend/debug_images/
 frontend-nuxt/data/
 
 # Debug logs (contain potentially sensitive info)
