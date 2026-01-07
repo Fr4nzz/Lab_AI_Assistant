@@ -43,5 +43,8 @@ data/tunnel_url.txt
 # Service logs (generated in silent mode)
 logs/
 
+# Requirements hash (pip optimization cache)
+backend/.requirements_hash
+
 # Cloudflare Tunnel credentials (stored in user profile, not in repo)
 # Note: config is in %USERPROFILE%\.cloudflared\, not in repo

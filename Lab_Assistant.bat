@@ -7,6 +7,12 @@ echo        Lab Assistant Launcher
 echo ========================================
 echo:
 
+:: Startup timing - capture start time
+for /f "tokens=1-4 delims=:., " %%a in ("%time%") do (
+    set /a "START_TIME_MS=(((%%a*60)+1%%b %% 100)*60+1%%c %% 100)*100+(1%%d %% 100)"
+)
+set "START_TIME=%time%"
+
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
 
@@ -72,6 +78,7 @@ if defined RUN_HIDDEN (
 :: ============================================
 :: STEP 1: Check Prerequisites
 :: ============================================
+call :timestamp STEP1_START
 echo [1/4] Checking prerequisites...
 echo:
 
@@ -251,6 +258,8 @@ if not defined NPM_OK (
 :: ============================================
 :: STEP 2: Stop Existing Processes
 :: ============================================
+call :timestamp STEP1_END
+call :timestamp STEP2_START
 echo [2/4] Stopping existing processes...
 
 :: Kill processes on our ports
@@ -279,6 +288,8 @@ timeout /t 1 /nobreak >nul
 :: ============================================
 :: STEP 3: Load Environment & Install Deps
 :: ============================================
+call :timestamp STEP2_END
+call :timestamp STEP3_START
 echo [3/4] Loading configuration...
 
 :: Load environment variables from root .env file
@@ -291,12 +302,32 @@ if exist "%SCRIPT_DIR%.env" (
     echo   [!] No .env file found - using defaults
 )
 
-:: Install backend dependencies
+:: Install backend dependencies (skip if requirements unchanged)
 echo:
-echo   Installing backend dependencies
-cd /d "%SCRIPT_DIR%backend"
-python -m pip install -r requirements.txt -q >nul 2>&1
-cd /d "%SCRIPT_DIR%"
+set "REQ_FILE=%SCRIPT_DIR%backend\requirements.txt"
+set "REQ_HASH_FILE=%SCRIPT_DIR%backend\.requirements_hash"
+set "SKIP_PIP="
+
+:: Calculate hash of requirements.txt and compare with cached hash
+for /f "tokens=*" %%h in ('powershell -NoProfile -Command "if(Test-Path '%REQ_FILE%'){(Get-FileHash '%REQ_FILE%' -Algorithm MD5).Hash}else{'none'}"') do set "CURRENT_HASH=%%h"
+
+:: Check if hash file exists and matches
+if exist "%REQ_HASH_FILE%" (
+    set /p CACHED_HASH=<"%REQ_HASH_FILE%"
+    if "!CURRENT_HASH!"=="!CACHED_HASH!" (
+        set "SKIP_PIP=1"
+        echo   [OK] Backend dependencies unchanged - skipping pip install
+    )
+)
+
+if not defined SKIP_PIP (
+    echo   Installing backend dependencies
+    cd /d "%SCRIPT_DIR%backend"
+    python -m pip install -r requirements.txt -q >nul 2>&1
+    cd /d "%SCRIPT_DIR%"
+    :: Save hash for next time
+    echo !CURRENT_HASH!>"%REQ_HASH_FILE%"
+)
 
 :: Install frontend dependencies if needed
 set "NEED_INSTALL="
@@ -333,6 +364,8 @@ if defined TELEGRAM_BOT_TOKEN (
 :: ============================================
 :: STEP 4: Start Services
 :: ============================================
+call :timestamp STEP3_END
+call :timestamp STEP4_START
 echo [4/4] Starting services...
 echo:
 
@@ -388,6 +421,8 @@ if not defined NO_TUNNEL (
 echo   Waiting for services to initialize...
 timeout /t 5 /nobreak >nul
 
+call :timestamp STEP4_END
+
 :: Open browser (skip in restart mode)
 if not defined RESTART_MODE (
     start "" "http://localhost:3000"
@@ -437,6 +472,20 @@ echo  Commands:
 echo    --debug    Show console windows
 echo    --stop     Stop all services
 echo    --status   Check if services are running
+:: Calculate and display timing
+call :calculate_elapsed STEP1_START STEP1_END STEP1_ELAPSED
+call :calculate_elapsed STEP2_START STEP2_END STEP2_ELAPSED
+call :calculate_elapsed STEP3_START STEP3_END STEP3_ELAPSED
+call :calculate_elapsed STEP4_START STEP4_END STEP4_ELAPSED
+call :calculate_elapsed START_TIME_MS STEP4_END TOTAL_ELAPSED
+
+echo ----------------------------------------
+echo  Startup Timing:
+echo    Prerequisites:   !STEP1_ELAPSED!s
+echo    Stop processes:  !STEP2_ELAPSED!s
+echo    Load/Install:    !STEP3_ELAPSED!s
+echo    Start services:  !STEP4_ELAPSED!s
+echo    Total:           !TOTAL_ELAPSED!s
 echo ----------------------------------------
 echo  Services are running in background.
 echo  This window will close in 3 seconds...
@@ -524,6 +573,26 @@ echo   Stopping Telegram bot...
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*telegram_bot*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" 2>nul
 
 timeout /t 1 /nobreak >nul
+goto :eof
+
+:timestamp
+:: Captures current time in centiseconds into a variable
+:: Usage: call :timestamp VARNAME
+for /f "tokens=1-4 delims=:., " %%a in ("%time%") do (
+    set /a "%~1=(((%%a*60)+1%%b %% 100)*60+1%%c %% 100)*100+(1%%d %% 100)"
+)
+goto :eof
+
+:calculate_elapsed
+:: Calculates elapsed time between two timestamps in seconds
+:: Usage: call :calculate_elapsed START_VAR END_VAR RESULT_VAR
+set /a "_elapsed=(!%~2!-!%~1!)"
+:: Handle negative (midnight wrap)
+if !_elapsed! lss 0 set /a "_elapsed+=8640000"
+:: Convert centiseconds to seconds with 1 decimal
+set /a "_sec=_elapsed/100"
+set /a "_dec=(_elapsed %% 100)/10"
+set "%~3=!_sec!.!_dec!"
 goto :eof
 
 :check_status

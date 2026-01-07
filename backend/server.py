@@ -555,18 +555,29 @@ async def lifespan(app: FastAPI):
     For fast startup, we skip initial orders extraction - it will be done
     lazily on first chat message instead.
     """
+    import time
     global browser, graph, checkpointer, initial_orders_context
 
+    startup_start = time.time()
     print("Starting Lab Assistant with LangGraph...")
+    logger.info("[Startup] ========== STARTUP TIMING ==========")
+    timings = {}
 
     # Create data directory if it doesn't exist
     data_dir = Path(__file__).parent / "data"
     data_dir.mkdir(exist_ok=True)
 
     # Initialize browser (required before accepting requests)
+    t0 = time.time()
     browser = BrowserManager(user_data_dir=settings.browser_data_dir)
     await browser.start(headless=settings.headless, browser=settings.browser_channel)
+    timings['browser_start'] = time.time() - t0
+    logger.info(f"[Startup] Browser started in {timings['browser_start']:.2f}s")
+
+    t0 = time.time()
     await browser.navigate(settings.target_url)
+    timings['navigate'] = time.time() - t0
+    logger.info(f"[Startup] Initial navigation in {timings['navigate']:.2f}s")
     set_browser(browser)
 
     # Check if we ended up at the welcome page (session redirect) and navigate to orders
@@ -615,15 +626,40 @@ async def lifespan(app: FastAPI):
     # For production, use AsyncSqliteSaver or PostgresSaver
     checkpointer = MemorySaver()
 
-    # Build and compile a graph for each available model
-    for model_name in AVAILABLE_MODELS:
-        logger.info(f"[Startup] Creating graph for model: {model_name}")
+    # Build and compile graphs for all available models
+    # Note: LangGraph graph creation is synchronous and CPU-bound, so we can't truly parallelize
+    # But we can measure each step for optimization insights
+    t0 = time.time()
+
+    def create_graph_for_model(model_name: str):
+        """Create and compile graph for a single model."""
+        model_start = time.time()
         builder = create_lab_agent(browser, model_name=model_name)
-        graphs[model_name] = compile_agent(builder, checkpointer)
-        logger.info(f"[Startup] Graph for {model_name} ready")
+        compiled = compile_agent(builder, checkpointer)
+        model_time = time.time() - model_start
+        logger.info(f"[Startup] Graph for {model_name} created in {model_time:.2f}s")
+        return model_name, compiled
+
+    # Create graphs (sequential - LangGraph compile is synchronous)
+    for model_name in AVAILABLE_MODELS:
+        name, compiled_graph = create_graph_for_model(model_name)
+        graphs[name] = compiled_graph
+
+    timings['graphs'] = time.time() - t0
+    logger.info(f"[Startup] All graphs created in {timings['graphs']:.2f}s")
+
+    # Calculate and log total startup time
+    total_startup = time.time() - startup_start
+    logger.info("[Startup] ========== STARTUP COMPLETE ==========")
+    logger.info(f"[Startup] Browser start:   {timings.get('browser_start', 0):.2f}s")
+    logger.info(f"[Startup] Navigation:      {timings.get('navigate', 0):.2f}s")
+    logger.info(f"[Startup] Graph creation:  {timings.get('graphs', 0):.2f}s")
+    logger.info(f"[Startup] TOTAL:           {total_startup:.2f}s")
+    logger.info("=" * 50)
 
     print(f"Lab Assistant ready! Browser at: {browser.page.url}")
     print(f"Available models: {', '.join(AVAILABLE_MODELS)}")
+    print(f"Startup completed in {total_startup:.1f}s")
 
     yield
 
