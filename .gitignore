@@ -48,3 +48,9 @@ backend/.requirements_hash
 
 # Cloudflare Tunnel credentials (stored in user profile, not in repo)
 # Note: config is in %USERPROFILE%\.cloudflared\, not in repo
+backend/config/lista_de_ordenes.csv
+backend/config/ordenes_last_update.txt
+.gitignore
+backend/mobileclip_blt.ts
+backend/config/lista_de_ordenes.csv
+backend/yoloe-11l-seg.pt
