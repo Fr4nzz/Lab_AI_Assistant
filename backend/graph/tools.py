@@ -922,8 +922,12 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
 
     # Click exam buttons - must re-extract available exams after each click
     # because clicking removes the exam from available list and shifts button IDs
-    for exam_code in exams:
+    for i, exam_code in enumerate(exams):
         exam_code_upper = exam_code.upper().strip()
+
+        # Dismiss popups every 5 exams (they can appear mid-process)
+        if i > 0 and i % 5 == 0:
+            await _browser.dismiss_popups()
 
         # Extract current available exams (IDs shift after each click)
         available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
@@ -938,8 +942,11 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         if button_id:
             btn = page.locator(f'#{button_id}')
             try:
-                await btn.click(timeout=2000)
+                # Use force click to avoid waiting for actionability checks that can timeout
+                await btn.click(timeout=5000, force=True)
                 added_codes.append(exam_code_upper)
+                # Small delay to let UI process the addition
+                await page.wait_for_timeout(50)
             except Exception as e:
                 logger.warning(f"[create_order] Failed to click {exam_code_upper}: {e}")
                 failed_exams.append({'codigo': exam_code_upper, 'reason': str(e)})

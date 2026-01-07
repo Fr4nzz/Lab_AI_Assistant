@@ -111,8 +111,12 @@ def _get_preprocessing_cache_key(images: List) -> str:
     hasher = hashlib.md5()
     for img in images:
         data = img.data if hasattr(img, 'data') else str(img)
-        # Only hash first 1000 chars for speed
-        hasher.update(data[:1000].encode() if isinstance(data, str) else data[:1000])
+        # Normalize: strip data: prefix if present
+        if isinstance(data, str) and data.startswith("data:"):
+            data = data.split(",", 1)[1] if "," in data else data
+        # Hash first 2000 chars of actual base64 data for reliable matching
+        chunk = data[:2000] if isinstance(data, str) else str(data)[:2000]
+        hasher.update(chunk.encode())
     return hasher.hexdigest()
 
 
