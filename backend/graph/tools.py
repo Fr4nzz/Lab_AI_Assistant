@@ -942,19 +942,18 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
         if button_id:
             btn = page.locator(f'#{button_id}')
             try:
-                # Use force click to avoid waiting for actionability checks that can timeout
-                await btn.click(timeout=5000, force=True)
+                # Playwright best practice: click with auto-waiting, then wait for result
+                # When exam is added, button is removed from available list (becomes hidden)
+                await btn.click()
+                # Wait for button to disappear - this confirms the action completed
+                # Much better than arbitrary timeouts: waits exactly as long as needed
+                await btn.wait_for(state="hidden", timeout=5000)
                 added_codes.append(exam_code_upper)
-                # Small delay to let UI process the addition
-                await page.wait_for_timeout(50)
             except Exception as e:
                 logger.warning(f"[create_order] Failed to click {exam_code_upper}: {e}")
                 failed_exams.append({'codigo': exam_code_upper, 'reason': str(e)})
         else:
             failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
-
-    # Brief wait for UI to settle
-    await page.wait_for_timeout(300)
 
     # Get the final list of added exams and totals
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
