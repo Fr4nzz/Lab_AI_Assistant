@@ -374,9 +374,16 @@ async function handlePaste(e: ClipboardEvent) {
 }
 
 onMounted(() => {
-  // Note: We no longer auto-regenerate on page load.
-  // Previously this caused duplicate processing when refreshing during an ongoing chat.
-  // The user can manually click "regenerate" if needed.
+  // Only trigger AI processing if this is a new chat (has ?process=true query param)
+  // This prevents duplicate processing when user refreshes during ongoing chat
+  if (route.query.process === 'true') {
+    // Remove the query param from URL to prevent re-processing on refresh
+    const newQuery = { ...route.query }
+    delete newQuery.process
+    navigateTo({ path: route.path, query: newQuery }, { replace: true })
+    // Trigger AI processing
+    chat.regenerate()
+  }
 
   // Add paste listener for images
   document.addEventListener('paste', handlePaste)

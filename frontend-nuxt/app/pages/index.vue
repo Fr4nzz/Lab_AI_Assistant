@@ -133,7 +133,7 @@ async function createChat(prompt: string) {
   })
 
   refreshNuxtData('chats')
-  navigateTo(`/chat/${chat?.id}`)
+  navigateTo(`/chat/${chat?.id}?process=true`)
 }
 
 async function onSubmit() {
