@@ -2366,6 +2366,52 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
     return {"processedImages": processed, "timing": total_ms}
 
 
+class SegmentDebugRequest(BaseModel):
+    """Request to save segmented images for debugging."""
+    fileId: str
+    fileName: str
+    fullImage: str  # Base64 data
+    segments: List[str]  # 9 segment base64 images
+    labels: List[str]  # Labels like "arriba-izq", etc.
+
+
+@app.post("/api/save-segment-debug")
+async def save_segment_debug(request: SegmentDebugRequest):
+    """
+    Save segmented images to debug folder for inspection.
+    Called from frontend when image segmentation is enabled.
+    """
+    debug_dir = Path(__file__).parent / "debug_images"
+    debug_dir.mkdir(exist_ok=True)
+
+    # Clean filename for use in file paths
+    safe_name = "".join(c for c in request.fileName if c.isalnum() or c in "._- ").strip()[:50]
+
+    saved_files = []
+    try:
+        # Save full image
+        full_data = base64.b64decode(request.fullImage)
+        full_path = debug_dir / f"seg_{safe_name}_full.jpg"
+        with open(full_path, "wb") as f:
+            f.write(full_data)
+        saved_files.append(str(full_path.name))
+
+        # Save each segment
+        for i, (segment_b64, label) in enumerate(zip(request.segments, request.labels)):
+            segment_data = base64.b64decode(segment_b64)
+            segment_path = debug_dir / f"seg_{safe_name}_{i+1}_{label}.jpg"
+            with open(segment_path, "wb") as f:
+                f.write(segment_data)
+            saved_files.append(str(segment_path.name))
+
+        logger.info(f"[Segment] Saved {len(saved_files)} segment debug images for '{request.fileName}'")
+        return {"success": True, "files": saved_files}
+
+    except Exception as e:
+        logger.error(f"[Segment] Failed to save debug images: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # ============================================================
 # AI SDK DATA STREAM PROTOCOL ENDPOINT
 # ============================================================

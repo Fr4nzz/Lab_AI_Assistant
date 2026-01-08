@@ -106,7 +106,35 @@ export function useFileUploadWithStatus(_chatId: string) {
               try {
                 const segmented = await segmentImage(finalBase64, fileWithStatus.file.type)
                 segmentedCache.value.set(fileWithStatus.id, segmented)
-                console.log('[useFileUpload] Segmentation complete:', fileWithStatus.id)
+
+                // Detailed logging
+                const segmentSizes = segmented.segments.map(s => Math.round(s.length * 0.75 / 1024))
+                console.log('[useFileUpload] Segmentation complete:', {
+                  fileId: fileWithStatus.id,
+                  fileName: fileWithStatus.file.name,
+                  segments: segmented.segments.length,
+                  labels: segmented.labels,
+                  segmentSizesKB: segmentSizes,
+                  segmentImagesEnabled: settings.value.segmentImages
+                })
+
+                // Save debug images to backend if segmentation is enabled
+                if (settings.value.segmentImages) {
+                  try {
+                    await $fetch('/api/save-segment-debug', {
+                      method: 'POST',
+                      body: {
+                        fileId: fileWithStatus.id,
+                        fileName: fileWithStatus.file.name,
+                        fullImage: finalBase64,
+                        segments: segmented.segments,
+                        labels: segmented.labels
+                      }
+                    })
+                  } catch (debugError) {
+                    console.warn('[useFileUpload] Failed to save segment debug images:', debugError)
+                  }
+                }
               } catch (segError) {
                 console.error('[useFileUpload] Segmentation error:', segError)
               }
