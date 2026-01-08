@@ -612,33 +612,85 @@ async def _search_orders_impl(
             pass  # Browser was closed, nothing to clean up
 
 
-async def _get_order_results_impl(order_nums: List[str]) -> dict:
+async def _get_order_results_impl(order_nums: List[str] = None, tab_indices: List[int] = None) -> dict:
     """
     Get exam result fields for orders. Opens/reuses reportes2 tabs.
     Returns exam fields ready for edit_results().
+
+    Args:
+        order_nums: List of order numbers to fetch results for (opens/reuses tabs)
+        tab_indices: List of tab indices to read from (for already-opened tabs)
     """
     import asyncio
-    logger.info(f"[get_order_results] Getting results for {len(order_nums)} orders...")
+    results = []
 
-    async def process_order(order_num: str) -> dict:
-        try:
-            page = await _find_or_create_results_tab(order_num)
-            await page.bring_to_front()
+    # Process by tab_indices (read from already-opened tabs)
+    if tab_indices:
+        logger.info(f"[get_order_results] Reading from {len(tab_indices)} tab(s) by index...")
+        await _browser.ensure_browser()
+        pages = _browser.context.pages
 
-            data = await page.evaluate(EXTRACT_REPORTES_JS)
-            exam_count = len(data.get('examenes', []))
-            logger.info(f"[get_order_results] Order {order_num}: {exam_count} exams")
+        for tab_idx in tab_indices:
+            try:
+                if tab_idx < 0 or tab_idx >= len(pages):
+                    results.append({"tab_index": tab_idx, "error": f"Tab index {tab_idx} out of range (0-{len(pages)-1})"})
+                    continue
 
-            return {
-                "order_num": order_num,
-                "tab_ready": True,
-                **data
-            }
-        except Exception as e:
-            logger.error(f"[get_order_results] Error for order {order_num}: {e}")
-            return {"order_num": order_num, "tab_ready": False, "error": str(e)}
+                page = pages[tab_idx]
+                url = page.url
 
-    results = await asyncio.gather(*[process_order(num) for num in order_nums])
+                # Check if it's a results tab
+                if '/reportes2' not in url:
+                    results.append({"tab_index": tab_idx, "error": f"Tab {tab_idx} is not a results tab (URL: {url})"})
+                    continue
+
+                order_num = _extract_order_num_from_url(url)
+                await page.bring_to_front()
+
+                data = await page.evaluate(EXTRACT_REPORTES_JS)
+                exam_count = len(data.get('examenes', []))
+                logger.info(f"[get_order_results] Tab {tab_idx} (order {order_num}): {exam_count} exams")
+
+                results.append({
+                    "tab_index": tab_idx,
+                    "order_num": order_num,
+                    "tab_ready": True,
+                    **data
+                })
+            except Exception as e:
+                logger.error(f"[get_order_results] Error for tab {tab_idx}: {e}")
+                results.append({"tab_index": tab_idx, "tab_ready": False, "error": str(e)})
+
+    # Process by order_nums (opens/reuses tabs by order number)
+    if order_nums:
+        logger.info(f"[get_order_results] Getting results for {len(order_nums)} orders...")
+
+        async def process_order(order_num: str) -> dict:
+            try:
+                page = await _find_or_create_results_tab(order_num)
+                await page.bring_to_front()
+
+                data = await page.evaluate(EXTRACT_REPORTES_JS)
+                exam_count = len(data.get('examenes', []))
+                logger.info(f"[get_order_results] Order {order_num}: {exam_count} exams")
+
+                return {
+                    "order_num": order_num,
+                    "tab_ready": True,
+                    **data
+                }
+            except Exception as e:
+                logger.error(f"[get_order_results] Error for order {order_num}: {e}")
+                return {"order_num": order_num, "tab_ready": False, "error": str(e)}
+
+        order_results = await asyncio.gather(*[process_order(num) for num in order_nums])
+        results.extend(order_results)
+
+    if not results:
+        return {
+            "error": "No order_nums or tab_indices provided",
+            "hint": "Use order_nums=['2601068'] or tab_indices=[1] from CONTEXT tabs"
+        }
 
     return {
         "orders": results,
@@ -647,38 +699,93 @@ async def _get_order_results_impl(order_nums: List[str]) -> dict:
     }
 
 
-async def _get_order_info_impl(order_ids: List[int]) -> dict:
+async def _get_order_info_impl(order_ids: List[int] = None, tab_indices: List[int] = None) -> dict:
     """
     Get order info (patient, exams, totals). Opens/reuses ordenes/edit tabs.
     Returns order details ready for edit_order_exams().
+
+    Args:
+        order_ids: List of order IDs to fetch info for (opens/reuses tabs)
+        tab_indices: List of tab indices to read from (for already-opened order/create tabs)
     """
     import asyncio
-    logger.info(f"[get_order_info] Getting info for {len(order_ids)} orders...")
+    results = []
 
-    async def process_order(order_id: int) -> dict:
-        try:
-            page = await _find_or_create_order_tab(order_id)
-            await page.bring_to_front()
+    # Process by tab_indices (read from already-opened tabs)
+    if tab_indices:
+        logger.info(f"[get_order_info] Reading from {len(tab_indices)} tab(s) by index...")
+        await _browser.ensure_browser()
+        pages = _browser.context.pages
 
-            data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
-            data["order_id"] = order_id
+        for tab_idx in tab_indices:
+            try:
+                if tab_idx < 0 or tab_idx >= len(pages):
+                    results.append({"tab_index": tab_idx, "error": f"Tab index {tab_idx} out of range (0-{len(pages)-1})"})
+                    continue
 
-            # Also get added exams with details
-            added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-            data["exams"] = added_exams
+                page = pages[tab_idx]
+                url = page.url
 
-            logger.info(f"[get_order_info] Order {order_id}: {len(added_exams)} exams")
-            return data
-        except Exception as e:
-            logger.error(f"[get_order_info] Error for order {order_id}: {e}")
-            return {"order_id": order_id, "error": str(e)}
+                # Check if it's an order tab (edit or create)
+                if '/ordenes/' not in url or ('/ordenes/' in url and '/edit' not in url and '/create' not in url):
+                    # Check if it's at least an ordenes page
+                    if '/ordenes/create' not in url and '/ordenes/' not in url:
+                        results.append({"tab_index": tab_idx, "error": f"Tab {tab_idx} is not an order tab (URL: {url})"})
+                        continue
 
-    results = await asyncio.gather(*[process_order(oid) for oid in order_ids])
+                order_id = _extract_order_id_from_url(url)
+                await page.bring_to_front()
+
+                data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+                data["tab_index"] = tab_idx
+                if order_id:
+                    data["order_id"] = order_id
+
+                # Also get added exams with details
+                added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+                data["exams"] = added_exams
+
+                logger.info(f"[get_order_info] Tab {tab_idx} (order {order_id or 'new'}): {len(added_exams)} exams")
+                results.append(data)
+            except Exception as e:
+                logger.error(f"[get_order_info] Error for tab {tab_idx}: {e}")
+                results.append({"tab_index": tab_idx, "error": str(e)})
+
+    # Process by order_ids (opens/reuses tabs by order ID)
+    if order_ids:
+        logger.info(f"[get_order_info] Getting info for {len(order_ids)} orders...")
+
+        async def process_order(order_id: int) -> dict:
+            try:
+                page = await _find_or_create_order_tab(order_id)
+                await page.bring_to_front()
+
+                data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
+                data["order_id"] = order_id
+
+                # Also get added exams with details
+                added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
+                data["exams"] = added_exams
+
+                logger.info(f"[get_order_info] Order {order_id}: {len(added_exams)} exams")
+                return data
+            except Exception as e:
+                logger.error(f"[get_order_info] Error for order {order_id}: {e}")
+                return {"order_id": order_id, "error": str(e)}
+
+        order_results = await asyncio.gather(*[process_order(oid) for oid in order_ids])
+        results.extend(order_results)
+
+    if not results:
+        return {
+            "error": "No order_ids or tab_indices provided",
+            "hint": "Use order_ids=[123] or tab_indices=[1] from CONTEXT tabs"
+        }
 
     return {
         "orders": results,
         "total": len(results),
-        "tip": "Use edit_order_exams() with order_id to add/remove exams."
+        "tip": "Use edit_order_exams() with order_id or tab_index to add/remove exams."
     }
 
 
@@ -1075,16 +1182,22 @@ async def search_orders(
 
 
 @tool
-async def get_order_results(order_nums: List[str]) -> str:
-    """Get result fields for orders. BATCH: pass ALL order_nums at once."""
-    result = await _get_order_results_impl(order_nums)
+async def get_order_results(
+    order_nums: List[str] = None,
+    tab_indices: List[int] = None
+) -> str:
+    """Get result fields for orders. Use order_nums to open by order number, or tab_indices to read from already-opened tabs (from CONTEXT). BATCH: pass ALL at once."""
+    result = await _get_order_results_impl(order_nums=order_nums, tab_indices=tab_indices)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
-async def get_order_info(order_ids: List[int]) -> str:
-    """Get order details and exams list. BATCH: pass ALL order_ids at once."""
-    result = await _get_order_info_impl(order_ids)
+async def get_order_info(
+    order_ids: List[int] = None,
+    tab_indices: List[int] = None
+) -> str:
+    """Get order details and exams list. Use order_ids to open by ID, or tab_indices to read from already-opened order/create tabs (from CONTEXT). BATCH: pass ALL at once."""
+    result = await _get_order_info_impl(order_ids=order_ids, tab_indices=tab_indices)
     return json.dumps(result, ensure_ascii=False)
 
 
