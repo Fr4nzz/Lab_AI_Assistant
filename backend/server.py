@@ -497,13 +497,16 @@ async def extract_initial_context() -> str:
         # Fetch orders from page 1 only
         page1_url = "https://laboratoriofranz.orion-labs.com/ordenes?page=1"
         logger.info("[Context] Fetching orders page 1...")
-        await browser.page.goto(page1_url, timeout=30000)
+
+        # Ensure we have a valid page (auto-recovers if tab was closed)
+        page = await browser.ensure_page()
+        await page.goto(page1_url, timeout=30000)
         # Wait for table rows instead of fixed 2s delay
         try:
-            await browser.page.wait_for_selector('table tbody tr, .order-row', timeout=5000)
+            await page.wait_for_selector('table tbody tr, .order-row', timeout=5000)
         except Exception:
-            await browser.page.wait_for_timeout(500)
-        ordenes_page1 = await browser.page.evaluate(EXTRACT_ORDENES_JS) or []
+            await page.wait_for_timeout(500)
+        ordenes_page1 = await page.evaluate(EXTRACT_ORDENES_JS) or []
 
         logger.info(f"[Context] Extracted {len(ordenes_page1)} orders from page 1")
 
