@@ -162,6 +162,113 @@ def get_available_exams_context() -> str:
     return "\n".join(lines)
 
 
+# Flag to prevent multiple concurrent exams downloads
+_exams_auto_download_in_progress = False
+
+
+async def ensure_exams_file():
+    """
+    Ensure the exams CSV file exists. If not, trigger a download in background.
+    This is called from extract_initial_context() to auto-download on first use.
+    """
+    global _exams_auto_download_in_progress
+
+    if EXAMS_FILE.exists():
+        return True
+
+    if _exams_auto_download_in_progress:
+        logger.info("[Exams] Download already in progress, skipping...")
+        return False
+
+    _exams_auto_download_in_progress = True
+    logger.info("[Exams] File not found, triggering auto-download...")
+
+    try:
+        # Import the update function and call it directly
+        await _download_exams_list()
+        return True
+    except Exception as e:
+        logger.error(f"[Exams] Auto-download failed: {e}")
+        return False
+    finally:
+        _exams_auto_download_in_progress = False
+
+
+async def _download_exams_list():
+    """
+    Internal function to download the exams list.
+    Extracted from update_exams_list() endpoint for reuse.
+    """
+    global _cached_exams, browser
+
+    if not browser:
+        raise RuntimeError("Browser not initialized")
+
+    page = await browser.ensure_page()
+
+    # Create a new tab for this operation
+    new_page = await browser.context.new_page()
+
+    try:
+        # Navigate to tarifas page
+        logger.info("[Exams] Navigating to tarifas page...")
+        await new_page.goto("https://laboratoriofranz.orion-labs.com/informes/tarifas", timeout=30000)
+        await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+        await asyncio.sleep(1)  # Wait for page to settle
+
+        # Check the "Incluir exámenes con valor cero" checkbox
+        logger.info("[Exams] Checking 'Incluir exámenes con valor cero' checkbox...")
+        checkbox = new_page.locator("#examenes-valor-cero")
+        if not await checkbox.is_checked():
+            await checkbox.check()
+            await asyncio.sleep(0.5)
+
+        # Set up download handler
+        download_dir = Path(__file__).parent / "downloads"
+        download_dir.mkdir(exist_ok=True)
+
+        # Click "Generar informe" dropdown
+        logger.info("[Exams] Clicking 'Generar informe' dropdown...")
+        dropdown_btn = new_page.locator("button.dropdown-toggle", has_text="Generar informe")
+        await dropdown_btn.click()
+        await asyncio.sleep(0.5)
+
+        # Click "Excel" option and wait for download
+        logger.info("[Exams] Clicking 'Excel' and waiting for download...")
+        async with new_page.expect_download(timeout=60000) as download_info:
+            excel_btn = new_page.locator(".dropdown-item", has_text="Excel")
+            await excel_btn.click()
+
+        download = await download_info.value
+
+        # Save the downloaded file
+        csv_path = download_dir / download.suggested_filename
+        await download.save_as(csv_path)
+        logger.info(f"[Exams] Downloaded: {csv_path}")
+
+        # Process the CSV with process_tarifas.py
+        logger.info("[Exams] Processing CSV...")
+        from scripts.process_tarifas import process_tarifas
+        process_tarifas(str(csv_path))
+
+        # Reload the exams cache
+        _cached_exams = load_exams_from_csv()
+
+        # Save the update timestamp
+        timestamp = datetime.now().isoformat()
+        EXAMS_LAST_UPDATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        EXAMS_LAST_UPDATE_FILE.write_text(timestamp)
+
+        # Clean up downloaded file
+        csv_path.unlink(missing_ok=True)
+
+        logger.info(f"[Exams] Auto-download complete! {len(_cached_exams)} exams loaded.")
+
+    finally:
+        # Close the tab we opened
+        await new_page.close()
+
+
 # ============================================================
 # PYDANTIC MODELS
 # ============================================================
@@ -549,6 +656,8 @@ async def extract_initial_context() -> str:
         logger.warning(f"Could not extract orders context: {e}")
 
     # Add available exams from CSV file (faster than scraping, complete list)
+    # Auto-download if file doesn't exist
+    await ensure_exams_file()
     exams_context = get_available_exams_context()
     if exams_context:
         lines.append("")
@@ -1032,85 +1141,23 @@ async def update_exams_list():
     4. Wait for CSV download
     5. Process with process_tarifas.py
     """
-    global _cached_exams, browser
+    global _cached_exams
 
     try:
-        logger.info("[Exams] Starting exam list update...")
+        logger.info("[Exams] Starting exam list update (via API)...")
 
-        # Use the existing browser
-        if not browser:
-            raise HTTPException(status_code=503, detail="Browser not initialized")
+        # Use the shared download function
+        await _download_exams_list()
 
-        page = await browser.ensure_page()
+        # Get the timestamp
+        timestamp = EXAMS_LAST_UPDATE_FILE.read_text().strip() if EXAMS_LAST_UPDATE_FILE.exists() else datetime.now().isoformat()
 
-        # Create a new tab for this operation
-        new_page = await browser.context.new_page()
-
-        try:
-            # Navigate to tarifas page
-            logger.info("[Exams] Navigating to tarifas page...")
-            await new_page.goto("https://laboratoriofranz.orion-labs.com/informes/tarifas", timeout=30000)
-            await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
-            await asyncio.sleep(1)  # Wait for page to settle
-
-            # Check the "Incluir exámenes con valor cero" checkbox
-            logger.info("[Exams] Checking 'Incluir exámenes con valor cero' checkbox...")
-            checkbox = new_page.locator("#examenes-valor-cero")
-            if not await checkbox.is_checked():
-                await checkbox.check()
-                await asyncio.sleep(0.5)
-
-            # Set up download handler
-            download_dir = Path(__file__).parent / "downloads"
-            download_dir.mkdir(exist_ok=True)
-
-            # Click "Generar informe" dropdown
-            logger.info("[Exams] Clicking 'Generar informe' dropdown...")
-            dropdown_btn = new_page.locator("button.dropdown-toggle", has_text="Generar informe")
-            await dropdown_btn.click()
-            await asyncio.sleep(0.5)
-
-            # Click "Excel" option and wait for download
-            logger.info("[Exams] Clicking 'Excel' and waiting for download...")
-            async with new_page.expect_download(timeout=60000) as download_info:
-                excel_btn = new_page.locator(".dropdown-item", has_text="Excel")
-                await excel_btn.click()
-
-            download = await download_info.value
-
-            # Save the downloaded file
-            csv_path = download_dir / download.suggested_filename
-            await download.save_as(csv_path)
-            logger.info(f"[Exams] Downloaded: {csv_path}")
-
-            # Process the CSV with process_tarifas.py
-            logger.info("[Exams] Processing CSV...")
-            from scripts.process_tarifas import process_tarifas
-            process_tarifas(str(csv_path))
-
-            # Reload the exams cache
-            _cached_exams = load_exams_from_csv()
-
-            # Save the update timestamp
-            timestamp = datetime.now().isoformat()
-            EXAMS_LAST_UPDATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            EXAMS_LAST_UPDATE_FILE.write_text(timestamp)
-
-            # Clean up downloaded file
-            csv_path.unlink(missing_ok=True)
-
-            logger.info(f"[Exams] Update complete! {len(_cached_exams)} exams loaded.")
-
-            return {
-                "success": True,
-                "message": f"Lista de exámenes actualizada: {len(_cached_exams)} exámenes",
-                "examCount": len(_cached_exams),
-                "lastUpdate": timestamp
-            }
-
-        finally:
-            # Close the tab we opened
-            await new_page.close()
+        return {
+            "success": True,
+            "message": f"Lista de exámenes actualizada: {len(_cached_exams)} exámenes",
+            "examCount": len(_cached_exams),
+            "lastUpdate": timestamp
+        }
 
     except Exception as e:
         logger.error(f"[Exams] Update failed: {e}")
