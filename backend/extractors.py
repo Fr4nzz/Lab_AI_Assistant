@@ -253,7 +253,9 @@ EXTRACT_ORDEN_EDIT_JS = r"""
 }
 """
 
-# JavaScript para extraer lista de exámenes disponibles para agregar
+# JavaScript para extraer exámenes disponibles
+# Internal format includes button_id for clicking, codigo for matching
+# AI output is filtered in _get_available_exams_impl to compact format
 EXTRACT_AVAILABLE_EXAMS_JS = r"""
 () => {
     const exams = [];
@@ -294,6 +296,7 @@ EXTRACT_AVAILABLE_EXAMS_JS = r"""
             // Check if exam is remitted (sent to external lab)
             const remitido = row.querySelector('i.fa-shipping-fast') !== null;
 
+            // Keep full format for internal use (button clicking)
             exams.push({
                 codigo: codigo,
                 nombre: nombre || fullName,

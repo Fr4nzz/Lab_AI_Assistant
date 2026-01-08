@@ -106,17 +106,11 @@ class AgentConversationLogger:
         self.entries.append("-" * 40)
 
         if isinstance(result, str):
-            # Truncate very long results
-            if len(result) > 5000:
-                self.entries.append(result[:5000] + f"\n... [truncated, total {len(result)} chars]")
-            else:
-                self.entries.append(result)
+            # Full result - no truncation for complete logs
+            self.entries.append(result)
         else:
             result_str = json.dumps(result, ensure_ascii=False, indent=2)
-            if len(result_str) > 5000:
-                self.entries.append(result_str[:5000] + f"\n... [truncated]")
-            else:
-                self.entries.append(result_str)
+            self.entries.append(result_str)
 
         self.entries.append("")
 

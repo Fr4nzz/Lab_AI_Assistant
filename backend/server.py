@@ -645,12 +645,21 @@ async def extract_initial_context() -> str:
             logger.info(f"[Context] No cached orders, showing {len(all_ordenes)} from page 1")
 
         if all_ordenes:
-            lines.append("# Órdenes Recientes (20 más recientes)")
-            lines.append("| # | Orden | Fecha | Paciente | Cédula | Estado |")
-            lines.append("|---|-------|-------|----------|--------|--------|")
-            for i, o in enumerate(all_ordenes[:20]):
-                paciente = (o.get('paciente', '') or o.get('patient_name', '') or '')[:30]
-                lines.append(f"| {i+1} | {o.get('num','')} | {o.get('fecha','')} | {paciente} | {o.get('cedula','')} | {o.get('estado','')} |")
+            # Compact format: ord|fecha|paciente|ced|sts
+            lines.append("# Órdenes Recientes (ord|fecha|paciente|ced|sts)")
+            for o in all_ordenes[:20]:
+                paciente = (o.get('paciente', '') or o.get('patient_name', '') or '')[:25]
+                # Shorten date: 06/01/2026 -> 06/01
+                fecha = o.get('fecha', '')
+                if len(fecha) > 5:
+                    fecha = fecha[:5]
+                # Shorten status: Validado->Val, Pendiente->Pnd
+                estado = o.get('estado', '')
+                if estado.startswith('Valid'):
+                    estado = 'Val'
+                elif estado.startswith('Pend'):
+                    estado = 'Pnd'
+                lines.append(f"{o.get('num','')}|{fecha}|{paciente}|{o.get('cedula','')}|{estado}")
 
     except Exception as e:
         logger.warning(f"Could not extract orders context: {e}")

@@ -1224,13 +1224,24 @@ async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
     available = await page.evaluate(EXTRACT_AVAILABLE_EXAMS_JS)
     added = await page.evaluate(EXTRACT_ADDED_EXAMS_JS) if order_id else []
 
-    return {
-        "order_id": order_id,
-        "available_exams": available,
-        "total_available": len(available),
-        "added_exams": added,
-        "total_added": len(added)
-    }
+    # Compact format for AI output: ord, avl (available), add (added)
+    # Filter out internal fields (button_id) and convert to compact keys
+    def to_compact(exam):
+        """Convert internal exam format to compact AI format."""
+        compact = {"cod": exam.get("codigo"), "nam": exam.get("nombre")}
+        # Only add rem:1 if remitted (saves tokens)
+        if exam.get("remitido"):
+            compact["rem"] = 1
+        return compact
+
+    result = {}
+    if order_id:
+        result["ord"] = order_id
+    if available:
+        result["avl"] = [to_compact(e) for e in available]
+    if added:
+        result["add"] = added  # Already compact from EXTRACT_ADDED_EXAMS_JS
+    return result
 
 
 # ============================================================
