@@ -1,50 +1,38 @@
-# Token Efficiency Report: get_order_results Tool
+# Token Efficiency Report: All Lab Tools
 
 ## Executive Summary
 
-The `get_order_results` tool currently returns verbose JSON. Testing with real HTML data from order 2501181 (17 exams, 46 fields) shows:
+Comprehensive analysis of ALL lab tools shows significant token savings potential:
 
-| Format | Characters | Est. Tokens | Savings |
-|--------|-----------|-------------|---------|
-| **Current (verbose)** | 5,920 | ~1,480 | baseline |
-| **Compact (~3 char keys)** | 3,799 | ~949 | **35.8%** |
-| Minimal (2 char keys) | 3,573 | ~893 | 39.6% |
+| Tool | Current | Compact | Savings |
+|------|---------|---------|---------|
+| **get_order_results** OUTPUT | 5,920 | 3,799 | **35.8%** |
+| **get_order_info** OUTPUT | 3,630 | 1,200 | **66.9%** |
+| **edit_results** INPUT | 332 | 272 | **18.1%** |
+| **edit_order_exams** OUTPUT | 528 | 205 | **61.2%** |
+| **create_new_order** OUTPUT | 550 | 182 | **66.9%** |
+| **TOTAL** | **10,960** | **5,658** | **48.4%** |
 
-**Recommendation**: Use the **Compact format** with ~3 character abbreviations for a good balance of token savings (36%) and AI readability.
+**Overall: 48.4% token reduction across all tools** (~1,325 tokens saved per typical workflow)
 
 ---
 
 ## Test Methodology
 
-A Python test script (`backend/test_token_efficiency.py`) was created to:
-1. Parse actual HTML files from the application (restored from commit d193bae)
-2. Extract data using logic equivalent to `EXTRACT_REPORTES_JS`
-3. Compare output formats and character counts
+Test script: `backend/test_token_efficiency.py`
 
-**Test data**: `html_samples/reportes_2501181_20251223_182051.html`
-- 17 exams
-- 46 fields total
-- Real patient data
+- Parses actual HTML files from the application
+- Replicates JS extractor logic in Python
+- Compares current vs compact formats for all tools
+- Measures character counts (tokens ≈ chars/4)
+
+Run tests: `cd backend && python3 test_token_efficiency.py`
 
 ---
 
-## Current Implementation Analysis
+## 1. get_order_results (OUTPUT)
 
-### Data Flow
-
-```
-HTML Page (reportes2)
-    ↓
-EXTRACT_REPORTES_JS (extractors.py:108-200)
-    ↓
-_get_order_results_impl (tools.py:615-699)
-    ↓
-get_order_results (tools.py:1225-1231)
-    ↓
-JSON string response to AI
-```
-
-### Current Output Structure (5,920 chars)
+### Current Format (5,920 chars)
 
 ```json
 {
@@ -53,262 +41,362 @@ JSON string response to AI
     "tab_ready": true,
     "numero_orden": null,
     "paciente": "CHANDI VILLARROEL, Franz Alexander",
-    "examenes": [
-      {
-        "nombre": "BIOMETRÍA HEMÁTICA",
-        "estado": "Validado",
-        "tipo_muestra": "Sangre Total EDTA",
-        "campos": [
-          {"f": "Recuento de Glóbulos Rojos", "tipo": "input", "val": "5.81", "opciones": null, "ref": "[5 - 6.5]10^6/µL"},
-          {"f": "Hemoglobina", "tipo": "input", "val": "16.4", "opciones": null, "ref": "[14.5 - 18.5]g/dL"},
-          {"f": "Hematocrito", "tipo": "input", "val": "50", "opciones": null, "ref": "[45 - 55]%"}
-        ]
-      }
-    ]
+    "examenes": [{
+      "nombre": "BIOMETRÍA HEMÁTICA",
+      "estado": "Validado",
+      "tipo_muestra": "Sangre Total EDTA",
+      "campos": [
+        {"f": "Hemoglobina", "tipo": "input", "val": "16.4", "opciones": null, "ref": "[14.5 - 18.5]g/dL"}
+      ]
+    }]
   }],
   "total": 1,
   "tip": "Use edit_results() with order_num to edit these results."
 }
 ```
 
-### Token Waste Identified
-
-| Issue | Waste per occurrence | Total waste (46 fields) |
-|-------|---------------------|------------------------|
-| `"tipo": "input"` for every field | 16 chars | ~736 chars |
-| `"opciones": null` for inputs | 17 chars | ~782 chars |
-| `"tipo_muestra": "..."` per exam | ~25 chars | ~425 chars |
-| `"tab_ready": true` | 18 chars | 18 chars |
-| `"tip": "Use edit_results..."` | 55 chars | 55 chars |
-| Duplicate `numero_orden`/`order_num` | ~25 chars | 25 chars |
-
-**Total estimated waste: ~2,000+ chars (34%)**
-
----
-
-## Proposed Format: Compact (~3 char keys)
-
-### Key Abbreviations (AI-Friendly)
-
-| Current Key | Compact Key | Meaning |
-|-------------|-------------|---------|
-| `paciente` | `pat` | Patient name |
-| `examenes` | `exm` | Exams list |
-| `nombre` | `nam` | Exam name |
-| `estado` | `sts` | Status (Val/Pnd) |
-| `campos` | `fld` | Fields list |
-| field name | `fnm` | Field name |
-| `val` | `val` | Value (unchanged) |
-| `ref` | `ref` | Reference (unchanged, only if present) |
-| `opciones` | `opt` | Options (only for selects) |
-
-### Proposed Output Structure (3,799 chars)
+### Compact Format (3,799 chars) - 35.8% savings
 
 ```json
 {
   "ord": "2501181",
   "pat": "CHANDI VILLARROEL, Franz Alexander",
+  "exm": [{
+    "nam": "BIOMETRÍA HEMÁTICA",
+    "sts": "Val",
+    "fld": [
+      {"fnm": "Hemoglobina", "val": "16.4", "ref": "[14.5 - 18.5]g/dL"}
+    ]
+  }]
+}
+```
+
+### Optimizations Applied:
+- Remove wrapper: `orders[]`, `total`, `tip`
+- Remove redundant: `tab_ready`, `numero_orden`, `tipo_muestra`
+- Remove nulls: `opciones: null`, `tipo: "input"`
+- Abbreviate: `examenes` → `exm`, `nombre` → `nam`, `estado` → `sts`, `campos` → `fld`, `f` → `fnm`
+- Status: `"Validado"` → `"Val"`, `"Pendiente"` → `"Pnd"`
+
+---
+
+## 2. get_order_info (OUTPUT)
+
+### Current Format (3,630 chars)
+
+```json
+{
+  "orders": [{
+    "order_id": 12345,
+    "tab_index": 0,
+    "numero_orden": "12345",
+    "paciente": {
+      "identificacion": "1234567890",
+      "nombres": "CHANDI VILLARROEL, Franz Alexander",
+      "apellidos": null
+    },
+    "examenes": [
+      {"codigo": "GLU", "nombre": "GLUCOSA BASAL", "valor": "$5.00", "estado": "Validado"}
+    ],
+    "totales": {"subtotal": null, "descuento": null, "total": "$50.00"},
+    "exams": [...]  // DUPLICATED!
+  }],
+  "total": 1,
+  "tip": "Use edit_order_exams() with order_id or tab_index to add/remove exams."
+}
+```
+
+### Compact Format (1,200 chars) - 66.9% savings
+
+```json
+{
+  "ord": "12345",
+  "ced": "1234567890",
+  "pat": "CHANDI VILLARROEL, Franz Alexander",
   "exm": [
-    {
-      "nam": "BIOMETRÍA HEMÁTICA",
-      "sts": "Val",
-      "fld": [
-        {"fnm": "Recuento de Glóbulos Rojos", "val": "5.81", "ref": "[5 - 6.5]10^6/µL"},
-        {"fnm": "Hemoglobina", "val": "16.4", "ref": "[14.5 - 18.5]g/dL"},
-        {"fnm": "Hematocrito", "val": "50", "ref": "[45 - 55]%"}
-      ]
-    }
+    {"cod": "GLU", "nam": "GLUCOSA BASAL", "prc": "$5.00", "sts": "Val"}
   ]
 }
 ```
 
-### Key Optimizations
-
-1. **Remove wrapper objects**: No `"orders": [...]`, `"total"`, `"tip"`
-2. **Remove redundant fields**: No `"tipo"`, `"tipo_muestra"`, `"tab_ready"`, `"numero_orden"`
-3. **Omit null values**: `"opciones": null` removed for input fields
-4. **Abbreviated status**: `"Val"` instead of `"Validado"`, `"Pnd"` instead of `"Pendiente"`
-5. **~3 char keys**: Readable abbreviations that any AI can understand
+### Optimizations Applied:
+- Remove wrapper and duplicates: `orders[]`, `exams[]` (duplicate of `examenes`)
+- Flatten patient: `paciente.identificacion` → `ced`, `paciente.nombres` → `pat`
+- Remove nulls: `apellidos`, `subtotal`, `descuento`
+- Remove metadata: `tab_index`, `tip`, `total`
+- Abbreviate: `codigo` → `cod`, `valor` → `prc`
 
 ---
 
-## Actual Test Results
+## 3. edit_results (INPUT)
 
-### Full Comparison (17 exams, 46 fields)
+### Current Format (332 chars for 6 edits)
 
-```
-FORMAT COMPARISON (minified JSON - actual tool output):
-------------------------------------------------------------
-CURRENT (verbose):
-  Characters: 5,920
-  Est. Tokens: 1,480
-
-COMPACT (~3 char keys):
-  Characters: 3,799
-  Est. Tokens: 949
-  Savings: 35.8%
-
-MINIMAL (2 char keys):
-  Characters: 3,573
-  Est. Tokens: 893
-  Savings: 39.6%
+```json
+{
+  "data": [
+    {"orden": "2501181", "e": "BIOMETRÍA HEMÁTICA", "f": "Hemoglobina", "v": "16.5"},
+    {"orden": "2501181", "e": "BIOMETRÍA HEMÁTICA", "f": "Hematocrito", "v": "50"}
+  ]
+}
 ```
 
-### Why ~3 char keys over 2 char keys?
+### Compact Format (272 chars) - 18.1% savings
 
-The difference between 3-char and 2-char keys is only **~4% additional savings** (39.6% vs 35.8%), but 3-char keys are significantly more readable:
+```json
+{
+  "data": [
+    {"t": 1, "e": "BIOMETRÍA HEMÁTICA", "f": "Hemoglobina", "v": "16.5"},
+    {"t": 1, "e": "BIOMETRÍA HEMÁTICA", "f": "Hematocrito", "v": "50"}
+  ]
+}
+```
 
-| 2-char | 3-char | Readability |
-|--------|--------|-------------|
-| `nm` | `nam` | "nam" clearly means "name" |
-| `st` | `sts` | "sts" clearly means "status" |
-| `fl` | `fld` | "fld" clearly means "field" |
-| `fn` | `fnm` | "fnm" clearly means "field name" |
-| `vl` | `val` | "val" clearly means "value" |
-| `rf` | `ref` | "ref" clearly means "reference" |
+### Optimizations Applied:
+- Use tab index `t` instead of `orden` (shorter, also avoids AI needing to remember order number)
+- Keys already short (`e`, `f`, `v`)
 
-For cheaper/simpler AI models, the extra readability of 3-char keys is worth the small token cost.
+### Note on Input Optimization
+The edit_results input is already fairly efficient. The main improvement is using `t` (tab_index) instead of `orden` which:
+1. Saves ~5 chars per edit (×N edits)
+2. Is more reliable (AI doesn't need to remember/copy order number)
+3. Works with already-opened tabs from CONTEXT
+
+---
+
+## 4. edit_order_exams (OUTPUT)
+
+### Current Format (528 chars)
+
+```json
+{
+  "identifier": "order_12345",
+  "tab_index": null,
+  "order_id": 12345,
+  "is_new_order": false,
+  "added": ["GLU", "BH"],
+  "removed": ["EMO"],
+  "failed_add": [],
+  "failed_remove": [],
+  "cedula_updated": true,
+  "cedula": "1234567890",
+  "current_exams": [
+    {"codigo": "GLU", "nombre": "GLUCOSA BASAL", "valor": "$5.00", "estado": "Pendiente", "can_remove": true}
+  ],
+  "totals": {"total": "$13.00"},
+  "status": "pending_save",
+  "next_step": "Revisa los cambios y haz click en 'Guardar'."
+}
+```
+
+### Compact Format (205 chars) - 61.2% savings
+
+```json
+{
+  "ord": 12345,
+  "add": ["GLU", "BH"],
+  "rem": ["EMO"],
+  "ced": "1234567890",
+  "exm": [
+    {"cod": "GLU", "nam": "GLUCOSA BASAL", "prc": "$5.00"}
+  ],
+  "tot": "$13.00",
+  "sts": "save"
+}
+```
+
+### Optimizations Applied:
+- Remove redundant IDs: `identifier`, `tab_index` (use `ord` only)
+- Remove booleans: `is_new_order`, `cedula_updated`, `can_remove`
+- Remove empty arrays: `failed_add`, `failed_remove` (only include if non-empty)
+- Remove verbose messages: `next_step`
+- Flatten: `totals.total` → `tot`
+- Abbreviate: `current_exams` → `exm`, `status` → `sts`
+
+---
+
+## 5. create_new_order (OUTPUT)
+
+### Current Format (550 chars)
+
+```json
+{
+  "success": true,
+  "tab_index": 2,
+  "is_cotizacion": false,
+  "cedula": "1234567890",
+  "added_exams": ["GLU", "BH", "EMO"],
+  "failed_exams": [],
+  "current_exams": [
+    {"codigo": "GLU", "nombre": "GLUCOSA BASAL", "valor": "$5.00", "estado": null, "can_remove": true}
+  ],
+  "totals": {"total": "$17.00"},
+  "status": "ready_to_save",
+  "next_step": "Revisa los exámenes y haz click en 'Guardar'."
+}
+```
+
+### Compact Format (182 chars) - 66.9% savings
+
+```json
+{
+  "ok": true,
+  "tab": 2,
+  "ced": "1234567890",
+  "add": ["GLU", "BH", "EMO"],
+  "exm": [
+    {"cod": "GLU", "prc": "$5.00"}
+  ],
+  "tot": "$17.00",
+  "sts": "save"
+}
+```
+
+### Optimizations Applied:
+- Abbreviate: `success` → `ok`, `tab_index` → `tab`
+- Remove nulls/empty: `is_cotizacion`, `failed_exams`, `estado: null`
+- Simplify exams: Only `cod` and `prc` needed (name not useful post-add)
+- Remove verbose: `next_step`, `can_remove`
+
+---
+
+## Key Abbreviations Reference
+
+### Common Keys (Used Across Tools)
+
+| Current | Compact | Meaning |
+|---------|---------|---------|
+| `order_num`, `order_id` | `ord` | Order number/ID |
+| `paciente` | `pat` | Patient name |
+| `cedula`, `identificacion` | `ced` | Cedula/ID |
+| `examenes`, `exams` | `exm` | Exams list |
+| `estado`, `status` | `sts` | Status |
+| `total`, `totales.total` | `tot` | Total price |
+
+### Exam/Field Keys
+
+| Current | Compact | Meaning |
+|---------|---------|---------|
+| `nombre` | `nam` | Name |
+| `codigo` | `cod` | Code |
+| `campos` | `fld` | Fields list |
+| field name (`f`) | `fnm` | Field name |
+| `val` | `val` | Value (unchanged) |
+| `ref` | `ref` | Reference (unchanged) |
+| `opciones` | `opt` | Options (select only) |
+| `valor` | `prc` | Price |
+
+### Status Values
+
+| Current | Compact |
+|---------|---------|
+| `"Validado"` | `"Val"` |
+| `"Pendiente"` | `"Pnd"` |
+| `"pending_save"` | `"save"` |
+
+### Operation Keys
+
+| Current | Compact | Meaning |
+|---------|---------|---------|
+| `added` | `add` | Added items |
+| `removed` | `rem` | Removed items |
+| `tab_index` | `tab` | Tab index |
+| `success` | `ok` | Success flag |
 
 ---
 
 ## Implementation Plan
 
-### Step 1: Update EXTRACT_REPORTES_JS (extractors.py)
+### Phase 1: Update Extractors (extractors.py)
 
-```javascript
-EXTRACT_REPORTES_JS = r"""
-() => {
-    const exm = [];
-    let current = null;
+Update JavaScript extractors to use compact keys:
 
-    document.querySelectorAll('tr.examen, tr.parametro').forEach(row => {
-        if (row.classList.contains('examen')) {
-            if (current && current.fld.length > 0) exm.push(current);
+1. **EXTRACT_REPORTES_JS** → Output compact format
+2. **EXTRACT_ORDEN_EDIT_JS** → Output compact format
+3. **EXTRACT_ADDED_EXAMS_JS** → Output compact format
 
-            const strong = row.querySelector('strong');
-            const nam = strong?.innerText?.trim() || '';
+### Phase 2: Update Tool Implementations (tools.py)
 
-            const badge = row.querySelector('.badge');
-            const estadoText = badge?.innerText?.trim();
-            const sts = estadoText === 'Validado' ? 'Val' :
-                       estadoText === 'Pendiente' ? 'Pnd' : null;
+1. **_get_order_results_impl**: Remove wrapper, use compact data
+2. **_get_order_info_impl**: Flatten structure, remove duplicates
+3. **_edit_order_exams_impl**: Simplify output, remove verbose messages
+4. **_create_order_impl**: Simplify output
 
-            current = { nam, sts, fld: [] };
-        } else if (row.classList.contains('parametro') && current) {
-            const cells = row.querySelectorAll('td');
-            if (cells.length < 2) return;
+### Phase 3: Update Tool Docstrings
 
-            const fnm = cells[0]?.innerText?.trim();
-            const select = cells[1]?.querySelector('select');
-            const input = cells[1]?.querySelector('input');
-            if (!select && !input) return;
-
-            const campo = { fnm };
-
-            if (select) {
-                const selOpt = select.options[select.selectedIndex];
-                campo.val = selOpt?.text || '';
-                campo.opt = Array.from(select.options)
-                    .map(o => o.text.trim())
-                    .filter(t => t);
-            } else {
-                campo.val = input.value;
-            }
-
-            // Only include ref if present
-            const ref = cells[2]?.innerText?.trim();
-            if (ref) campo.ref = ref;
-
-            current.fld.push(campo);
-        }
-    });
-
-    if (current && current.fld.length > 0) exm.push(current);
-
-    // Order number from URL
-    let ord = null;
-    const urlMatch = window.location.search.match(/numeroOrden=(\d+)/);
-    if (urlMatch) ord = urlMatch[1];
-
-    // Patient name
-    let pat = null;
-    document.querySelectorAll('span.paciente').forEach(span => {
-        const text = span.innerText?.trim();
-        if (text && text !== 'Paciente' && text.length > 3) pat = text;
-    });
-
-    return { ord, pat, exm };
-}
-"""
-```
-
-### Step 2: Update _get_order_results_impl (tools.py)
-
-```python
-async def _get_order_results_impl(order_nums: List[str] = None, tab_indices: List[int] = None) -> dict:
-    # ... existing logic ...
-
-    # Simplified return - no wrapper for single order
-    if len(results) == 1:
-        return results[0]
-    return {"orders": results}
-```
-
-### Step 3: Update Tool Docstring
+Document compact key meanings in tool docstrings so AI understands the format:
 
 ```python
 @tool
-async def get_order_results(order_nums: List[str] = None, tab_indices: List[int] = None) -> str:
-    """Get exam results for editing.
+async def get_order_results(...) -> str:
+    """Get exam results.
 
-    Args:
-        order_nums: Order numbers to fetch (opens/reuses tabs)
-        tab_indices: Tab indices to read from (from CONTEXT)
-
-    Returns compact format:
-        ord: order number
-        pat: patient name
-        exm: [{nam: exam name, sts: Val|Pnd, fld: [{fnm, val, ref?, opt?}]}]
-
-    Use edit_results(data=[{orden, e, f, v}]) to edit.
+    Returns: {ord, pat, exm: [{nam, sts, fld: [{fnm, val, ref?, opt?}]}]}
+    Keys: ord=order, pat=patient, exm=exams, nam=name, sts=Val|Pnd,
+          fld=fields, fnm=field name, val=value, ref=reference, opt=options
     """
 ```
 
----
+### Phase 4: Update edit_results Input Schema
 
-## edit_results Compatibility
-
-The `edit_results` tool input format remains unchanged:
+Allow `t` as alias for `tab_index`:
 
 ```python
-{"orden": "2501181", "e": "BIOMETRÍA HEMÁTICA", "f": "Hemoglobina", "v": "16.5"}
+class EditResultsInput(BaseModel):
+    data: List[Dict[str, str]] = Field(
+        description="List of edits. Each: {t (tab_index) OR orden, e (exam), f (field), v (value)}"
+    )
 ```
-
-The AI reads with compact keys (`fnm`, `val`) but writes with the existing format (`e`, `f`, `v`).
 
 ---
 
-## Test Script Usage
+## Expected Impact
 
-Run the test script to verify token savings:
+### Per Typical Workflow
 
-```bash
-cd backend
-python3 test_token_efficiency.py
-```
+A typical workflow involves:
+1. `get_order_results` (1x) → Save ~530 tokens
+2. `edit_results` (1x, ~10 edits) → Save ~30 tokens
+3. `get_order_info` (1x) → Save ~607 tokens
+4. `edit_order_exams` (1x) → Save ~80 tokens
 
-Output shows character counts, token estimates, and sample outputs for comparison.
+**Total per workflow: ~1,247 tokens saved**
+
+### Cost Impact
+
+At $15/1M input tokens (Claude Sonnet):
+- 1,247 tokens saved × 100 workflows/day = 124,700 tokens/day
+- Monthly savings: ~$56/month
+
+At $3/1M input tokens (Claude Haiku):
+- Monthly savings: ~$11/month
+
+The main benefit is **faster responses** and **longer context windows** rather than direct cost savings.
+
+---
+
+## Backward Compatibility
+
+The `edit_results` input format remains compatible:
+- Current: `{"orden": "2501181", "e": "...", "f": "...", "v": "..."}`
+- Also accepts: `{"t": 1, "e": "...", "f": "...", "v": "..."}`
+
+AI reads compact output but can write with either format.
 
 ---
 
 ## Conclusion
 
-**Recommended: Compact format with ~3 char keys**
+**Recommended: Implement all compact formats**
 
-- **35.8% token reduction** (5,920 → 3,799 chars)
-- **~530 tokens saved** per tool call
-- Readable abbreviations for cheaper AI models
-- Backward compatible with edit_results
-- Only 4% less efficient than minimal 2-char format, but much more readable
+| Priority | Tool | Savings | Complexity |
+|----------|------|---------|------------|
+| HIGH | get_order_info | 66.9% | Low |
+| HIGH | create_new_order | 66.9% | Low |
+| HIGH | edit_order_exams | 61.2% | Low |
+| MEDIUM | get_order_results | 35.8% | Medium |
+| LOW | edit_results input | 18.1% | Low |
 
-The ~3 char abbreviations (`nam`, `sts`, `fld`, `fnm`, `val`, `ref`, `opt`) are intuitive enough that any AI model can understand them without confusion.
+Total estimated savings: **48.4%** across all tool I/O
+
+The ~3 character abbreviations (`nam`, `sts`, `fld`, `fnm`, `val`, `ref`, `opt`, `cod`, `prc`, etc.) are readable enough for any AI model while providing significant token savings.
