@@ -6,6 +6,7 @@ interface SettingsUpdateBody {
   preprocessingModel?: string
   preprocessingThinkingLevel?: string
   enableAgentLogging?: boolean
+  segmentImages?: boolean
 }
 
 // Valid options
@@ -74,6 +75,10 @@ export default defineEventHandler(async (event) => {
   // Boolean settings (no validation needed)
   if (typeof body.enableAgentLogging === 'boolean') {
     updates.enableAgentLogging = body.enableAgentLogging
+  }
+
+  if (typeof body.segmentImages === 'boolean') {
+    updates.segmentImages = body.segmentImages
   }
 
   // Update settings

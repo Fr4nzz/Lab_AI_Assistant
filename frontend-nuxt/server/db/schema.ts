@@ -94,6 +94,9 @@ export const userSettings = sqliteTable('user_settings', {
   // Agent logging (for model evaluation)
   enableAgentLogging: integer('enable_agent_logging', { mode: 'boolean' }).default(false),
 
+  // Image segmentation (splits images into 3x3 grid for better AI vision)
+  segmentImages: integer('segment_images', { mode: 'boolean' }).default(false),
+
   ...timestamps
 }, table => [
   index('user_settings_visitor_id_idx').on(table.visitorId),

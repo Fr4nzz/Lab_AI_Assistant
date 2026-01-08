@@ -9,6 +9,7 @@ const { isOAuthEnabled } = useAuthConfig()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
 const { enableAgentLogging } = useAgentLogging()
+const { settings, setSegmentImages } = useSettings()
 
 const open = ref(false)
 const tabEditorOpen = ref(false)
@@ -251,6 +252,25 @@ defineShortcuts({
                   :name="enableAgentLogging ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
                   class="w-5 h-5"
                   :class="enableAgentLogging ? 'text-primary' : 'text-muted'"
+                />
+              </UButton>
+
+              <!-- Image Segmentation toggle -->
+              <UButton
+                variant="ghost"
+                color="neutral"
+                block
+                class="justify-between"
+                @click="setSegmentImages(!settings.segmentImages)"
+              >
+                <span class="flex items-center gap-2">
+                  <UIcon name="i-lucide-grid-3x3" class="w-4 h-4" />
+                  Segmentar imágenes
+                </span>
+                <UIcon
+                  :name="settings.segmentImages ? 'i-lucide-toggle-right' : 'i-lucide-toggle-left'"
+                  class="w-5 h-5"
+                  :class="settings.segmentImages ? 'text-primary' : 'text-muted'"
                 />
               </UButton>
 

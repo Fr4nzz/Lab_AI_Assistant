@@ -1,5 +1,6 @@
 import { FILE_UPLOAD_CONFIG, type FileWithStatus } from '~~/shared/utils/file'
 import { generateUUID } from '~/utils/uuid'
+import { segmentImage, segmentedImageToParts } from '~/utils/imageSegmentation'
 
 function createObjectUrl(file: File): string {
   return URL.createObjectURL(file)
@@ -22,6 +23,7 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
+  const { settings } = useSettings()
   // Use new preprocessing pipeline instead of old rotation detection
   const {
     preprocessImage,
@@ -30,6 +32,9 @@ export function useFileUploadWithStatus(_chatId: string) {
     waitForPendingPreprocessing,
     hasPendingPreprocessing
   } = useImagePreprocessing()
+
+  // Cache for segmented images (computed async)
+  const segmentedCache = ref<Map<string, Awaited<ReturnType<typeof segmentImage>>>>(new Map())
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -76,7 +81,7 @@ export function useFileUploadWithStatus(_chatId: string) {
             fileWithStatus.id,
             base64Data,
             fileWithStatus.file.type
-          ).then((result) => {
+          ).then(async (result) => {
             // Update file with preprocessing result when complete
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
             if (currentIndex !== -1) {
@@ -95,6 +100,16 @@ export function useFileUploadWithStatus(_chatId: string) {
                 useCrop: result.useCrop,
                 timing: result.timing
               })
+
+              // Pre-compute segmentation in background (uses processed image)
+              const finalBase64 = result.processedBase64 || base64Data
+              try {
+                const segmented = await segmentImage(finalBase64, fileWithStatus.file.type)
+                segmentedCache.value.set(fileWithStatus.id, segmented)
+                console.log('[useFileUpload] Segmentation complete:', fileWithStatus.id)
+              } catch (segError) {
+                console.error('[useFileUpload] Segmentation error:', segError)
+              }
             }
           }).catch((error) => {
             console.error('[useFileUpload] Preprocessing error:', error)
@@ -140,29 +155,78 @@ export function useFileUploadWithStatus(_chatId: string) {
 
   // Format files for AI SDK message parts
   // Uses preprocessed (rotated + cropped) images if available
-  const uploadedFiles = computed(() =>
-    files.value
-      .filter(f => f.status === 'uploaded' && f.base64Data)
-      .map(f => {
-        const isImage = f.file.type.startsWith('image/')
-        // Use preprocessed data if available (already rotated + cropped), otherwise original
-        const base64 = f.rotatedBase64 || f.base64Data!
-        return {
+  // When segmentImages is enabled, includes 9 additional segment images for each image
+  const uploadedFiles = computed(() => {
+    const result: Array<{
+      type: 'file'
+      mediaType: string
+      url: string
+      data: string
+      name: string
+      rotation?: number
+      rotatedBase64?: string
+      preprocessed?: boolean
+      useCrop?: boolean
+      preprocessingPending?: boolean
+      segmentLabel?: string
+    }> = []
+
+    for (const f of files.value) {
+      if (f.status !== 'uploaded' || !f.base64Data) continue
+
+      const isImage = f.file.type.startsWith('image/')
+      // Use preprocessed data if available (already rotated + cropped), otherwise original
+      const base64 = f.rotatedBase64 || f.base64Data!
+
+      // Check if segmentation is enabled and we have cached segments
+      const segmented = segmentedCache.value.get(f.id)
+      if (settings.value.segmentImages && isImage && segmented) {
+        // Add full image first
+        result.push({
           type: 'file' as const,
           mediaType: f.file.type,
           url: `data:${f.file.type};base64,${base64}`,
           data: base64,
           name: f.file.name,
-          // Include preprocessing metadata
           rotation: f.rotation,
           rotatedBase64: f.rotatedBase64,
           preprocessed: f.preprocessed,
           useCrop: f.useCrop,
-          // Flag to indicate if preprocessing is still pending
-          preprocessingPending: isImage && f.rotation === undefined
+          preprocessingPending: false
+        })
+
+        // Add 9 segments with labels
+        for (let i = 0; i < segmented.segments.length; i++) {
+          const segmentData = segmented.segments[i]
+          const label = segmented.labels[i]
+          result.push({
+            type: 'file' as const,
+            mediaType: f.file.type,
+            url: `data:${f.file.type};base64,${segmentData}`,
+            data: segmentData,
+            name: `${f.file.name} [${label}]`,
+            segmentLabel: label
+          })
         }
-      })
-  )
+      } else {
+        // No segmentation - just add the file normally
+        result.push({
+          type: 'file' as const,
+          mediaType: f.file.type,
+          url: `data:${f.file.type};base64,${base64}`,
+          data: base64,
+          name: f.file.name,
+          rotation: f.rotation,
+          rotatedBase64: f.rotatedBase64,
+          preprocessed: f.preprocessed,
+          useCrop: f.useCrop,
+          preprocessingPending: isImage && f.rotation === undefined
+        })
+      }
+    }
+
+    return result
+  })
 
   function removeFile(id: string) {
     const file = files.value.find(f => f.id === id)
@@ -170,6 +234,7 @@ export function useFileUploadWithStatus(_chatId: string) {
 
     URL.revokeObjectURL(file.previewUrl)
     clearPreprocessing(id)
+    segmentedCache.value.delete(id)
     files.value = files.value.filter(f => f.id !== id)
   }
 
@@ -177,6 +242,7 @@ export function useFileUploadWithStatus(_chatId: string) {
     if (files.value.length === 0) return
     files.value.forEach(fileWithStatus => URL.revokeObjectURL(fileWithStatus.previewUrl))
     clearAllPreprocessing()
+    segmentedCache.value.clear()
     files.value = []
   }
 

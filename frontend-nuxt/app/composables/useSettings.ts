@@ -4,6 +4,7 @@ export interface UserSettings {
   mainThinkingLevel: string  // For main chat model
   preprocessingModel: string
   preprocessingThinkingLevel: string  // For image preprocessing
+  segmentImages: boolean  // Split images into 3x3 grid for better AI vision
 }
 
 // Available chat models
@@ -60,7 +61,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',  // Default for Gemini 3 Flash
   preprocessingModel: 'gemini-flash-latest',  // Gemini 2.5 Flash - more accurate than Lite
-  preprocessingThinkingLevel: 'off'  // Default for Gemini 2.5 (thinkingBudget: 0)
+  preprocessingThinkingLevel: 'off',  // Default for Gemini 2.5 (thinkingBudget: 0)
+  segmentImages: false  // Disabled by default - splits images into 3x3 grid
 }
 
 // Helper to check if model is Gemini 3
@@ -104,7 +106,8 @@ export function useSettings() {
         chatModel: data.chatModel || DEFAULT_SETTINGS.chatModel,
         mainThinkingLevel: data.mainThinkingLevel || getDefaultThinkingLevel(data.chatModel || DEFAULT_SETTINGS.chatModel),
         preprocessingModel: data.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
-        preprocessingThinkingLevel: data.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel
+        preprocessingThinkingLevel: data.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel,
+        segmentImages: data.segmentImages ?? DEFAULT_SETTINGS.segmentImages
       }
       isLoaded.value = true
     } catch (error) {
@@ -128,7 +131,8 @@ export function useSettings() {
         chatModel: data.chatModel || settings.value.chatModel,
         mainThinkingLevel: data.mainThinkingLevel || settings.value.mainThinkingLevel,
         preprocessingModel: data.preprocessingModel || settings.value.preprocessingModel,
-        preprocessingThinkingLevel: data.preprocessingThinkingLevel || settings.value.preprocessingThinkingLevel
+        preprocessingThinkingLevel: data.preprocessingThinkingLevel || settings.value.preprocessingThinkingLevel,
+        segmentImages: data.segmentImages ?? settings.value.segmentImages
       }
       return settings.value
     } catch (error) {
@@ -159,6 +163,11 @@ export function useSettings() {
   async function setPreprocessingThinkingLevel(level: string) {
     settings.value.preprocessingThinkingLevel = level
     await saveSettings({ preprocessingThinkingLevel: level })
+  }
+
+  async function setSegmentImages(enabled: boolean) {
+    settings.value.segmentImages = enabled
+    await saveSettings({ segmentImages: enabled })
   }
 
   // Computed helpers
@@ -201,6 +210,7 @@ export function useSettings() {
     setMainThinkingLevel,
     setPreprocessingModel,
     setPreprocessingThinkingLevel,
+    setSegmentImages,
     currentChatModel,
     availableThinkingLevels,
     currentMainThinkingLevel,

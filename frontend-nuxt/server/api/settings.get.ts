@@ -11,7 +11,8 @@ export default defineEventHandler(async (event) => {
       mainThinkingLevel: 'low',
       preprocessingModel: 'gemini-flash-latest',
       preprocessingThinkingLevel: 'off',
-      enableAgentLogging: false
+      enableAgentLogging: false,
+      segmentImages: false
     }
   }
 

@@ -318,6 +318,7 @@ export interface UserSettings {
   preprocessingModel: string
   preprocessingThinkingLevel: string  // For image preprocessing
   enableAgentLogging: boolean  // For AI conversation logging (model evaluation)
+  segmentImages: boolean  // Split images into 3x3 grid for better AI vision
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -325,7 +326,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   mainThinkingLevel: 'low',
   preprocessingModel: 'gemini-flash-latest',
   preprocessingThinkingLevel: 'off',  // Gemini 2.5 uses thinkingBudget: 'off' (0) or 'dynamic' (-1)
-  enableAgentLogging: false
+  enableAgentLogging: false,
+  segmentImages: false
 }
 
 export async function getUserSettings(visitorId: string): Promise<UserSettings> {
@@ -341,7 +343,8 @@ export async function getUserSettings(visitorId: string): Promise<UserSettings> 
       mainThinkingLevel: settings.mainThinkingLevel || DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: settings.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
       preprocessingThinkingLevel: settings.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel,
-      enableAgentLogging: settings.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
+      enableAgentLogging: settings.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
+      segmentImages: settings.segmentImages ?? DEFAULT_SETTINGS.segmentImages
     }
   }
 
@@ -368,7 +371,8 @@ export async function updateUserSettings(
         mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel,
         preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel,
         preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel,
-        enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging
+        enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging,
+        segmentImages: updates.segmentImages ?? existing.segmentImages
       })
       .where(eq(schema.userSettings.id, existing.id))
 
@@ -377,7 +381,8 @@ export async function updateUserSettings(
       mainThinkingLevel: updates.mainThinkingLevel ?? existing.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
       preprocessingModel: updates.preprocessingModel ?? existing.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
       preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? existing.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
-      enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
+      enableAgentLogging: updates.enableAgentLogging ?? existing.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
+      segmentImages: updates.segmentImages ?? existing.segmentImages ?? DEFAULT_SETTINGS.segmentImages
     }
   }
 
@@ -393,6 +398,7 @@ export async function updateUserSettings(
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
     preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
     enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
+    segmentImages: updates.segmentImages ?? DEFAULT_SETTINGS.segmentImages,
     createdAt: now
   })
 
@@ -401,6 +407,7 @@ export async function updateUserSettings(
     mainThinkingLevel: updates.mainThinkingLevel ?? DEFAULT_SETTINGS.mainThinkingLevel,
     preprocessingModel: updates.preprocessingModel ?? DEFAULT_SETTINGS.preprocessingModel,
     preprocessingThinkingLevel: updates.preprocessingThinkingLevel ?? DEFAULT_SETTINGS.preprocessingThinkingLevel,
-    enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging
+    enableAgentLogging: updates.enableAgentLogging ?? DEFAULT_SETTINGS.enableAgentLogging,
+    segmentImages: updates.segmentImages ?? DEFAULT_SETTINGS.segmentImages
   }
 }
