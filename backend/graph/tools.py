@@ -584,7 +584,7 @@ async def _search_orders_impl(
     await _browser.ensure_browser()
 
     async def search_single(term: str) -> dict:
-        """Search for a single term and return compact results."""
+        """Search for a single term and return compact results with fuzzy fallback."""
         params = {"page": 1}
         if term:
             params["cadenaBusqueda"] = term
@@ -615,7 +615,16 @@ async def _search_orders_impl(
                     r["sts"] = o["estado"][:3] if len(o.get("estado", "")) > 3 else o["estado"]
                 results.append(r)
 
-            return {"q": term, "res": results, "cnt": len(results)} if term else {"res": results, "cnt": len(results)}
+            result = {"q": term, "res": results, "cnt": len(results)} if term else {"res": results, "cnt": len(results)}
+
+            # Fuzzy fallback if no results and we have a search term
+            if term and len(results) == 0:
+                logger.info(f"[search_orders] No exact matches for '{term}', trying fuzzy search...")
+                fuzzy_results = fuzzy_search_patient(term, min_score=70, max_results=5)
+                if fuzzy_results:
+                    result["fuz"] = [{"pat": r["patient_name"], "num": r["order_num"], "scr": round(r["similarity_score"], 1)} for r in fuzzy_results[:5]]
+
+            return result
         except Exception as e:
             logger.error(f"[search_orders] Error searching '{term}': {e}")
             return {"q": term, "err": str(e)} if term else {"err": str(e)}
@@ -1257,20 +1266,9 @@ async def search_orders(
     fecha_hasta: Optional[str] = None
 ) -> str:
     """Search orders. BATCH: searches=["Name1","Name2"]. Single: search="Name".
-    Returns compact: {q, res: [{num, id, pat, sts}], cnt} or {searches: [...]}
-    Uses fuzzy fallback if no matches. num=for results, id=for order edit."""
+    Returns compact: {q, res: [{num, id, pat, sts}], cnt, fuz?: [{pat, num, scr}]}
+    Fuzzy fallback auto-included when no matches. num=for results, id=for order edit."""
     result = await _search_orders_impl(searches, search, limit, fecha_desde, fecha_hasta)
-
-    # Fuzzy search fallback for single search with no results
-    single_search = search if not searches else (searches[0] if len(searches) == 1 else None)
-    if single_search and result.get("cnt", 0) == 0 and not result.get("res"):
-        logger.info(f"[search_orders] No exact matches for '{single_search}', trying fuzzy search...")
-        fuzzy_results = fuzzy_search_patient(single_search, min_score=70, max_results=5)
-
-        if fuzzy_results:
-            # Compact fuzzy results
-            result["fuz"] = [{"pat": r["patient_name"], "num": r["order_num"], "scr": r["similarity_score"]} for r in fuzzy_results[:5]]
-
     return json.dumps(result, ensure_ascii=False)
 
 
