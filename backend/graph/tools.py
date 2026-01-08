@@ -790,30 +790,61 @@ async def _get_order_info_impl(order_ids: List[int] = None, tab_indices: List[in
 
 
 async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
-    """Edit exam result fields. Finds tabs by order_num or creates new ones."""
+    """Edit exam result fields. Finds tabs by order_num, tab_index, or creates new ones."""
     logger.info(f"[edit_results] Editing {len(data)} fields")
 
-    # Validate input - ensure all required fields are present
-    required_fields = ["orden", "e", "f", "v"]
+    # Validate input - ensure required fields are present (either orden or tab_index)
     for i, item in enumerate(data):
-        missing = [f for f in required_fields if f not in item]
+        has_orden = "orden" in item
+        has_tab_index = "tab_index" in item
+        if not has_orden and not has_tab_index:
+            return {
+                "error": f"Item {i} missing orden or tab_index",
+                "hint": "Each item needs: (orden OR tab_index), e (exam name), f (field name), v (value)",
+                "received": item
+            }
+        missing = [f for f in ["e", "f", "v"] if f not in item]
         if missing:
             return {
                 "error": f"Item {i} missing required fields: {missing}",
-                "hint": "Each item needs: orden (order number), e (exam name), f (field name), v (value)",
-                "suggestion": "Use get_order_results(order_nums) first to open the results tab and get the correct field names",
+                "hint": "Each item needs: (orden OR tab_index), e (exam name), f (field name), v (value)",
+                "suggestion": "Use get_order_results(order_nums) or get_order_results(tab_indices) first",
                 "received": item
             }
 
     results = []
     results_by_order = {}
 
+    # Cache for tab_index -> page mapping
+    tab_pages = {}
+
     for item in data:
-        order_num = item["orden"]
+        order_num = item.get("orden")
+        tab_index = item.get("tab_index")
 
         # Find or create the tab
         try:
-            page = await _find_or_create_results_tab(order_num)
+            if tab_index is not None:
+                # Use tab_index to find the page
+                if tab_index not in tab_pages:
+                    await _browser.ensure_browser()
+                    pages = _browser.context.pages
+                    if tab_index < 0 or tab_index >= len(pages):
+                        results.append({"tab_index": tab_index, "err": f"Tab index {tab_index} out of range (0-{len(pages)-1})"})
+                        continue
+                    page = pages[tab_index]
+                    url = page.url
+                    if '/reportes2' not in url:
+                        results.append({"tab_index": tab_index, "err": f"Tab {tab_index} is not a results tab (URL: {url})"})
+                        continue
+                    # Extract order_num from URL for logging
+                    order_num = _extract_order_num_from_url(url)
+                    tab_pages[tab_index] = (page, order_num)
+                page, order_num = tab_pages[tab_index]
+            else:
+                # Use order_num to find/create the page
+                page = await _find_or_create_results_tab(order_num)
+
             await page.bring_to_front()
 
             result = await page.evaluate(FILL_FIELD_JS, {
@@ -822,17 +853,26 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
                 "v": item["v"]
             })
             result["orden"] = order_num
+            if tab_index is not None:
+                result["tab_index"] = tab_index
             results.append(result)
             logger.info(f"[edit_results] {order_num}/{item['f']}: {result}")
         except Exception as e:
-            results.append({"orden": order_num, "err": str(e)})
+            error_result = {"err": str(e)}
+            if order_num:
+                error_result["orden"] = order_num
+            if tab_index is not None:
+                error_result["tab_index"] = tab_index
+            results.append(error_result)
 
-        if order_num not in results_by_order:
-            results_by_order[order_num] = {"filled": 0, "errors": 0}
+        # Track results by order
+        key = order_num or f"tab_{tab_index}"
+        if key not in results_by_order:
+            results_by_order[key] = {"filled": 0, "errors": 0}
         if "field" in results[-1]:
-            results_by_order[order_num]["filled"] += 1
+            results_by_order[key]["filled"] += 1
         if "err" in results[-1]:
-            results_by_order[order_num]["errors"] += 1
+            results_by_order[key]["errors"] += 1
 
     filled = len([r for r in results if "field" in r])
     errors = [r for r in results if "err" in r]
@@ -1204,13 +1244,13 @@ async def get_order_info(
 class EditResultsInput(BaseModel):
     """Input schema for edit_results."""
     data: List[Dict[str, str]] = Field(
-        description="List of edits. Each: orden (order num), e (exam name), f (field name), v (value)"
+        description="List of edits. Each: (orden OR tab_index), e (exam name), f (field name), v (value). Use tab_index from CONTEXT tabs."
     )
 
 
 @tool(args_schema=EditResultsInput)
 async def edit_results(data: List[Dict[str, str]]) -> str:
-    """Edit result fields. BATCH all: data=[{orden, e (exam), f (field), v (value)}]"""
+    """Edit result fields. BATCH all: data=[{orden OR tab_index, e (exam), f (field), v (value)}]. Use tab_index from CONTEXT tabs."""
     result = await _edit_results_impl(data)
     return json.dumps(result, ensure_ascii=False)
 
