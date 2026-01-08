@@ -48,11 +48,23 @@ abbreviations: |
   EMO: AM=Amarillo, AP=Amarillo Claro, TP=Transparente, LT=Lig.Turbio, NEG=Negativo, ESC=Escasas, MOD=Moderadas
   Copro: D=Dura, B=Blanda, S=Semiblanda, C=Café, CA=Café Amarillento, NSO=No se observan parásitos
   BH: valores numéricos directos (Hb 15.5, Hto 46)
+  Esc = Escasas/Escasos
+  B = Bacterias (campo general)
+  BGP = Bacilos Gram Positivos (en GRAM, NO confundir con "B")
+  CGP = Cocos Gram Positivos
+  F.Dod = Flora Döderlein
+  Lev = Levaduras
+  Pseud = Pseudomicelios
 
 # Instrucciones para interpretar imágenes de órdenes médicas
 image_interpretation: |
   ## INTERPRETACIÓN DE IMÁGENES
   Para cotizar examenes, las ordenes usualmente son templates impresos que el medico escoge los examenes marcando los cuadros que corresponden a cada examen con una x, visto, guion, subrayando los examenes, etc. A veces se agregan examenes que no estan en el template escribiendolos a mano. Ignora los examenes que no estan marcados.
+
+  Las cruces (+) pueden escribirse de varias formas:
+  - Una línea horizontal con líneas verticales que la cruzan
+  - El NÚMERO de líneas verticales = número de cruces
+  - Ejemplo: ─┼┼─ = ++ (dos cruces), ─┼┼┼─ = +++ (tres cruces)
 
 # Mensaje de bienvenida para nuevas conversaciones
 welcome_message: |
