@@ -2,7 +2,29 @@
 
 ## Executive Summary
 
-The `get_order_results` tool currently returns verbose JSON (~6500 chars for a typical order with 17 exams). This report analyzes the current implementation and proposes optimizations to reduce token usage by **40-60%** while maintaining readability.
+The `get_order_results` tool currently returns verbose JSON. Testing with real HTML data from order 2501181 (17 exams, 46 fields) shows:
+
+| Format | Characters | Est. Tokens | Savings |
+|--------|-----------|-------------|---------|
+| **Current (verbose)** | 5,920 | ~1,480 | baseline |
+| **Compact (~3 char keys)** | 3,799 | ~949 | **35.8%** |
+| Minimal (2 char keys) | 3,573 | ~893 | 39.6% |
+
+**Recommendation**: Use the **Compact format** with ~3 character abbreviations for a good balance of token savings (36%) and AI readability.
+
+---
+
+## Test Methodology
+
+A Python test script (`backend/test_token_efficiency.py`) was created to:
+1. Parse actual HTML files from the application (restored from commit d193bae)
+2. Extract data using logic equivalent to `EXTRACT_REPORTES_JS`
+3. Compare output formats and character counts
+
+**Test data**: `html_samples/reportes_2501181_20251223_182051.html`
+- 17 exams
+- 46 fields total
+- Real patient data
 
 ---
 
@@ -22,33 +44,24 @@ get_order_results (tools.py:1225-1231)
 JSON string response to AI
 ```
 
-### Current Output Structure
+### Current Output Structure (5,920 chars)
 
 ```json
 {
   "orders": [{
     "order_num": "2501181",
     "tab_ready": true,
-    "numero_orden": "2501181",
-    "paciente": "MARTINEZ LOPEZ JUAN CARLOS",
+    "numero_orden": null,
+    "paciente": "CHANDI VILLARROEL, Franz Alexander",
     "examenes": [
       {
-        "nombre": "BIOMETRIA HEMATICA COMPLETA",
-        "estado": "Pendiente",
+        "nombre": "BIOMETRÍA HEMÁTICA",
+        "estado": "Validado",
         "tipo_muestra": "Sangre Total EDTA",
         "campos": [
-          {"f": "Globulos Blancos", "tipo": "input", "val": "", "opciones": null, "ref": "5.0 - 10.0 x10^3/uL"},
-          {"f": "Globulos Rojos", "tipo": "input", "val": "", "opciones": null, "ref": "4.5 - 5.5 x10^6/uL"},
-          {"f": "Hemoglobina", "tipo": "input", "val": "", "opciones": null, "ref": "12.0 - 16.0 g/dL"},
-          {"f": "Hematocrito", "tipo": "input", "val": "", "opciones": null, "ref": "37.0 - 47.0 %"}
-        ]
-      },
-      {
-        "nombre": "COLESTEROL TOTAL",
-        "estado": "Validado",
-        "tipo_muestra": "Suero",
-        "campos": [
-          {"f": "Resultado", "tipo": "input", "val": "185", "opciones": null, "ref": "< 200 mg/dL"}
+          {"f": "Recuento de Glóbulos Rojos", "tipo": "input", "val": "5.81", "opciones": null, "ref": "[5 - 6.5]10^6/µL"},
+          {"f": "Hemoglobina", "tipo": "input", "val": "16.4", "opciones": null, "ref": "[14.5 - 18.5]g/dL"},
+          {"f": "Hematocrito", "tipo": "input", "val": "50", "opciones": null, "ref": "[45 - 55]%"}
         ]
       }
     ]
@@ -60,266 +73,204 @@ JSON string response to AI
 
 ### Token Waste Identified
 
-| Issue | Example | Waste |
-|-------|---------|-------|
-| Duplicate order number | `"order_num"` and `"numero_orden"` | ~25 chars |
-| `"tipo": "input"` for every field | `"tipo": "input"` | ~16 chars × N fields |
-| `"opciones": null` for inputs | `"opciones": null` | ~17 chars × N fields |
-| `"tipo_muestra"` not used for editing | `"tipo_muestra": "Suero"` | ~25 chars × N exams |
-| Full status text | `"estado": "Pendiente"` | vs `"s": "P"` |
-| Verbose tip every time | `"tip": "Use edit_results()..."` | ~50 chars |
-| `"tab_ready": true` when always true | `"tab_ready": true` | ~18 chars |
+| Issue | Waste per occurrence | Total waste (46 fields) |
+|-------|---------------------|------------------------|
+| `"tipo": "input"` for every field | 16 chars | ~736 chars |
+| `"opciones": null` for inputs | 17 chars | ~782 chars |
+| `"tipo_muestra": "..."` per exam | ~25 chars | ~425 chars |
+| `"tab_ready": true` | 18 chars | 18 chars |
+| `"tip": "Use edit_results..."` | 55 chars | 55 chars |
+| Duplicate `numero_orden`/`order_num` | ~25 chars | 25 chars |
+
+**Total estimated waste: ~2,000+ chars (34%)**
 
 ---
 
-## Proposed Optimizations
+## Proposed Format: Compact (~3 char keys)
 
-### Level 1: Quick Wins (Minimal Code Changes)
+### Key Abbreviations (AI-Friendly)
 
-#### 1.1 Remove Redundant Fields
+| Current Key | Compact Key | Meaning |
+|-------------|-------------|---------|
+| `paciente` | `pat` | Patient name |
+| `examenes` | `exm` | Exams list |
+| `nombre` | `nam` | Exam name |
+| `estado` | `sts` | Status (Val/Pnd) |
+| `campos` | `fld` | Fields list |
+| field name | `fnm` | Field name |
+| `val` | `val` | Value (unchanged) |
+| `ref` | `ref` | Reference (unchanged, only if present) |
+| `opciones` | `opt` | Options (only for selects) |
 
-```javascript
-// Before
-{
-  "order_num": "2501181",
-  "numero_orden": "2501181",  // REMOVE - duplicate
-  "tab_ready": true,          // REMOVE - always true when returned
-  ...
-}
-
-// After
-{
-  "orden": "2501181",
-  ...
-}
-```
-
-#### 1.2 Abbreviate Status
-
-```javascript
-// Before
-"estado": "Pendiente"
-"estado": "Validado"
-
-// After
-"s": "P"  // Pendiente
-"s": "V"  // Validado
-```
-
-#### 1.3 Remove Null Values
-
-```javascript
-// Before - for input fields
-{"f": "Hemoglobina", "tipo": "input", "val": "", "opciones": null, "ref": "12-16 g/dL"}
-
-// After - only include non-null
-{"f": "Hemoglobina", "v": "", "r": "12-16 g/dL"}
-```
-
-#### 1.4 Only Include Options for Selects
-
-```javascript
-// Before
-{"f": "Aspecto", "tipo": "select", "val": "Claro", "opciones": ["Claro", "Turbio", "Hemolizado"]}
-
-// After - selects indicated by presence of 'o' key
-{"f": "Aspecto", "v": "Claro", "o": ["Claro", "Turbio", "Hemolizado"]}
-```
-
-### Level 2: Structure Optimization
-
-#### 2.1 Compact Exam Format
+### Proposed Output Structure (3,799 chars)
 
 ```json
 {
-  "orden": "2501181",
-  "pac": "MARTINEZ LOPEZ JUAN CARLOS",
-  "exs": [
+  "ord": "2501181",
+  "pat": "CHANDI VILLARROEL, Franz Alexander",
+  "exm": [
     {
-      "n": "BIOMETRIA HEMATICA COMPLETA",
-      "s": "P",
-      "c": [
-        {"f": "Globulos Blancos", "v": "", "r": "5-10"},
-        {"f": "Globulos Rojos", "v": "", "r": "4.5-5.5"},
-        {"f": "Hemoglobina", "v": "", "r": "12-16"},
-        {"f": "Hematocrito", "v": "", "r": "37-47"}
+      "nam": "BIOMETRÍA HEMÁTICA",
+      "sts": "Val",
+      "fld": [
+        {"fnm": "Recuento de Glóbulos Rojos", "val": "5.81", "ref": "[5 - 6.5]10^6/µL"},
+        {"fnm": "Hemoglobina", "val": "16.4", "ref": "[14.5 - 18.5]g/dL"},
+        {"fnm": "Hematocrito", "val": "50", "ref": "[45 - 55]%"}
       ]
     }
   ]
 }
 ```
 
-Key changes:
-- `"paciente"` → `"pac"`
-- `"examenes"` → `"exs"`
-- `"nombre"` → `"n"`
-- `"estado"` → `"s"` (with P/V values)
-- `"campos"` → `"c"`
-- `"val"` → `"v"`
-- `"ref"` → `"r"`
-- Remove `"tipo"`, `"opciones"` (null), `"tipo_muestra"`, `"tab_ready"`
+### Key Optimizations
 
-#### 2.2 Simplified Reference Values
-
-```javascript
-// Before
-"ref": "5.0 - 10.0 x10^3/uL"
-
-// After - only range numbers
-"r": "5-10"  // Units are standard for each field, AI can learn them
-```
-
-### Level 3: Advanced Optimizations (Optional)
-
-#### 3.1 Array-Based Field Format
-
-```json
-{
-  "orden": "2501181",
-  "pac": "MARTINEZ LOPEZ",
-  "exs": {
-    "BIOMETRIA HEMATICA": {
-      "s": "P",
-      "c": [
-        ["Globulos Blancos", "", "5-10"],
-        ["Globulos Rojos", "", "4.5-5.5"],
-        ["Hemoglobina", "", "12-16"]
-      ]
-    }
-  }
-}
-```
-
-Each campo: `[field_name, value, reference]`
-
-#### 3.2 Only Return Changed/Empty Fields
-
-If the AI is primarily editing empty fields:
-
-```json
-{
-  "orden": "2501181",
-  "empty": [
-    {"ex": "BIOMETRIA", "f": "Globulos Blancos", "r": "5-10"},
-    {"ex": "BIOMETRIA", "f": "Globulos Rojos", "r": "4.5-5.5"}
-  ],
-  "filled": 15,
-  "total": 18
-}
-```
+1. **Remove wrapper objects**: No `"orders": [...]`, `"total"`, `"tip"`
+2. **Remove redundant fields**: No `"tipo"`, `"tipo_muestra"`, `"tab_ready"`, `"numero_orden"`
+3. **Omit null values**: `"opciones": null` removed for input fields
+4. **Abbreviated status**: `"Val"` instead of `"Validado"`, `"Pnd"` instead of `"Pendiente"`
+5. **~3 char keys**: Readable abbreviations that any AI can understand
 
 ---
 
-## Token Comparison
+## Actual Test Results
 
-### Sample Order: 17 exams, 18 parameters
+### Full Comparison (17 exams, 46 fields)
 
-| Format | Est. Chars | Est. Tokens | Savings |
-|--------|-----------|-------------|---------|
-| Current (verbose) | 6,533 | ~1,633 | baseline |
-| Level 1 (quick wins) | 4,500 | ~1,125 | **31%** |
-| Level 2 (compact) | 3,200 | ~800 | **51%** |
-| Level 3 (array-based) | 2,400 | ~600 | **63%** |
+```
+FORMAT COMPARISON (minified JSON - actual tool output):
+------------------------------------------------------------
+CURRENT (verbose):
+  Characters: 5,920
+  Est. Tokens: 1,480
 
-*Token estimate: ~4 chars per token for JSON*
+COMPACT (~3 char keys):
+  Characters: 3,799
+  Est. Tokens: 949
+  Savings: 35.8%
+
+MINIMAL (2 char keys):
+  Characters: 3,573
+  Est. Tokens: 893
+  Savings: 39.6%
+```
+
+### Why ~3 char keys over 2 char keys?
+
+The difference between 3-char and 2-char keys is only **~4% additional savings** (39.6% vs 35.8%), but 3-char keys are significantly more readable:
+
+| 2-char | 3-char | Readability |
+|--------|--------|-------------|
+| `nm` | `nam` | "nam" clearly means "name" |
+| `st` | `sts` | "sts" clearly means "status" |
+| `fl` | `fld` | "fld" clearly means "field" |
+| `fn` | `fnm` | "fnm" clearly means "field name" |
+| `vl` | `val` | "val" clearly means "value" |
+| `rf` | `ref` | "ref" clearly means "reference" |
+
+For cheaper/simpler AI models, the extra readability of 3-char keys is worth the small token cost.
 
 ---
 
-## Recommended Implementation
+## Implementation Plan
 
-### Phase 1: Immediate (Low Risk)
-
-Modify `EXTRACT_REPORTES_JS` in `extractors.py`:
+### Step 1: Update EXTRACT_REPORTES_JS (extractors.py)
 
 ```javascript
-// extractors.py - Updated EXTRACT_REPORTES_JS
+EXTRACT_REPORTES_JS = r"""
 () => {
-    const exs = [];
+    const exm = [];
     let current = null;
 
     document.querySelectorAll('tr.examen, tr.parametro').forEach(row => {
         if (row.classList.contains('examen')) {
-            if (current && current.c.length > 0) exs.push(current);
+            if (current && current.fld.length > 0) exm.push(current);
 
-            const nombre = row.querySelector('strong')?.innerText?.trim() || '';
+            const strong = row.querySelector('strong');
+            const nam = strong?.innerText?.trim() || '';
+
             const badge = row.querySelector('.badge');
-            const estado = badge?.innerText?.trim();
+            const estadoText = badge?.innerText?.trim();
+            const sts = estadoText === 'Validado' ? 'Val' :
+                       estadoText === 'Pendiente' ? 'Pnd' : null;
 
-            current = {
-                n: nombre,
-                s: estado === 'Validado' ? 'V' : estado === 'Pendiente' ? 'P' : null,
-                c: []
-            };
+            current = { nam, sts, fld: [] };
         } else if (row.classList.contains('parametro') && current) {
             const cells = row.querySelectorAll('td');
             if (cells.length < 2) return;
 
-            const f = cells[0]?.innerText?.trim();
+            const fnm = cells[0]?.innerText?.trim();
             const select = cells[1]?.querySelector('select');
             const input = cells[1]?.querySelector('input');
             if (!select && !input) return;
 
-            const campo = { f };
+            const campo = { fnm };
 
             if (select) {
-                campo.v = select.options[select.selectedIndex]?.text || '';
-                campo.o = Array.from(select.options).map(o => o.text.trim()).filter(t => t);
+                const selOpt = select.options[select.selectedIndex];
+                campo.val = selOpt?.text || '';
+                campo.opt = Array.from(select.options)
+                    .map(o => o.text.trim())
+                    .filter(t => t);
             } else {
-                campo.v = input.value;
+                campo.val = input.value;
             }
 
             // Only include ref if present
             const ref = cells[2]?.innerText?.trim();
-            if (ref) campo.r = ref;
+            if (ref) campo.ref = ref;
 
-            current.c.push(campo);
+            current.fld.push(campo);
         }
     });
 
-    if (current && current.c.length > 0) exs.push(current);
+    if (current && current.fld.length > 0) exm.push(current);
 
-    let orden = null;
+    // Order number from URL
+    let ord = null;
     const urlMatch = window.location.search.match(/numeroOrden=(\d+)/);
-    if (urlMatch) orden = urlMatch[1];
+    if (urlMatch) ord = urlMatch[1];
 
-    let pac = null;
+    // Patient name
+    let pat = null;
     document.querySelectorAll('span.paciente').forEach(span => {
         const text = span.innerText?.trim();
-        if (text && text !== 'Paciente' && text.length > 3) pac = text;
+        if (text && text !== 'Paciente' && text.length > 3) pat = text;
     });
 
-    return { orden, pac, exs };
+    return { ord, pat, exm };
 }
+"""
 ```
 
-### Phase 2: Update Tool Output
-
-Modify `_get_order_results_impl` in `tools.py`:
+### Step 2: Update _get_order_results_impl (tools.py)
 
 ```python
-# Remove tip from every response, use docstring instead
-return {
-    "orders": results,
-    "count": len(results)
-}
+async def _get_order_results_impl(order_nums: List[str] = None, tab_indices: List[int] = None) -> dict:
+    # ... existing logic ...
 
-# Or even simpler for single order:
-return results[0] if len(results) == 1 else {"orders": results}
+    # Simplified return - no wrapper for single order
+    if len(results) == 1:
+        return results[0]
+    return {"orders": results}
 ```
 
-### Phase 3: Update Tool Docstring
+### Step 3: Update Tool Docstring
 
 ```python
 @tool
 async def get_order_results(order_nums: List[str] = None, tab_indices: List[int] = None) -> str:
     """Get exam results for editing.
 
-    Returns:
-      orden: order number
-      pac: patient name
-      exs: [{n: exam, s: P|V status, c: [{f: field, v: value, r: ref?, o: options?}]}]
+    Args:
+        order_nums: Order numbers to fetch (opens/reuses tabs)
+        tab_indices: Tab indices to read from (from CONTEXT)
 
-    Use edit_results(data=[{orden, e, f, v}]) to edit values.
+    Returns compact format:
+        ord: order number
+        pat: patient name
+        exm: [{nam: exam name, sts: Val|Pnd, fld: [{fnm, val, ref?, opt?}]}]
+
+    Use edit_results(data=[{orden, e, f, v}]) to edit.
     """
 ```
 
@@ -327,22 +278,37 @@ async def get_order_results(order_nums: List[str] = None, tab_indices: List[int]
 
 ## edit_results Compatibility
 
-The `edit_results` tool expects:
+The `edit_results` tool input format remains unchanged:
+
 ```python
-{"orden": "2501181", "e": "BIOMETRIA", "f": "Globulos Blancos", "v": "7.5"}
+{"orden": "2501181", "e": "BIOMETRÍA HEMÁTICA", "f": "Hemoglobina", "v": "16.5"}
 ```
 
-This remains compatible - we're just changing the GET format, not the EDIT format.
+The AI reads with compact keys (`fnm`, `val`) but writes with the existing format (`e`, `f`, `v`).
+
+---
+
+## Test Script Usage
+
+Run the test script to verify token savings:
+
+```bash
+cd backend
+python3 test_token_efficiency.py
+```
+
+Output shows character counts, token estimates, and sample outputs for comparison.
 
 ---
 
 ## Conclusion
 
-**Recommended approach: Level 2 (Compact Format)**
+**Recommended: Compact format with ~3 char keys**
 
-- **51% token reduction** with minimal complexity
-- Maintains readability and intuitive structure
+- **35.8% token reduction** (5,920 → 3,799 chars)
+- **~530 tokens saved** per tool call
+- Readable abbreviations for cheaper AI models
 - Backward compatible with edit_results
-- AI can easily understand abbreviated keys through tool docstring
+- Only 4% less efficient than minimal 2-char format, but much more readable
 
-The abbreviated keys (`n`, `s`, `c`, `f`, `v`, `r`, `o`) are documented in the tool docstring, making them intuitive for the AI while reducing token usage significantly.
+The ~3 char abbreviations (`nam`, `sts`, `fld`, `fnm`, `val`, `ref`, `opt`) are intuitive enough that any AI model can understand them without confusion.
