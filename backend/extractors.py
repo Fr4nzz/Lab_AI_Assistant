@@ -104,193 +104,152 @@ EXTRACT_ORDENES_JS = r"""
 }
 """
 
-# JavaScript para extraer datos de reportes/resultados (mejorado)
+# JavaScript para extraer datos de reportes/resultados (COMPACT FORMAT)
+# Keys: ord=order, pat=patient, exm=exams, nam=name, sts=Val|Pnd, fld=fields, fnm=field name, val=value, ref=reference, opt=options
 EXTRACT_REPORTES_JS = r"""
 () => {
-    const examenes = [];
+    const exm = [];
     let current = null;
-
-    // List of known sample types
-    const tiposMuestra = ['Sangre Total EDTA', 'Suero', 'Orina', 'Heces', 'Plasma'];
 
     document.querySelectorAll('tr.examen, tr.parametro').forEach(row => {
         if (row.classList.contains('examen')) {
-            if (current && current.campos.length > 0) {
-                examenes.push(current);
+            if (current && current.fld.length > 0) {
+                exm.push(current);
             }
 
-            // Get exam name from <strong> tag (clean)
+            // Get exam name from <strong> tag
             const strong = row.querySelector('strong');
-            const nombre = strong?.innerText?.trim() || '';
+            const nam = strong?.innerText?.trim() || '';
 
-            // Get status from badge
+            // Get status from badge (compact: Val/Pnd)
             const badge = row.querySelector('.badge');
-            const estado = badge?.innerText?.trim() || null;
+            const estadoText = badge?.innerText?.trim();
+            const sts = estadoText === 'Validado' ? 'Val' :
+                       estadoText === 'Pendiente' ? 'Pnd' : null;
 
-            // Get sample type from cell text
-            let tipoMuestra = null;
-            const fullText = row.innerText;
-            for (const tipo of tiposMuestra) {
-                if (fullText.includes(tipo)) {
-                    tipoMuestra = tipo;
-                    break;
-                }
-            }
-
-            current = {
-                nombre: nombre,
-                estado: estado,
-                tipo_muestra: tipoMuestra,
-                campos: []
-            };
+            current = { nam, sts, fld: [] };
         } else if (row.classList.contains('parametro') && current) {
             const cells = row.querySelectorAll('td');
             if (cells.length < 2) return;
 
-            const nombreCampo = cells[0]?.innerText?.trim();
+            const fnm = cells[0]?.innerText?.trim();
             const select = cells[1]?.querySelector('select');
             const input = cells[1]?.querySelector('input');
 
             if (!select && !input) return;
 
-            const campo = {
-                f: nombreCampo,
-                tipo: select ? 'select' : 'input',
-                val: null,
-                opciones: null,
-                ref: cells[2]?.innerText?.trim() || null
-            };
+            const campo = { fnm };
 
             if (select) {
-                campo.val = select.options[select.selectedIndex]?.text || '';
-                campo.opciones = Array.from(select.options)
+                const selOpt = select.options[select.selectedIndex];
+                campo.val = selOpt?.text || '';
+                campo.opt = Array.from(select.options)
                     .map(o => o.text.trim())
                     .filter(t => t);
-            } else if (input) {
+            } else {
                 campo.val = input.value;
             }
 
-            current.campos.push(campo);
+            // Only include ref if present
+            const ref = cells[2]?.innerText?.trim();
+            if (ref) campo.ref = ref;
+
+            current.fld.push(campo);
         }
     });
 
-    if (current && current.campos.length > 0) {
-        examenes.push(current);
+    if (current && current.fld.length > 0) {
+        exm.push(current);
     }
 
     // Get order number from URL
-    let numeroOrden = null;
+    let ord = null;
     const urlMatch = window.location.search.match(/numeroOrden=(\d+)/);
-    if (urlMatch) numeroOrden = urlMatch[1];
+    if (urlMatch) ord = urlMatch[1];
 
-    // Get patient name from span.paciente (find one with actual name)
-    let paciente = null;
+    // Get patient name from span.paciente
+    let pat = null;
     document.querySelectorAll('span.paciente').forEach(span => {
         const text = span.innerText?.trim();
         if (text && text !== 'Paciente' && text.length > 3) {
-            paciente = text;
+            pat = text;
         }
     });
 
-    return {
-        numero_orden: numeroOrden,
-        paciente: paciente,
-        examenes: examenes
-    };
+    return { ord, pat, exm };
 }
 """
 
-# JavaScript para extraer datos de edición de orden (mejorado)
+# JavaScript para extraer datos de edición de orden (COMPACT FORMAT)
+# Keys: ord=order, ced=cedula, pat=patient, exm=exams, cod=code, nam=name, prc=price, sts=Val|Pnd, tot=total
 EXTRACT_ORDEN_EDIT_JS = r"""
 () => {
-    const result = {
-        numero_orden: null,
-        paciente: {
-            identificacion: null,
-            nombres: null,
-            apellidos: null
-        },
-        examenes: [],
-        totales: {
-            subtotal: null,
-            descuento: null,
-            total: null
-        }
-    };
-
-    // Get order number from URL or page content
+    // Get order number from URL
+    let ord = null;
     const urlMatch = window.location.pathname.match(/ordenes\/(\d+)/);
-    if (urlMatch) result.numero_orden = urlMatch[1];
+    if (urlMatch) ord = urlMatch[1];
 
-    // Get patient name from span.paciente (find one with actual name)
+    // Get patient name from span.paciente
+    let pat = null;
     document.querySelectorAll('span.paciente').forEach(span => {
         const text = span.innerText?.trim();
         if (text && text !== 'Paciente' && text.length > 3) {
-            result.paciente.nombres = text;
+            pat = text;
         }
     });
 
-    // Get patient ID from visible cedula field
+    // Get cedula from visible field
+    let ced = null;
     const cedulaMatch = document.body.innerText.match(/\b(\d{10})\b/);
-    if (cedulaMatch) {
-        result.paciente.identificacion = cedulaMatch[1];
-    }
+    if (cedulaMatch) ced = cedulaMatch[1];
 
     // Exams from #examenes-seleccionados
+    const exm = [];
     const container = document.querySelector('#examenes-seleccionados');
     if (container) {
         container.querySelectorAll('tbody tr').forEach(row => {
             const cells = row.querySelectorAll('td');
             if (cells.length < 1) return;
 
-            // First cell format: "CODE - NAME|V|1|time"
             const cellText = cells[0]?.innerText || '';
             const parts = cellText.split('\n').map(p => p.trim()).filter(p => p);
 
-            // First part is "CODE - NAME"
             let nombreRaw = parts[0] || '';
-            let codigo = null;
-            let nombre = nombreRaw;
+            let cod = null;
+            let nam = nombreRaw;
 
             if (nombreRaw.includes(' - ')) {
                 const splitName = nombreRaw.split(' - ');
-                codigo = splitName[0].trim();
-                nombre = splitName.slice(1).join(' - ').trim();
+                cod = splitName[0].trim();
+                nam = splitName.slice(1).join(' - ').trim();
             }
 
-            // Find estado (V = Validado, P = Pendiente)
-            let estado = null;
+            // Status (V = Val, P = Pnd)
+            let sts = null;
             for (const part of parts.slice(1)) {
-                if (part === 'V') { estado = 'Validado'; break; }
-                if (part === 'P') { estado = 'Pendiente'; break; }
+                if (part === 'V') { sts = 'Val'; break; }
+                if (part === 'P') { sts = 'Pnd'; break; }
             }
 
-            // Valor from second cell
-            const valor = cells[1]?.innerText?.trim() || null;
+            const prc = cells[1]?.innerText?.trim() || null;
 
-            if (nombre) {
-                result.examenes.push({
-                    codigo: codigo,
-                    nombre: nombre,
-                    valor: valor,
-                    estado: estado
-                });
+            if (cod) {
+                const exam = { cod, nam };
+                if (sts) exam.sts = sts;
+                if (prc) exam.prc = prc;
+                exm.push(exam);
             }
         });
     }
 
-    // Totales
-    const descuentoInput = document.querySelector('#valor-descuento');
-    if (descuentoInput) result.totales.descuento = descuentoInput.value;
-
+    // Total
+    let tot = null;
     document.querySelectorAll('.fw-bold, .fs-5').forEach(el => {
         const text = el.innerText?.trim() || '';
-        if (text.startsWith('$')) {
-            result.totales.total = text;
-        }
+        if (text.startsWith('$') && !tot) tot = text;
     });
 
-    return result;
+    return { ord, ced, pat, exm, tot };
 }
 """
 
@@ -348,14 +307,14 @@ EXTRACT_AVAILABLE_EXAMS_JS = r"""
 }
 """
 
-# JavaScript para extraer exámenes ya agregados a la orden
+# JavaScript para extraer exámenes ya agregados a la orden (COMPACT FORMAT)
+# Keys: cod=code, nam=name, prc=price, sts=Val|Pnd
 EXTRACT_ADDED_EXAMS_JS = r"""
 () => {
-    const exams = [];
+    const exm = [];
 
-    // Find the container with selected exams
     const container = document.querySelector('#examenes-seleccionados');
-    if (!container) return exams;
+    if (!container) return exm;
 
     container.querySelectorAll('tbody tr').forEach(row => {
         const cells = row.querySelectorAll('td');
@@ -364,42 +323,34 @@ EXTRACT_ADDED_EXAMS_JS = r"""
         const cellText = cells[0]?.innerText || '';
         const parts = cellText.split('\n').map(p => p.trim()).filter(p => p);
 
-        // First part is "CODE - NAME"
         let nombreRaw = parts[0] || '';
-        let codigo = null;
-        let nombre = nombreRaw;
+        let cod = null;
+        let nam = nombreRaw;
 
         if (nombreRaw.includes(' - ')) {
             const splitName = nombreRaw.split(' - ');
-            codigo = splitName[0].trim();
-            nombre = splitName.slice(1).join(' - ').trim();
+            cod = splitName[0].trim();
+            nam = splitName.slice(1).join(' - ').trim();
         }
 
-        // Find estado (V = Validado, P = Pendiente)
-        let estado = null;
+        // Status (V = Val, P = Pnd)
+        let sts = null;
         for (const part of parts.slice(1)) {
-            if (part === 'V') { estado = 'Validado'; break; }
-            if (part === 'P') { estado = 'Pendiente'; break; }
+            if (part === 'V') { sts = 'Val'; break; }
+            if (part === 'P') { sts = 'Pnd'; break; }
         }
 
-        // Valor from second cell
-        const valor = cells[1]?.innerText?.trim() || null;
+        const prc = cells[1]?.innerText?.trim() || null;
 
-        // Find remove button
-        const removeBtn = row.querySelector('button[title*="Quitar"], button.btn-danger');
-
-        if (nombre) {
-            exams.push({
-                codigo: codigo,
-                nombre: nombre,
-                valor: valor,
-                estado: estado,
-                can_remove: removeBtn !== null
-            });
+        if (cod) {
+            const exam = { cod, nam };
+            if (sts) exam.sts = sts;
+            if (prc) exam.prc = prc;
+            exm.push(exam);
         }
     });
 
-    return exams;
+    return exm;
 }
 """
 

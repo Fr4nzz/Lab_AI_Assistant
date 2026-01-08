@@ -688,15 +688,14 @@ async def _get_order_results_impl(order_nums: List[str] = None, tab_indices: Lis
 
     if not results:
         return {
-            "error": "No order_nums or tab_indices provided",
+            "err": "No order_nums or tab_indices provided",
             "hint": "Use order_nums=['2601068'] or tab_indices=[1] from CONTEXT tabs"
         }
 
-    return {
-        "orders": results,
-        "total": len(results),
-        "tip": "Use edit_results() with order_num to edit these results."
-    }
+    # Compact output - no wrapper for single order
+    if len(results) == 1:
+        return results[0]
+    return {"orders": results}
 
 
 async def _get_order_info_impl(order_ids: List[int] = None, tab_indices: List[int] = None) -> dict:
@@ -737,15 +736,12 @@ async def _get_order_info_impl(order_ids: List[int] = None, tab_indices: List[in
                 await page.bring_to_front()
 
                 data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
-                data["tab_index"] = tab_idx
+                # Compact format - add tab/order identifiers
+                data["tab"] = tab_idx
                 if order_id:
-                    data["order_id"] = order_id
+                    data["ord"] = order_id
 
-                # Also get added exams with details
-                added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-                data["exams"] = added_exams
-
-                logger.info(f"[get_order_info] Tab {tab_idx} (order {order_id or 'new'}): {len(added_exams)} exams")
+                logger.info(f"[get_order_info] Tab {tab_idx} (order {order_id or 'new'}): {len(data.get('exm', []))} exams")
                 results.append(data)
             except Exception as e:
                 logger.error(f"[get_order_info] Error for tab {tab_idx}: {e}")
@@ -761,55 +757,52 @@ async def _get_order_info_impl(order_ids: List[int] = None, tab_indices: List[in
                 await page.bring_to_front()
 
                 data = await page.evaluate(EXTRACT_ORDEN_EDIT_JS)
-                data["order_id"] = order_id
+                # Compact format - ensure order ID is set
+                data["ord"] = str(order_id)
 
-                # Also get added exams with details
-                added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
-                data["exams"] = added_exams
-
-                logger.info(f"[get_order_info] Order {order_id}: {len(added_exams)} exams")
+                logger.info(f"[get_order_info] Order {order_id}: {len(data.get('exm', []))} exams")
                 return data
             except Exception as e:
                 logger.error(f"[get_order_info] Error for order {order_id}: {e}")
-                return {"order_id": order_id, "error": str(e)}
+                return {"ord": order_id, "err": str(e)}
 
         order_results = await asyncio.gather(*[process_order(oid) for oid in order_ids])
         results.extend(order_results)
 
     if not results:
         return {
-            "error": "No order_ids or tab_indices provided",
+            "err": "No order_ids or tab_indices provided",
             "hint": "Use order_ids=[123] or tab_indices=[1] from CONTEXT tabs"
         }
 
-    return {
-        "orders": results,
-        "total": len(results),
-        "tip": "Use edit_order_exams() with order_id or tab_index to add/remove exams."
-    }
+    # Compact output - no wrapper for single order
+    if len(results) == 1:
+        return results[0]
+    return {"orders": results}
 
 
 async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
-    """Edit exam result fields. Finds tabs by order_num, tab_index, or creates new ones."""
+    """Edit exam result fields. Resilient: falls back to orden if tab closed."""
     logger.info(f"[edit_results] Editing {len(data)} fields")
 
-    # Validate input - ensure required fields are present (either orden or tab_index)
+    # Validate input - accept 't' as alias for 'tab_index'
     for i, item in enumerate(data):
+        # Normalize: 't' -> 'tab_index'
+        if "t" in item and "tab_index" not in item:
+            item["tab_index"] = item.pop("t")
+
         has_orden = "orden" in item
         has_tab_index = "tab_index" in item
         if not has_orden and not has_tab_index:
             return {
-                "error": f"Item {i} missing orden or tab_index",
-                "hint": "Each item needs: (orden OR tab_index), e (exam name), f (field name), v (value)",
-                "received": item
+                "err": f"Item {i} missing orden or t/tab_index",
+                "hint": "Each item needs: (orden OR t), e (exam name), f (field name), v (value)"
             }
         missing = [f for f in ["e", "f", "v"] if f not in item]
         if missing:
             return {
-                "error": f"Item {i} missing required fields: {missing}",
-                "hint": "Each item needs: (orden OR tab_index), e (exam name), f (field name), v (value)",
-                "suggestion": "Use get_order_results(order_nums) or get_order_results(tab_indices) first",
-                "received": item
+                "err": f"Item {i} missing fields: {missing}",
+                "hint": "Need: (orden OR t), e (exam), f (field), v (value)"
             }
 
     results = []
@@ -817,6 +810,8 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
 
     # Cache for tab_index -> page mapping
     tab_pages = {}
+    # Track tab indices that failed (closed/invalid)
+    failed_tabs = set()
 
     for item in data:
         order_num = item.get("orden")
@@ -824,26 +819,41 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
 
         # Find or create the tab
         try:
-            if tab_index is not None:
-                # Use tab_index to find the page
+            page = None
+
+            if tab_index is not None and tab_index not in failed_tabs:
+                # Try to use tab_index to find the page
                 if tab_index not in tab_pages:
                     await _browser.ensure_browser()
                     pages = _browser.context.pages
+
                     if tab_index < 0 or tab_index >= len(pages):
-                        results.append({"tab_index": tab_index, "err": f"Tab index {tab_index} out of range (0-{len(pages)-1})"})
-                        continue
-                    page = pages[tab_index]
-                    url = page.url
-                    if '/reportes2' not in url:
-                        results.append({"tab_index": tab_index, "err": f"Tab {tab_index} is not a results tab (URL: {url})"})
-                        continue
-                    # Extract order_num from URL for logging
-                    order_num = _extract_order_num_from_url(url)
-                    tab_pages[tab_index] = (page, order_num)
-                page, order_num = tab_pages[tab_index]
-            else:
-                # Use order_num to find/create the page
-                page = await _find_or_create_results_tab(order_num)
+                        logger.warning(f"[edit_results] Tab {tab_index} out of range (0-{len(pages)-1})")
+                        failed_tabs.add(tab_index)
+                    else:
+                        tab_page = pages[tab_index]
+                        url = tab_page.url
+
+                        if '/reportes2' not in url:
+                            logger.warning(f"[edit_results] Tab {tab_index} not a results tab: {url}")
+                            failed_tabs.add(tab_index)
+                        else:
+                            # Extract order_num from URL
+                            extracted_order = _extract_order_num_from_url(url)
+                            tab_pages[tab_index] = (tab_page, extracted_order)
+                            logger.info(f"[edit_results] Tab {tab_index} -> order {extracted_order}")
+
+                if tab_index in tab_pages:
+                    page, order_num = tab_pages[tab_index]
+
+            # Fallback to orden if tab failed/closed
+            if page is None:
+                if order_num:
+                    logger.info(f"[edit_results] Falling back to orden {order_num}")
+                    page = await _find_or_create_results_tab(order_num)
+                else:
+                    results.append({"t": tab_index, "err": f"Tab {tab_index} closed/invalid, no orden fallback"})
+                    continue
 
             await page.bring_to_front()
 
@@ -852,39 +862,33 @@ async def _edit_results_impl(data: List[Dict[str, str]]) -> dict:
                 "f": item["f"],
                 "v": item["v"]
             })
-            result["orden"] = order_num
-            if tab_index is not None:
-                result["tab_index"] = tab_index
+            # Compact output
+            result["ord"] = order_num
             results.append(result)
             logger.info(f"[edit_results] {order_num}/{item['f']}: {result}")
         except Exception as e:
-            error_result = {"err": str(e)}
-            if order_num:
-                error_result["orden"] = order_num
-            if tab_index is not None:
-                error_result["tab_index"] = tab_index
+            error_result = {"err": str(e), "ord": order_num} if order_num else {"err": str(e), "t": tab_index}
             results.append(error_result)
 
         # Track results by order
-        key = order_num or f"tab_{tab_index}"
+        key = order_num or f"t{tab_index}"
         if key not in results_by_order:
-            results_by_order[key] = {"filled": 0, "errors": 0}
+            results_by_order[key] = {"ok": 0, "err": 0}
         if "field" in results[-1]:
-            results_by_order[key]["filled"] += 1
+            results_by_order[key]["ok"] += 1
         if "err" in results[-1]:
-            results_by_order[key]["errors"] += 1
+            results_by_order[key]["err"] += 1
 
-    filled = len([r for r in results if "field" in r])
-    errors = [r for r in results if "err" in r]
+    ok_count = len([r for r in results if "field" in r])
+    err_list = [r for r in results if "err" in r]
 
-    return {
-        "filled": filled,
-        "total": len(data),
-        "by_order": results_by_order,
-        "details": results,
-        "errors": errors,
-        "next_step": "Revisa los campos resaltados y haz click en 'Guardar' en cada pestaña."
-    }
+    # Compact output
+    output = {"ok": ok_count, "tot": len(data)}
+    if err_list:
+        output["err"] = err_list
+    if ok_count > 0:
+        output["sts"] = "save"  # Reminder to save
+    return output
 
 
 async def _edit_order_exams_impl(
@@ -907,33 +911,33 @@ async def _edit_order_exams_impl(
         try:
             page = await _find_order_tab_by_index(tab_index)
         except ValueError as e:
-            return {"error": str(e)}
-        identifier = f"tab_{tab_index}"
+            return {"err": str(e)}
+        ord_id = None
         is_new_order = '/ordenes/create' in page.url
     elif order_id is not None:
         logger.info(f"[edit_order_exams] Editing order {order_id}: add={len(add)}, remove={len(remove)}, cedula={cedula}")
         page = await _find_or_create_order_tab(order_id)
-        identifier = f"order_{order_id}"
+        ord_id = order_id
         is_new_order = False
     else:
-        return {"error": "Either order_id or tab_index must be provided"}
+        return {"err": "Need order_id or tab_index"}
 
     await page.bring_to_front()
 
     # Dismiss any notification popups that might block interactions
     await _browser.dismiss_popups()
 
+    # Compact result structure
     result = {
-        "identifier": identifier,
-        "tab_index": tab_index,
-        "order_id": order_id,
-        "is_new_order": is_new_order,
-        "added": [],
-        "removed": [],
-        "failed_add": [],
-        "failed_remove": [],
-        "cedula_updated": False
+        "add": [],
+        "rem": [],
     }
+    if ord_id:
+        result["ord"] = ord_id
+    if tab_index is not None:
+        result["tab"] = tab_index
+    failed_add = []
+    failed_rem = []
 
     try:
         # Update cedula if provided
@@ -947,11 +951,10 @@ async def _edit_order_exams_impl(
                 if await search_btn.count() > 0:
                     await search_btn.first.click()
                     await page.wait_for_timeout(1000)
-                result["cedula_updated"] = True
-                result["cedula"] = cedula
+                result["ced"] = cedula
                 logger.info(f"[edit_order_exams] Updated cedula to: {cedula}")
             else:
-                result["cedula_error"] = "Cedula input not found"
+                failed_add.append({"ced": cedula, "err": "input not found"})
 
         # Remove exams
         if remove:
@@ -961,7 +964,8 @@ async def _edit_order_exams_impl(
             for exam_code in remove_upper:
                 found = False
                 for exam in current_exams:
-                    if exam.get('codigo', '').upper() == exam_code:
+                    # EXTRACT_ADDED_EXAMS_JS now uses 'cod' (compact format)
+                    if exam.get('cod', '').upper() == exam_code:
                         found = True
                         try:
                             removed = await page.evaluate(f"""
@@ -984,15 +988,15 @@ async def _edit_order_exams_impl(
                                 }}
                             """)
                             if removed.get('removed'):
-                                result["removed"].append(exam_code)
+                                result["rem"].append(exam_code)
                                 await page.wait_for_timeout(300)
                             else:
-                                result["failed_remove"].append({'codigo': exam_code, 'reason': removed.get('error')})
+                                failed_rem.append({'cod': exam_code, 'err': removed.get('error')})
                         except Exception as e:
-                            result["failed_remove"].append({'codigo': exam_code, 'reason': str(e)})
+                            failed_rem.append({'cod': exam_code, 'err': str(e)})
                         break
                 if not found:
-                    result["failed_remove"].append({'codigo': exam_code, 'reason': 'not in order'})
+                    failed_rem.append({'cod': exam_code, 'err': 'not in order'})
 
         # Add exams
         if add:
@@ -1016,34 +1020,46 @@ async def _edit_order_exams_impl(
                     btn = page.locator(f'#{button_id}')
                     try:
                         await btn.click(timeout=2000)
-                        result["added"].append(exam_code_upper)
+                        result["add"].append(exam_code_upper)
                     except Exception as e:
-                        result["failed_add"].append({'codigo': exam_code_upper, 'reason': str(e)})
+                        failed_add.append({'cod': exam_code_upper, 'err': str(e)})
                 else:
-                    result["failed_add"].append({'codigo': exam_code_upper, 'reason': 'no exact match'})
+                    failed_add.append({'cod': exam_code_upper, 'err': 'no match'})
 
-        # Get updated state
+        # Get updated state (compact format)
         await page.wait_for_timeout(300)
         current_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
         totals = await page.evaluate(r"""
             () => {
-                const result = { total: null };
+                let tot = null;
                 document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
                     const text = el.innerText?.trim() || '';
-                    if (text.startsWith('$') && !result.total) result.total = text;
+                    if (text.startsWith('$') && !tot) tot = text;
                 });
-                return result;
+                return tot;
             }
         """)
 
-        result["current_exams"] = current_exams
-        result["totals"] = totals
-        result["status"] = "pending_save"
-        result["next_step"] = "Revisa los cambios y haz click en 'Guardar'."
+        result["exm"] = current_exams
+        if totals:
+            result["tot"] = totals
+        result["sts"] = "save"  # Pending save
+
+        # Only include failures if any
+        if failed_add:
+            result["fail_add"] = failed_add
+        if failed_rem:
+            result["fail_rem"] = failed_rem
+
+        # Clean up empty arrays
+        if not result["add"]:
+            del result["add"]
+        if not result["rem"]:
+            del result["rem"]
 
     except Exception as e:
         logger.error(f"[edit_order_exams] Error: {e}")
-        result["error"] = str(e)
+        result["err"] = str(e)
 
     return result
 
@@ -1095,21 +1111,21 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
                 added_codes.append(exam_code_upper)
             except Exception as e:
                 logger.warning(f"[create_order] Failed to click {exam_code_upper}: {e}")
-                failed_exams.append({'codigo': exam_code_upper, 'reason': str(e)})
+                failed_exams.append({'cod': exam_code_upper, 'err': str(e)})
         else:
-            failed_exams.append({'codigo': exam_code_upper, 'reason': 'not found'})
+            failed_exams.append({'cod': exam_code_upper, 'err': 'not found'})
 
-    # Get the final list of added exams and totals
+    # Get the final list of added exams (compact format)
     added_exams = await page.evaluate(EXTRACT_ADDED_EXAMS_JS)
 
-    totals = await page.evaluate(r"""
+    tot = await page.evaluate(r"""
         () => {
-            const result = { total: null };
+            let tot = null;
             document.querySelectorAll('.fw-bold, .fs-5, .text-end').forEach(el => {
                 const text = el.innerText?.trim() || '';
-                if (text.startsWith('$') && !result.total) result.total = text;
+                if (text.startsWith('$') && !tot) tot = text;
             });
-            return result;
+            return tot;
         }
     """)
 
@@ -1140,24 +1156,32 @@ async def _create_order_impl(cedula: str, exams: List[str]) -> dict:
                     await close_btn.click()
                     await page.wait_for_timeout(500)
 
+    # Get tab index for reference
+    pages = _browser.context.pages if _browser.context else []
+    tab_idx = pages.index(page) if page in pages else None
+
+    # Compact result
     result = {
-        "cedula": cedula if not is_cotizacion else None,
-        "is_cotizacion": is_cotizacion,
-        "exams_added": [{"codigo": e.get('codigo'), "nombre": e.get('nombre'), "precio": e.get('valor')} for e in added_exams],
-        "exams_failed": failed_exams,
-        "totals": totals,
+        "ok": True,
+        "add": added_codes,
+        "exm": added_exams,  # Already compact format from EXTRACT_ADDED_EXAMS_JS
     }
 
+    if tab_idx is not None:
+        result["tab"] = tab_idx
+    if not is_cotizacion:
+        result["ced"] = cedula
+    if tot:
+        result["tot"] = tot
+    if failed_exams:
+        result["fail"] = failed_exams
+
     if new_patient_detected:
-        result["status"] = "new_patient_required"
-        result["new_patient"] = True
-        result["next_step"] = f"El paciente con cédula {cedula} no existe en el sistema. Debes crear el paciente primero antes de guardar la orden. Los exámenes ya están agregados con un total de {totals.get('total', 'N/A')}."
+        result["sts"] = "new_pat"  # Need to create patient first
     elif is_cotizacion:
-        result["status"] = "cotizacion"
-        result["next_step"] = "Esta es solo una cotización (sin paciente)."
+        result["sts"] = "cot"  # Cotización (no patient)
     else:
-        result["status"] = "pending_save"
-        result["next_step"] = "Revisa los exámenes y haz click en 'Guardar' para confirmar."
+        result["sts"] = "save"  # Ready to save
 
     return result
 
@@ -1226,7 +1250,10 @@ async def get_order_results(
     order_nums: List[str] = None,
     tab_indices: List[int] = None
 ) -> str:
-    """Get result fields for orders. Use order_nums to open by order number, or tab_indices to read from already-opened tabs (from CONTEXT). BATCH: pass ALL at once."""
+    """Get result fields for orders. Returns compact format:
+    {ord, pat, exm: [{nam, sts, fld: [{fnm, val, ref?, opt?}]}]}
+    Keys: ord=order, pat=patient, exm=exams, nam=name, sts=Val|Pnd,
+    fld=fields, fnm=field, val=value, ref=reference, opt=options(select)"""
     result = await _get_order_results_impl(order_nums=order_nums, tab_indices=tab_indices)
     return json.dumps(result, ensure_ascii=False)
 
@@ -1236,7 +1263,8 @@ async def get_order_info(
     order_ids: List[int] = None,
     tab_indices: List[int] = None
 ) -> str:
-    """Get order details and exams list. Use order_ids to open by ID, or tab_indices to read from already-opened order/create tabs (from CONTEXT). BATCH: pass ALL at once."""
+    """Get order details. Returns compact: {ord, ced, pat, exm: [{cod, nam, prc?, sts?}], tot}
+    Keys: ord=order, ced=cedula, pat=patient, exm=exams, cod=code, nam=name, prc=price, sts=Val|Pnd"""
     result = await _get_order_info_impl(order_ids=order_ids, tab_indices=tab_indices)
     return json.dumps(result, ensure_ascii=False)
 
@@ -1244,13 +1272,14 @@ async def get_order_info(
 class EditResultsInput(BaseModel):
     """Input schema for edit_results."""
     data: List[Dict[str, str]] = Field(
-        description="List of edits. Each: (orden OR tab_index), e (exam name), f (field name), v (value). Use tab_index from CONTEXT tabs."
+        description="List of edits. Each: {t OR orden, e, f, v}. t=tab_index, e=exam, f=field, v=value. Resilient: falls back to orden if tab closed."
     )
 
 
 @tool(args_schema=EditResultsInput)
 async def edit_results(data: List[Dict[str, str]]) -> str:
-    """Edit result fields. BATCH all: data=[{orden OR tab_index, e (exam), f (field), v (value)}]. Use tab_index from CONTEXT tabs."""
+    """Edit result fields. BATCH: data=[{t OR orden, e (exam), f (field), v (value)}].
+    Resilient: if tab closed, falls back to orden. Returns: {ok, tot, err?, sts}"""
     result = await _edit_results_impl(data)
     return json.dumps(result, ensure_ascii=False)
 
@@ -1263,14 +1292,16 @@ async def edit_order_exams(
     remove: Optional[List[str]] = None,
     cedula: Optional[str] = None
 ) -> str:
-    """Edit order: add/remove exams, set cedula. Use order_id for saved orders, tab_index for new orders (from CONTEXT tabs)."""
+    """Edit order: add/remove exams. Returns compact: {ord?, tab?, add, rem, ced?, exm, tot, sts}
+    sts: save=ready to save. exm uses compact format: [{cod, nam, prc?, sts?}]"""
     result = await _edit_order_exams_impl(order_id, tab_index, add, remove, cedula)
     return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 async def create_new_order(cedula: str, exams: List[str]) -> str:
-    """Create order. cedula="" for cotización. exams=["BH","EMO"]"""
+    """Create order. cedula="" for cotización. Returns compact: {ok, tab, add, exm, tot, sts}
+    sts: save=ready, new_pat=need patient, cot=cotización"""
     result = await _create_order_impl(cedula, exams)
     return json.dumps(result, ensure_ascii=False)
 
