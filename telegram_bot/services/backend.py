@@ -291,11 +291,6 @@ class BackendService:
         if model:
             request_body["model"] = model
 
-        # Add media resolution if specified in settings (only for Gemini 3)
-        media_resolution = settings.get("mediaResolution")
-        if media_resolution and media_resolution != "unspecified":
-            request_body["mediaResolution"] = media_resolution
-
         tools_used = []
         response_text = ""
         ask_user_options: Optional[AskUserOptions] = None

@@ -86,7 +86,6 @@ export const userSettings = sqliteTable('user_settings', {
   // Main chat model and thinking level
   chatModel: text('chat_model').default('gemini-3-flash-preview'),
   mainThinkingLevel: text('main_thinking_level').default('low'), // For Gemini 3: minimal/low/medium/high, For 2.5: off/dynamic
-  mediaResolution: text('media_resolution').default('unspecified'), // For Gemini 3: unspecified/low/medium/high/ultra_high
 
   // Image preprocessing settings
   preprocessingModel: text('preprocessing_model').default('gemini-flash-latest'),

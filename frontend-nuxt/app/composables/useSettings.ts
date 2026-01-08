@@ -2,7 +2,6 @@
 export interface UserSettings {
   chatModel: string
   mainThinkingLevel: string  // For main chat model
-  mediaResolution: string  // For Gemini 3: unspecified/low/medium/high/ultra_high
   preprocessingModel: string
   preprocessingThinkingLevel: string  // For image preprocessing
 }
@@ -25,15 +24,6 @@ export const GEMINI_3_THINKING_LEVELS = [
 export const GEMINI_25_THINKING_LEVELS = [
   { id: 'off', name: 'Off (no thinking)', icon: 'i-lucide-zap-off', budget: 0 },
   { id: 'dynamic', name: 'Dynamic', icon: 'i-lucide-sparkles', budget: -1 }
-]
-
-// Media resolution options (only for Gemini 3)
-export const MEDIA_RESOLUTIONS = [
-  { id: 'unspecified', name: 'Unspecified (default)', icon: 'i-lucide-image' },
-  { id: 'low', name: 'Low (faster, less detail)', icon: 'i-lucide-zap' },
-  { id: 'medium', name: 'Medium (balanced)', icon: 'i-lucide-gauge' },
-  { id: 'high', name: 'High (recommended)', icon: 'i-lucide-scan-eye' },
-  { id: 'ultra_high', name: 'Ultra High (max detail)', icon: 'i-lucide-scan' }
 ]
 
 export const PREPROCESSING_MODELS = [
@@ -69,7 +59,6 @@ export function getDefaultPreprocessingThinkingLevel(modelId: string): string {
 const DEFAULT_SETTINGS: UserSettings = {
   chatModel: 'gemini-3-flash-preview',
   mainThinkingLevel: 'low',  // Default for Gemini 3 Flash
-  mediaResolution: 'unspecified',  // Default for Gemini 3
   preprocessingModel: 'gemini-flash-latest',  // Gemini 2.5 Flash - more accurate than Lite
   preprocessingThinkingLevel: 'off'  // Default for Gemini 2.5 (thinkingBudget: 0)
 }
@@ -114,7 +103,6 @@ export function useSettings() {
       settings.value = {
         chatModel: data.chatModel || DEFAULT_SETTINGS.chatModel,
         mainThinkingLevel: data.mainThinkingLevel || getDefaultThinkingLevel(data.chatModel || DEFAULT_SETTINGS.chatModel),
-        mediaResolution: data.mediaResolution || DEFAULT_SETTINGS.mediaResolution,
         preprocessingModel: data.preprocessingModel || DEFAULT_SETTINGS.preprocessingModel,
         preprocessingThinkingLevel: data.preprocessingThinkingLevel || DEFAULT_SETTINGS.preprocessingThinkingLevel
       }
@@ -139,7 +127,6 @@ export function useSettings() {
       settings.value = {
         chatModel: data.chatModel || settings.value.chatModel,
         mainThinkingLevel: data.mainThinkingLevel || settings.value.mainThinkingLevel,
-        mediaResolution: data.mediaResolution || settings.value.mediaResolution,
         preprocessingModel: data.preprocessingModel || settings.value.preprocessingModel,
         preprocessingThinkingLevel: data.preprocessingThinkingLevel || settings.value.preprocessingThinkingLevel
       }
@@ -174,11 +161,6 @@ export function useSettings() {
     await saveSettings({ preprocessingThinkingLevel: level })
   }
 
-  async function setMediaResolution(resolution: string) {
-    settings.value.mediaResolution = resolution
-    await saveSettings({ mediaResolution: resolution })
-  }
-
   // Computed helpers
   const currentChatModel = computed(() =>
     CHAT_MODELS.find(m => m.id === settings.value.chatModel) || CHAT_MODELS[0]
@@ -193,10 +175,6 @@ export function useSettings() {
     const levels = getThinkingLevelsForModel(settings.value.chatModel)
     return levels.find(l => l.id === settings.value.mainThinkingLevel) || levels[0]
   })
-
-  const currentMediaResolution = computed(() =>
-    MEDIA_RESOLUTIONS.find(r => r.id === settings.value.mediaResolution) || MEDIA_RESOLUTIONS[0]
-  )
 
   const currentPreprocessingModel = computed(() =>
     PREPROCESSING_MODELS.find(m => m.id === settings.value.preprocessingModel) || PREPROCESSING_MODELS[0]
@@ -221,13 +199,11 @@ export function useSettings() {
     saveSettings,
     setChatModel,
     setMainThinkingLevel,
-    setMediaResolution,
     setPreprocessingModel,
     setPreprocessingThinkingLevel,
     currentChatModel,
     availableThinkingLevels,
     currentMainThinkingLevel,
-    currentMediaResolution,
     currentPreprocessingModel,
     availablePreprocessingThinkingLevels,
     currentPreprocessingThinkingLevel,
@@ -236,7 +212,6 @@ export function useSettings() {
     getDefaultThinkingLevel,
     CHAT_MODELS,
     PREPROCESSING_MODELS,
-    MEDIA_RESOLUTIONS,
     GEMINI_3_THINKING_LEVELS,
     GEMINI_25_THINKING_LEVELS
   }

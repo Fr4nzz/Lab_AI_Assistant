@@ -15,7 +15,6 @@ const route = useRoute()
 const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
-const { settings } = useSettings()
 const { enabledTools } = useEnabledTools()
 const { enableAgentLogging } = useAgentLogging()
 const tts = useTTS()
@@ -228,7 +227,6 @@ const chat = new Chat({
     api: `/api/chats/${data.value.id}`,
     body: () => ({
       model: model.value,
-      mediaResolution: settings.value.mediaResolution,
       enabledTools: enabledTools.value,
       enableAgentLogging: enableAgentLogging.value
     })

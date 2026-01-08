@@ -253,7 +253,6 @@ async function createPreprocessingAwareStream(
   messages: any[],
   imageParts: ImagePart[],
   model: string | undefined,
-  mediaResolution: string | undefined,
   enabledTools: string[] | undefined,
   showStats: boolean,
   enableAgentLogging: boolean,
@@ -362,7 +361,6 @@ async function createPreprocessingAwareStream(
             messages: backendMessages,
             chatId,
             model: model || 'lab-assistant',
-            mediaResolution,
             tools: enabledTools,
             showStats,
             enableAgentLogging
@@ -474,10 +472,9 @@ export default defineEventHandler(async (event) => {
     id: z.string()
   }).parse)
 
-  const { messages, model, mediaResolution, enabledTools, showStats = true, enableAgentLogging = false } = await readValidatedBody(event, z.object({
+  const { messages, model, enabledTools, showStats = true, enableAgentLogging = false } = await readValidatedBody(event, z.object({
     messages: z.array(z.any()),
     model: z.string().optional(),
-    mediaResolution: z.string().optional(),
     enabledTools: z.array(z.string()).optional(),
     showStats: z.boolean().optional(),
     enableAgentLogging: z.boolean().optional()
@@ -535,7 +532,6 @@ export default defineEventHandler(async (event) => {
       messages,
       imageParts,
       model,
-      mediaResolution,
       enabledTools,
       showStats,
       enableAgentLogging,
@@ -562,7 +558,6 @@ export default defineEventHandler(async (event) => {
         messages: backendMessages,
         chatId,
         model: model || 'lab-assistant',
-        mediaResolution,
         tools: enabledTools,
         showStats,
         enableAgentLogging

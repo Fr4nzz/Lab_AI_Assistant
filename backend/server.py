@@ -2318,7 +2318,6 @@ class AISdkChatRequest(BaseModel):
     messages: List[dict]
     chatId: Optional[str] = None
     model: Optional[str] = None
-    mediaResolution: Optional[str] = None  # For Gemini 3: unspecified/low/medium/high/ultra_high
     showStats: bool = True
     enableAgentLogging: bool = False
 
@@ -2347,8 +2346,7 @@ async def chat_aisdk(request: AISdkChatRequest):
         logger.warning(f"[AI SDK] Unknown model '{model_name}', using default: {DEFAULT_MODEL}")
         model_name = DEFAULT_MODEL
     graph = graphs[model_name]
-    media_res_info = f", mediaResolution: {request.mediaResolution}" if request.mediaResolution else ""
-    logger.info(f"[AI SDK] Using model: {model_name}{media_res_info}")
+    logger.info(f"[AI SDK] Using model: {model_name}")
 
     # Convert messages to LangChain format
     conversation_messages = []

@@ -256,7 +256,6 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     min_request_interval: float = 4.0  # 15 RPM = 4s interval
     thinking_budget: Optional[int] = None  # For Gemini 2.5: None=default, 0=disable, -1=dynamic
     thinking_level: Optional[str] = None  # For Gemini 3: None=default(high), 'minimal'/'low'/'medium'/'high' (minimal only for Flash)
-    media_resolution: Optional[str] = None  # For Gemini 3: 'unspecified'/'low'/'medium'/'high'/'ultra_high'
     _current_model: Optional[ChatGoogleGenerativeAI] = None
     _bound_tools: Optional[List[Any]] = None  # Store tools for re-binding after key switch
     _tool_kwargs: Optional[Dict] = None  # Store bind_tools kwargs
@@ -264,8 +263,8 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, api_keys: List[str], model_name: str = "gemini-flash-latest", thinking_budget: Optional[int] = None, thinking_level: Optional[str] = None, media_resolution: Optional[str] = None, **kwargs):
-        super().__init__(api_keys=api_keys, model_name=model_name, thinking_budget=thinking_budget, thinking_level=thinking_level, media_resolution=media_resolution, **kwargs)
+    def __init__(self, api_keys: List[str], model_name: str = "gemini-flash-latest", thinking_budget: Optional[int] = None, thinking_level: Optional[str] = None, **kwargs):
+        super().__init__(api_keys=api_keys, model_name=model_name, thinking_budget=thinking_budget, thinking_level=thinking_level, **kwargs)
         self.max_retries = len(api_keys) * 2
         self._bound_tools = None
         self._tool_kwargs = None
@@ -332,19 +331,6 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                 logger.info(f"[Model] Thinking level '{self.thinking_level}' for {self.model_name}")
             else:
                 model_kwargs["thinking_level"] = "high"  # Default to high
-
-            # Apply media resolution for Gemini 3 (only for models that support it)
-            if self.media_resolution and self.media_resolution != "unspecified":
-                # Convert to the proper format expected by the API
-                resolution_map = {
-                    "low": "low",
-                    "medium": "medium",
-                    "high": "high",
-                    "ultra_high": "high"  # Map ultra_high to high as fallback
-                }
-                resolution = resolution_map.get(self.media_resolution, "high")
-                model_kwargs["media_resolution"] = resolution
-                logger.info(f"[Model] Media resolution '{resolution}' for {self.model_name}")
         elif self.thinking_budget is not None:
             # Explicit thinking_budget was provided (e.g., 0 to disable for Gemini 2.5)
             model_kwargs["thinking_budget"] = self.thinking_budget
@@ -546,8 +532,7 @@ def get_chat_model(
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
     thinking_budget: Optional[int] = None,
-    thinking_level: Optional[str] = None,
-    media_resolution: Optional[str] = None
+    thinking_level: Optional[str] = None
 ) -> BaseChatModel:
     """
     Get chat model based on provider.
@@ -557,7 +542,6 @@ def get_chat_model(
         model_name: Model identifier
         thinking_budget: For Gemini 2.5: None=default, 0=disable thinking, -1=dynamic
         thinking_level: For Gemini 3: None=default(high), 'minimal'/'low'/'medium'/'high' (minimal only for Flash)
-        media_resolution: For Gemini 3: 'unspecified'/'low'/'medium'/'high'/'ultra_high' for image resolution
 
     Environment Variables:
         LLM_PROVIDER: "gemini" or "openrouter"
@@ -589,8 +573,7 @@ def get_chat_model(
                 api_keys=api_keys,
                 model_name=model,
                 thinking_budget=thinking_budget,
-                thinking_level=thinking_level,
-                media_resolution=media_resolution
+                thinking_level=thinking_level
             )
         else:
             is_gemini_3 = "gemini-3" in model.lower()
@@ -600,12 +583,9 @@ def get_chat_model(
                 "temperature": 0.7,
                 "convert_system_message_to_human": True
             }
-            if is_gemini_3:
-                if thinking_level is not None:
-                    model_kwargs["include_thoughts"] = True
-                    model_kwargs["thinking_level"] = thinking_level
-                if media_resolution and media_resolution != "unspecified":
-                    model_kwargs["media_resolution"] = media_resolution
+            if is_gemini_3 and thinking_level is not None:
+                model_kwargs["include_thoughts"] = True
+                model_kwargs["thinking_level"] = thinking_level
             elif thinking_budget is not None:
                 model_kwargs["thinking_budget"] = thinking_budget
             return ChatGoogleGenerativeAI(**model_kwargs)
