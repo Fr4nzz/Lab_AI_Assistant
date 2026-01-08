@@ -376,6 +376,14 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
         error_str = str(error).lower()
         return "429" in str(error) or "resource_exhausted" in error_str or "quota" in error_str
 
+    def _is_server_error(self, error: Exception) -> bool:
+        """Check if error is a server/timeout error that should be retried."""
+        error_str = str(error).lower()
+        # 504 DEADLINE_EXCEEDED, 503 Service Unavailable, 500 Internal Server Error
+        return ("504" in str(error) or "deadline_exceeded" in error_str or
+                "503" in str(error) or "500" in str(error) or
+                "timeout" in error_str or "unavailable" in error_str)
+
     def _parse_retry_delay(self, error_str: str) -> float:
         """Parse retry delay from error message."""
         match = re.search(r'retry.*?(\d+(?:\.\d+)?)\s*s', error_str.lower())
@@ -443,6 +451,11 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                         logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")
                         self._switch_key(mark_exhausted=False)
                         time.sleep(1)  # Brief pause before retry with new key
+                elif self._is_server_error(e):
+                    # Server error (504 timeout, 503, 500) - retry with different key
+                    logger.warning(f"[Model] Server error on Key #{_shared_key_index + 1}: {error_str[:100]}")
+                    self._switch_key(mark_exhausted=False)
+                    time.sleep(2)  # Wait a bit longer for server errors
                 else:
                     raise
 
@@ -501,6 +514,11 @@ class ChatGoogleGenerativeAIWithKeyRotation(BaseChatModel):
                         logger.warning(f"[Model] Per-minute rate limit on Key #{_shared_key_index + 1}, switching")
                         self._switch_key(mark_exhausted=False)
                         await asyncio.sleep(1)  # Brief pause before retry with new key
+                elif self._is_server_error(e):
+                    # Server error (504 timeout, 503, 500) - retry with different key
+                    logger.warning(f"[Model] Server error on Key #{_shared_key_index + 1}: {error_str[:100]}")
+                    self._switch_key(mark_exhausted=False)
+                    await asyncio.sleep(2)  # Wait a bit longer for server errors
                 else:
                     raise
 
