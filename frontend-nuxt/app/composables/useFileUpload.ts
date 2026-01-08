@@ -1,6 +1,5 @@
 import { FILE_UPLOAD_CONFIG, type FileWithStatus } from '~~/shared/utils/file'
 import { generateUUID } from '~/utils/uuid'
-import { segmentImage, segmentedImageToParts } from '~/utils/imageSegmentation'
 
 function createObjectUrl(file: File): string {
   return URL.createObjectURL(file)
@@ -20,11 +19,17 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
+// Extended file status to include segments from backend
+interface FileWithSegments extends FileWithStatus {
+  segments?: string[]
+  segmentLabels?: string[]
+}
+
 export function useFileUploadWithStatus(_chatId: string) {
-  const files = ref<FileWithStatus[]>([])
+  const files = ref<FileWithSegments[]>([])
   const toast = useToast()
-  const { settings, isLoaded: settingsLoaded, loadSettings } = useSettings()
-  // Use new preprocessing pipeline instead of old rotation detection
+  const { settings } = useSettings()
+  // Use new preprocessing pipeline (includes segmentation if enabled)
   const {
     preprocessImage,
     clearPreprocessing,
@@ -32,9 +37,6 @@ export function useFileUploadWithStatus(_chatId: string) {
     waitForPendingPreprocessing,
     hasPendingPreprocessing
   } = useImagePreprocessing()
-
-  // Cache for segmented images (computed async)
-  const segmentedCache = ref<Map<string, Awaited<ReturnType<typeof segmentImage>>>>(new Map())
 
   async function uploadFiles(newFiles: File[]) {
     // Validate file sizes
@@ -76,12 +78,13 @@ export function useFileUploadWithStatus(_chatId: string) {
         }
 
         // Start full preprocessing pipeline in background for images (non-blocking)
+        // This includes segmentation if the setting is enabled
         if (fileWithStatus.file.type.startsWith('image/')) {
           preprocessImage(
             fileWithStatus.id,
             base64Data,
             fileWithStatus.file.type
-          ).then(async (result) => {
+          ).then((result) => {
             // Update file with preprocessing result when complete
             const currentIndex = files.value.findIndex(f => f.id === fileWithStatus.id)
             if (currentIndex !== -1) {
@@ -92,63 +95,22 @@ export function useFileUploadWithStatus(_chatId: string) {
                 rotatedBase64: result.processedBase64,
                 // Store additional preprocessing info
                 preprocessed: result.processed,
-                useCrop: result.useCrop
+                useCrop: result.useCrop,
+                // Store segments from backend (if segmentation was enabled)
+                segments: result.segments,
+                segmentLabels: result.segmentLabels
               }
+
+              // Log completion with segment info
+              const hasSegments = result.segments && result.segments.length > 0
               console.log('[useFileUpload] Preprocessing complete:', {
                 fileId: fileWithStatus.id,
                 rotation: result.rotation,
                 useCrop: result.useCrop,
-                timing: result.timing
+                timing: result.timing,
+                segments: hasSegments ? result.segments!.length : 0,
+                segmentImagesEnabled: settings.value.segmentImages
               })
-
-              // Pre-compute segmentation in background (uses processed image)
-              const finalBase64 = result.processedBase64 || base64Data
-              try {
-                // Ensure settings are loaded before checking segmentImages
-                if (!settingsLoaded.value) {
-                  console.log('[useFileUpload] Waiting for settings to load...')
-                  await loadSettings()
-                }
-
-                const segmented = await segmentImage(finalBase64, fileWithStatus.file.type)
-                segmentedCache.value.set(fileWithStatus.id, segmented)
-
-                // Detailed logging
-                const segmentSizes = segmented.segments.map(s => Math.round(s.length * 0.75 / 1024))
-                console.log('[useFileUpload] Segmentation complete:', {
-                  fileId: fileWithStatus.id,
-                  fileName: fileWithStatus.file.name,
-                  segments: segmented.segments.length,
-                  labels: segmented.labels,
-                  segmentSizesKB: segmentSizes,
-                  segmentImagesEnabled: settings.value.segmentImages,
-                  settingsLoaded: settingsLoaded.value
-                })
-
-                // Save debug images to backend if segmentation is enabled
-                if (settings.value.segmentImages) {
-                  console.log('[useFileUpload] Saving segment debug images to backend...')
-                  try {
-                    const debugResult = await $fetch('/api/save-segment-debug', {
-                      method: 'POST',
-                      body: {
-                        fileId: fileWithStatus.id,
-                        fileName: fileWithStatus.file.name,
-                        fullImage: finalBase64,
-                        segments: segmented.segments,
-                        labels: segmented.labels
-                      }
-                    })
-                    console.log('[useFileUpload] Debug images saved:', debugResult)
-                  } catch (debugError) {
-                    console.warn('[useFileUpload] Failed to save segment debug images:', debugError)
-                  }
-                } else {
-                  console.log('[useFileUpload] Segmentation disabled, not saving debug images')
-                }
-              } catch (segError) {
-                console.error('[useFileUpload] Segmentation error:', segError)
-              }
             }
           }).catch((error) => {
             console.error('[useFileUpload] Preprocessing error:', error)
@@ -194,7 +156,7 @@ export function useFileUploadWithStatus(_chatId: string) {
 
   // Format files for AI SDK message parts
   // Uses preprocessed (rotated + cropped) images if available
-  // When segmentImages is enabled, includes 9 additional segment images for each image
+  // When segmentImages is enabled and backend returned segments, includes 9 additional segment images
   const uploadedFiles = computed(() => {
     const result: Array<{
       type: 'file'
@@ -217,9 +179,9 @@ export function useFileUploadWithStatus(_chatId: string) {
       // Use preprocessed data if available (already rotated + cropped), otherwise original
       const base64 = f.rotatedBase64 || f.base64Data!
 
-      // Check if segmentation is enabled and we have cached segments
-      const segmented = segmentedCache.value.get(f.id)
-      if (settings.value.segmentImages && isImage && segmented) {
+      // Check if we have segments from backend preprocessing
+      const hasSegments = f.segments && f.segments.length > 0 && f.segmentLabels
+      if (hasSegments && isImage) {
         // Add full image first
         result.push({
           type: 'file' as const,
@@ -234,14 +196,14 @@ export function useFileUploadWithStatus(_chatId: string) {
           preprocessingPending: false
         })
 
-        // Add 9 segments with labels
-        for (let i = 0; i < segmented.segments.length; i++) {
-          const segmentData = segmented.segments[i]
-          const label = segmented.labels[i]
+        // Add 9 segments with labels from backend
+        for (let i = 0; i < f.segments!.length; i++) {
+          const segmentData = f.segments![i]
+          const label = f.segmentLabels![i]
           result.push({
             type: 'file' as const,
-            mediaType: f.file.type,
-            url: `data:${f.file.type};base64,${segmentData}`,
+            mediaType: 'image/jpeg',  // Segments are always JPEG from backend
+            url: `data:image/jpeg;base64,${segmentData}`,
             data: segmentData,
             name: `${f.file.name} [${label}]`,
             segmentLabel: label
@@ -273,7 +235,6 @@ export function useFileUploadWithStatus(_chatId: string) {
 
     URL.revokeObjectURL(file.previewUrl)
     clearPreprocessing(id)
-    segmentedCache.value.delete(id)
     files.value = files.value.filter(f => f.id !== id)
   }
 
@@ -281,7 +242,6 @@ export function useFileUploadWithStatus(_chatId: string) {
     if (files.value.length === 0) return
     files.value.forEach(fileWithStatus => URL.revokeObjectURL(fileWithStatus.previewUrl))
     clearAllPreprocessing()
-    segmentedCache.value.clear()
     files.value = []
   }
 

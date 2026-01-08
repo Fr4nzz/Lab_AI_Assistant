@@ -1945,6 +1945,7 @@ class ApplyPreprocessingRequest(BaseModel):
     images: List[ImageData]
     choices: List[PreprocessingChoice]
     crops: List[CropInfo]
+    segmentImages: bool = False  # If true, split each image into 3x3 grid
 
 
 class ProcessedImage(BaseModel):
@@ -1954,6 +1955,8 @@ class ProcessedImage(BaseModel):
     imageIndex: int
     rotation: int
     cropped: bool
+    segments: Optional[List[str]] = None  # 9 segment base64 images (if segmentImages=true)
+    segmentLabels: Optional[List[str]] = None  # Labels for segments
 
 
 # Static prefix for prompt caching - DO NOT MODIFY without considering cache invalidation
@@ -2278,6 +2281,49 @@ async def select_preprocessing(request: SelectPreprocessingRequest):
     return SelectPreprocessingResponse(choices=choices, timing=total_ms)
 
 
+def segment_image_3x3(image: "Image.Image", overlap: float = 0.07) -> tuple[list, list[str]]:
+    """
+    Segment an image into a 3x3 grid with overlapping boundaries.
+
+    Args:
+        image: PIL Image to segment
+        overlap: How much each segment extends beyond its boundaries (0.07 = 7%)
+
+    Returns:
+        Tuple of (list of PIL Images, list of labels)
+    """
+    from PIL import Image
+
+    segments = []
+    labels = [
+        'arriba-izq', 'arriba-centro', 'arriba-der',
+        'medio-izq', 'medio-centro', 'medio-der',
+        'abajo-izq', 'abajo-centro', 'abajo-der'
+    ]
+
+    w, h = image.size
+
+    for row in range(3):
+        for col in range(3):
+            # Calculate overlapping boundaries (in relative units 0-1)
+            start_x_rel = max(0, col / 3 - overlap)
+            end_x_rel = min(1, (col + 1) / 3 + overlap)
+            start_y_rel = max(0, row / 3 - overlap)
+            end_y_rel = min(1, (row + 1) / 3 + overlap)
+
+            # Convert to pixel coordinates
+            x1 = int(start_x_rel * w)
+            y1 = int(start_y_rel * h)
+            x2 = int(end_x_rel * w)
+            y2 = int(end_y_rel * h)
+
+            # Crop segment
+            segment = image.crop((x1, y1, x2, y2))
+            segments.append(segment)
+
+    return segments, labels
+
+
 @app.post("/api/apply-preprocessing")
 async def apply_preprocessing(request: ApplyPreprocessingRequest):
     """
@@ -2285,6 +2331,7 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
 
     Returns processed images ready for final AI consumption.
     Also saves processed images to debug folder for inspection.
+    If segmentImages=true, also splits each image into 3x3 grid with overlap.
     """
     import time
     from PIL import Image, ImageOps
@@ -2299,6 +2346,9 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
     debug_dir.mkdir(exist_ok=True)
 
     processed = []
+
+    if request.segmentImages:
+        logger.info(f"[Apply] Segmentation enabled - will create 3x3 grid for each image")
 
     for choice in request.choices:
         # Find original image
@@ -2352,16 +2402,42 @@ async def apply_preprocessing(request: ApplyPreprocessingRequest):
         except Exception as e:
             logger.warning(f"[Apply] Failed to save debug image: {e}")
 
+        # Segment image if requested
+        segments_b64 = None
+        segment_labels = None
+        if request.segmentImages:
+            try:
+                segments_pil, segment_labels = segment_image_3x3(image)
+                segments_b64 = []
+
+                for i, (seg_img, label) in enumerate(zip(segments_pil, segment_labels)):
+                    seg_b64 = image_to_base64(seg_img)
+                    segments_b64.append(seg_b64)
+
+                    # Save segment to debug folder
+                    seg_filename = f"seg_{choice.imageIndex}_{i+1}_{label}.jpg"
+                    try:
+                        seg_img.save(debug_dir / seg_filename, "JPEG", quality=90)
+                    except Exception as e:
+                        logger.warning(f"[Apply] Failed to save segment: {e}")
+
+                logger.info(f"[Apply] Created 9 segments for image {choice.imageIndex}")
+            except Exception as e:
+                logger.error(f"[Apply] Segmentation failed: {e}")
+
         processed.append(ProcessedImage(
             data=result_data,
             mimeType="image/jpeg",
             imageIndex=choice.imageIndex,
             rotation=choice.rotation,
-            cropped=was_cropped
+            cropped=was_cropped,
+            segments=segments_b64,
+            segmentLabels=segment_labels
         ))
 
     total_ms = int((time.time() - start_time) * 1000)
-    logger.info(f"[Apply] Processed {len(processed)} images in {total_ms}ms, saved to {debug_dir}")
+    segment_info = " with segmentation" if request.segmentImages else ""
+    logger.info(f"[Apply] Processed {len(processed)} images{segment_info} in {total_ms}ms, saved to {debug_dir}")
 
     return {"processedImages": processed, "timing": total_ms}
 

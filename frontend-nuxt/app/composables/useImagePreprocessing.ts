@@ -12,6 +12,8 @@ interface PreprocessingResult {
   useCrop: boolean
   timing?: number
   error?: string
+  segments?: string[]  // 9 segment base64 images (if segmentImages enabled)
+  segmentLabels?: string[]  // Labels for segments
 }
 
 interface PreprocessingChoice {
@@ -83,21 +85,33 @@ export function useImagePreprocessing() {
         const choice = selectResponse.choices[0]
         console.log('[useImagePreprocessing] AI selected:', choice)
 
-        // Step 3: Apply the choice
+        // Step 3: Apply the choice (with optional segmentation)
         const applyResponse = await $fetch<{
-          processedImages: Array<{ data: string; rotation: number; cropped: boolean }>
+          processedImages: Array<{
+            data: string
+            rotation: number
+            cropped: boolean
+            segments?: string[]
+            segmentLabels?: string[]
+          }>
           timing: number
         }>('/api/apply-preprocessing', {
           method: 'POST',
           body: {
             images: [{ data: base64Data, mimeType, name: fileId }],
             choices: selectResponse.choices,
-            crops: preprocessResponse.crops
+            crops: preprocessResponse.crops,
+            segmentImages: settings.value.segmentImages
           }
         })
 
         const processedImage = applyResponse.processedImages[0]
         const totalTime = Date.now() - startTime
+
+        // Log segmentation status
+        if (settings.value.segmentImages && processedImage?.segments) {
+          console.log('[useImagePreprocessing] Segmentation complete:', processedImage.segments.length, 'segments')
+        }
 
         const result: PreprocessingResult = {
           fileId,
@@ -105,7 +119,9 @@ export function useImagePreprocessing() {
           processedBase64: processedImage?.data,
           rotation: choice?.rotation ?? 0,
           useCrop: choice?.useCrop ?? false,
-          timing: totalTime
+          timing: totalTime,
+          segments: processedImage?.segments,
+          segmentLabels: processedImage?.segmentLabels
         }
 
         console.log('[useImagePreprocessing] Complete:', {
