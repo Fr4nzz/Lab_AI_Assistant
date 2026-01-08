@@ -562,54 +562,78 @@ async def _get_all_tabs_info() -> dict:
 # ============================================================
 
 async def _search_orders_impl(
+    searches: List[str] = None,
     search: str = "",
-    limit: int = 20,
-    page_num: int = 1,
+    limit: int = 10,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> dict:
-    """Internal async implementation of search_orders."""
+    """Internal async implementation of search_orders. Supports batching multiple searches."""
+    import asyncio
     from urllib.parse import urlencode
 
-    logger.info(f"[search_orders] Searching: '{search}', page={page_num}")
+    # Normalize input: support both single search and batch searches
+    search_list = searches if searches else ([search] if search else [])
 
-    params = {"page": page_num}
-    if search:
-        params["cadenaBusqueda"] = search
-    if fecha_desde:
-        params["fechaDesde"] = fecha_desde
-    if fecha_hasta:
-        params["fechaHasta"] = fecha_hasta
+    if not search_list:
+        # No search term - just get recent orders
+        search_list = [""]
 
-    url = f"https://laboratoriofranz.orion-labs.com/ordenes?{urlencode(params)}"
-    await _browser.ensure_browser()  # Auto-restart if browser was closed
-    temp_page = await _browser.context.new_page()
+    logger.info(f"[search_orders] Searching {len(search_list)} term(s): {search_list[:3]}{'...' if len(search_list) > 3 else ''}")
 
-    try:
-        await temp_page.goto(url, timeout=30000)
+    await _browser.ensure_browser()
+
+    async def search_single(term: str) -> dict:
+        """Search for a single term and return compact results."""
+        params = {"page": 1}
+        if term:
+            params["cadenaBusqueda"] = term
+        if fecha_desde:
+            params["fechaDesde"] = fecha_desde
+        if fecha_hasta:
+            params["fechaHasta"] = fecha_hasta
+
+        url = f"https://laboratoriofranz.orion-labs.com/ordenes?{urlencode(params)}"
+        temp_page = await _browser.context.new_page()
+
         try:
-            await temp_page.wait_for_load_state('networkidle', timeout=10000)
-        except Exception:
-            await temp_page.wait_for_timeout(1000)
+            await temp_page.goto(url, timeout=30000)
+            try:
+                await temp_page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception:
+                await temp_page.wait_for_timeout(1000)
 
-        ordenes = await temp_page.evaluate(EXTRACT_ORDENES_JS)
-        logger.info(f"[search_orders] Found {len(ordenes)} orders")
+            ordenes = await temp_page.evaluate(EXTRACT_ORDENES_JS)
 
-        return {
-            "ordenes": ordenes[:limit],
-            "total": len(ordenes[:limit]),
-            "page": page_num,
-            "filters": {"search": search or None, "fecha_desde": fecha_desde, "fecha_hasta": fecha_hasta},
-            "tip": "Use 'num' field for get_order_results(), use 'id' field for get_order_info() or edit_order_exams()"
-        }
-    finally:
-        # Clean up temp page (only if browser is still alive)
-        try:
-            pages = _browser.context.pages
-            if len(pages) > 1:
-                await temp_page.close()
-        except Exception:
-            pass  # Browser was closed, nothing to clean up
+            # Compact format for results
+            results = []
+            for o in ordenes[:limit]:
+                r = {"num": o.get("num"), "id": o.get("id")}
+                if o.get("paciente"):
+                    r["pat"] = o["paciente"]
+                if o.get("estado"):
+                    r["sts"] = o["estado"][:3] if len(o.get("estado", "")) > 3 else o["estado"]
+                results.append(r)
+
+            return {"q": term, "res": results, "cnt": len(results)} if term else {"res": results, "cnt": len(results)}
+        except Exception as e:
+            logger.error(f"[search_orders] Error searching '{term}': {e}")
+            return {"q": term, "err": str(e)} if term else {"err": str(e)}
+        finally:
+            try:
+                pages = _browser.context.pages
+                if len(pages) > 1:
+                    await temp_page.close()
+            except Exception:
+                pass
+
+    # Execute all searches in parallel
+    results = await asyncio.gather(*[search_single(term) for term in search_list])
+
+    # If single search, return directly; if batch, group by query
+    if len(search_list) == 1:
+        return results[0]
+    return {"searches": results, "cnt": len(results)}
 
 
 async def _get_order_results_impl(order_nums: List[str] = None, tab_indices: List[int] = None) -> dict:
@@ -1215,32 +1239,26 @@ async def _get_available_exams_impl(order_id: Optional[int] = None) -> dict:
 
 @tool
 async def search_orders(
+    searches: List[str] = None,
     search: str = "",
-    limit: int = 20,
-    page_num: int = 1,
+    limit: int = 10,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None
 ) -> str:
-    """Search orders by patient name. Returns 'num' and 'id' for each order. Uses fuzzy search fallback if no exact matches."""
-    result = await _search_orders_impl(search, limit, page_num, fecha_desde, fecha_hasta)
+    """Search orders. BATCH: searches=["Name1","Name2"]. Single: search="Name".
+    Returns compact: {q, res: [{num, id, pat, sts}], cnt} or {searches: [...]}
+    Uses fuzzy fallback if no matches. num=for results, id=for order edit."""
+    result = await _search_orders_impl(searches, search, limit, fecha_desde, fecha_hasta)
 
-    # If no results and there's a search term, try fuzzy search
-    if search and (not result.get("ordenes") or len(result.get("ordenes", [])) == 0):
-        logger.info(f"[search_orders] No exact matches for '{search}', trying fuzzy search...")
-        fuzzy_results = fuzzy_search_patient(search, min_score=70, max_results=10)
+    # Fuzzy search fallback for single search with no results
+    single_search = search if not searches else (searches[0] if len(searches) == 1 else None)
+    if single_search and result.get("cnt", 0) == 0 and not result.get("res"):
+        logger.info(f"[search_orders] No exact matches for '{single_search}', trying fuzzy search...")
+        fuzzy_results = fuzzy_search_patient(single_search, min_score=70, max_results=5)
 
         if fuzzy_results:
-            logger.info(f"[search_orders] Fuzzy search found {len(fuzzy_results)} matches:")
-            for r in fuzzy_results[:3]:  # Log first 3 matches
-                logger.info(f"  -> {r['patient_name']} ({r['similarity_score']}%) - Ord. {r['order_num']}")
-            result["fuzzy_fallback"] = True
-            result["fuzzy_suggestions"] = fuzzy_results
-            result["fuzzy_message"] = format_fuzzy_results(fuzzy_results, search)
-        else:
-            logger.warning(f"[search_orders] Fuzzy search returned no results (is orders cache empty?)")
-            result["fuzzy_fallback"] = True
-            result["fuzzy_suggestions"] = []
-            result["fuzzy_message"] = f"No se encontraron coincidencias para '{search}'. Nota: El caché de órdenes puede estar vacío - usa 'Actualizar lista de órdenes' en el panel de admin."
+            # Compact fuzzy results
+            result["fuz"] = [{"pat": r["patient_name"], "num": r["order_num"], "scr": r["similarity_score"]} for r in fuzzy_results[:5]]
 
     return json.dumps(result, ensure_ascii=False)
 
