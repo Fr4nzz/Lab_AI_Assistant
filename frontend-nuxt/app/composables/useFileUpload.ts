@@ -23,7 +23,7 @@ function fileToBase64(file: File): Promise<string> {
 export function useFileUploadWithStatus(_chatId: string) {
   const files = ref<FileWithStatus[]>([])
   const toast = useToast()
-  const { settings } = useSettings()
+  const { settings, isLoaded: settingsLoaded, loadSettings } = useSettings()
   // Use new preprocessing pipeline instead of old rotation detection
   const {
     preprocessImage,
@@ -104,6 +104,12 @@ export function useFileUploadWithStatus(_chatId: string) {
               // Pre-compute segmentation in background (uses processed image)
               const finalBase64 = result.processedBase64 || base64Data
               try {
+                // Ensure settings are loaded before checking segmentImages
+                if (!settingsLoaded.value) {
+                  console.log('[useFileUpload] Waiting for settings to load...')
+                  await loadSettings()
+                }
+
                 const segmented = await segmentImage(finalBase64, fileWithStatus.file.type)
                 segmentedCache.value.set(fileWithStatus.id, segmented)
 
@@ -115,13 +121,15 @@ export function useFileUploadWithStatus(_chatId: string) {
                   segments: segmented.segments.length,
                   labels: segmented.labels,
                   segmentSizesKB: segmentSizes,
-                  segmentImagesEnabled: settings.value.segmentImages
+                  segmentImagesEnabled: settings.value.segmentImages,
+                  settingsLoaded: settingsLoaded.value
                 })
 
                 // Save debug images to backend if segmentation is enabled
                 if (settings.value.segmentImages) {
+                  console.log('[useFileUpload] Saving segment debug images to backend...')
                   try {
-                    await $fetch('/api/save-segment-debug', {
+                    const debugResult = await $fetch('/api/save-segment-debug', {
                       method: 'POST',
                       body: {
                         fileId: fileWithStatus.id,
@@ -131,9 +139,12 @@ export function useFileUploadWithStatus(_chatId: string) {
                         labels: segmented.labels
                       }
                     })
+                    console.log('[useFileUpload] Debug images saved:', debugResult)
                   } catch (debugError) {
                     console.warn('[useFileUpload] Failed to save segment debug images:', debugError)
                   }
+                } else {
+                  console.log('[useFileUpload] Segmentation disabled, not saving debug images')
                 }
               } catch (segError) {
                 console.error('[useFileUpload] Segmentation error:', segError)

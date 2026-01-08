@@ -97,7 +97,7 @@ export function useSettings() {
 
   // Load settings from API
   async function loadSettings() {
-    if (isLoaded.value) return settings.value
+    if (isLoaded.value || isLoading.value) return settings.value
 
     isLoading.value = true
     try {
@@ -110,14 +110,21 @@ export function useSettings() {
         segmentImages: data.segmentImages ?? DEFAULT_SETTINGS.segmentImages
       }
       isLoaded.value = true
+      console.log('[useSettings] Loaded settings:', { segmentImages: settings.value.segmentImages })
     } catch (error) {
       console.error('Failed to load settings:', error)
       settings.value = { ...DEFAULT_SETTINGS }
+      isLoaded.value = true
     } finally {
       isLoading.value = false
     }
 
     return settings.value
+  }
+
+  // Auto-load settings on client side
+  if (import.meta.client) {
+    loadSettings()
   }
 
   // Save settings to API

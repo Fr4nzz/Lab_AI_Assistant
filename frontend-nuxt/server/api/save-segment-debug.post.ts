@@ -8,6 +8,8 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody(event)
 
+  console.log(`[API/save-segment-debug] Saving ${body.segments?.length || 0} segments for: ${body.fileName}`)
+
   const response = await fetch(`${backendUrl}/api/save-segment-debug`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -23,5 +25,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  return await response.json()
+  const result = await response.json()
+  console.log(`[API/save-segment-debug] Saved successfully:`, result.files?.length || 0, 'files')
+  return result
 })
