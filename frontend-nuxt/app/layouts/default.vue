@@ -8,8 +8,14 @@ const { loggedIn, openInPopup } = useUserSession()
 const { isOAuthEnabled } = useAuthConfig()
 const { enabledTools } = useEnabledTools()
 const { showStats } = useShowStats()
-const { enableAgentLogging } = useAgentLogging()
-const { settings, setSegmentImages } = useSettings()
+const { enableAgentLogging, setSetting: setAgentLogging, loadSetting: loadAgentLogging } = useAgentLogging()
+const { settings, setSegmentImages, loadSettings } = useSettings()
+
+// Load settings on mount to ensure persisted values are loaded
+onMounted(() => {
+  loadSettings()
+  loadAgentLogging()
+})
 
 const open = ref(false)
 const tabEditorOpen = ref(false)
@@ -242,7 +248,7 @@ defineShortcuts({
                 color="neutral"
                 block
                 class="justify-between"
-                @click="enableAgentLogging = !enableAgentLogging"
+                @click="setAgentLogging(!enableAgentLogging)"
               >
                 <span class="flex items-center gap-2">
                   <UIcon name="i-lucide-file-text" class="w-4 h-4" />
@@ -314,7 +320,7 @@ defineShortcuts({
                 variant="ghost"
                 :color="enableAgentLogging ? 'primary' : 'neutral'"
                 block
-                @click="enableAgentLogging = !enableAgentLogging"
+                @click="setAgentLogging(!enableAgentLogging)"
               />
             </UTooltip>
           </div>

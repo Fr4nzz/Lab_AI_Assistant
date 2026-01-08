@@ -116,6 +116,11 @@ function initializeDatabase(sqlite: Database.Database) {
   } catch {
     // Column already exists
   }
+  try {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN segment_images INTEGER DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
 }
 
 // ============================================================
